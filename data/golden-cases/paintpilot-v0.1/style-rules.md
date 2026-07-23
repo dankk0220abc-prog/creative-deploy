@@ -1,108 +1,78 @@
-# PaintPilot 候选风格规则
+# PaintPilot Golden Case Style Rules
 
-状态：`TARGET_STYLE_PENDING_USER_CONFIRMATION`
+状态：`TARGET_STYLE_CONFIRMED`
 
-候选风格：`Cel Shading` / `Manga High Contrast`
+本文档区分用户已确认的艺术基线与仍待审美判断的施工细节。`USER_CONFIRMED` 是 Golden Case 事实；`DRAFT_SUGGESTION` 仍只是建议。
 
-两种风格均未被用户确认为最终目标。以下所有艺术判断均为 `DRAFT_SUGGESTION`，只用于 planning-only 讨论和结构化需求。
+## 已确认艺术配置
 
-## 候选风格目标
-
-- DRAFT_SUGGESTION — Cel Shading：使用清晰、有限层数的明暗色块表达二维赛璐璐观感。
-- DRAFT_SUGGESTION — Manga High Contrast：使用更强的明暗对比和轮廓强调表达漫画式结构，但不自动推断最终配色。
-- 最终选择：TODO_USER_CONFIRM
-
-## 底色特点
-
-- DRAFT_SUGGESTION：底色以稳定、相对均匀的色面为主，避免未经确认的复杂纹理和脏化效果。
-- 用户确认：TODO_USER_CONFIRM
-
-## 阴影层数
-
-- DRAFT_SUGGESTION：每个主要区域先采用一层主阴影；是否增加第二层强调阴影由用户确认。
-- 用户确认：TODO_USER_CONFIRM
-
-## 阴影边缘
-
-- DRAFT_SUGGESTION：优先使用清晰硬边；仅在转折或材质需要时使用有限软边。
-- 用户确认：TODO_USER_CONFIRM
-
-## 高光特点
-
-- DRAFT_SUGGESTION：高光使用少量、形状明确的色块，不以自动推断替代人工审美判断。
-- 用户确认：TODO_USER_CONFIRM
-
-## 是否允许渐变
-
-- DRAFT_SUGGESTION：默认不使用大面积连续渐变；局部例外必须由用户按区域确认。
-- 用户确认：TODO_USER_CONFIRM
-
-## 头发处理
-
-- DRAFT_SUGGESTION：沿主要发束组织底色、主阴影和少量方向性高光，不虚构最终发色或高光形状。
-- 用户确认：TODO_USER_CONFIRM
-
-## 皮肤处理
-
-- DRAFT_SUGGESTION：保持面部可读性，减少过强对比；肤色、阴影色和红润程度均由用户确认。
-- 用户确认：TODO_USER_CONFIRM
-
-## 服装处理
-
-- DRAFT_SUGGESTION：以褶皱转折和光源方向组织硬边阴影；图案、材质差异和旧化效果按最终图片确认。
-- 用户确认：TODO_USER_CONFIRM
-
-## 配饰处理
-
-- DRAFT_SUGGESTION：根据材质分别处理，金属、塑料、布料等不得仅凭区域名称自动混用同一高光规则。
-- 用户确认：TODO_USER_CONFIRM
-
-## 当前案例专项建议
-
-- DRAFT_SUGGESTION：头发适合使用分块式高光和深色根部阴影。
-- DRAFT_SUGGESTION：肌肉区域适合使用硬边阴影表达结构。
-- DRAFT_SUGGESTION：蓝色上衣适合使用有限层数的深蓝或蓝紫阴影。
-- DRAFT_SUGGESTION：橙色裤装适合使用较亮高光与红橙阴影。
-- DRAFT_SUGGESTION：不建议在 MVP 中自动生成精确混色比例。
-- DRAFT_SUGGESTION：不建议使用当前照片进行精确颜色校准。
-- DRAFT_SUGGESTION：当前图片光线和色彩可能经过处理，只能作为视觉规划参考。
-- 用户确认：TODO_USER_CONFIRM
-
-## 最容易失败的地方
-
-- DRAFT_SUGGESTION：光源方向在不同区域不一致。
-- DRAFT_SUGGESTION：阴影层数过多，破坏 Cel Shading 的色块感。
-- DRAFT_SUGGESTION：面部阴影过重，影响表情可读性。
-- DRAFT_SUGGESTION：头发高光过密或与发束方向冲突。
-- DRAFT_SUGGESTION：把摄影反光、环境色或背景颜色误当作手办固有色。
-- DRAFT_SUGGESTION：未区分材质便复用同一边缘和高光规则。
-- 用户补充：TODO_USER_INPUT
-
-## 可转换为程序字段的规则
-
-以下字段名与候选值只是数据建模建议，最终枚举和值域尚未确认。
-
-| 字段 | DRAFT_SUGGESTION 候选值 | 当前值 |
+| Field | Value | Status |
 | --- | --- | --- |
-| `style_name` | `cel_shading` / `manga_high_contrast` | TODO_USER_CONFIRM |
-| `light_direction` | `upper_left` | TODO_USER_CONFIRM |
-| `shadow_intensity` | `low` / `medium` / `high` | TODO_USER_CONFIRM |
-| `shadow_layers` | 整数，建议 1 或 2 | TODO_USER_CONFIRM |
-| `shadow_edge` | `hard` / `mixed` | TODO_USER_CONFIRM |
-| `gradient_policy` | `none` / `limited` | TODO_USER_CONFIRM |
-| `highlight_amount` | `low` / `medium` | TODO_USER_CONFIRM |
-| `region_overrides` | 按已确认区域保存例外规则 | TODO_USER_CONFIRM |
+| `target_style` | `cel_shading` | `USER_CONFIRMED` |
+| `light_direction` | `upper_left` | `USER_CONFIRMED` |
+| `shadow_intensity` | `medium` | `USER_CONFIRMED` |
+| `shadow_layers` | `2` | `USER_CONFIRMED` |
+| `shadow_edge` | `hard` | `USER_CONFIRMED` |
+| `highlight_style` | `blocked_hard_edge` | `USER_CONFIRMED` |
+| `gradient_policy` | `generally_disallowed` | `USER_CONFIRMED` |
+| `limited_manual_transition` | `allowed` | `USER_CONFIRMED` |
 
-确定性状态（例如用户是否确认、颜料是否可用、许可是否验证）应由程序保存，不应由模型臆测。
+## 已确认规则解释
 
-## 需要人工审美判断的规则
+- USER_CONFIRMED：整体采用 Cel Shading，不再把 Manga High Contrast 作为本 Golden Case 的候选目标。
+- USER_CONFIRMED：主光源固定为左上。
+- USER_CONFIRMED：阴影强度为中等，使用两层硬边阴影。
+- USER_CONFIRMED：高光使用分块硬边形式。
+- USER_CONFIRMED：原则上不使用渐变。
+- USER_CONFIRMED：极少量人工过渡允许，但仅作为人工施工建议。
+- USER_CONFIRMED：`limited_manual_transition=allowed` 不授权系统执行自动渐变计算，也不表示系统需要推导渐变宽度、比例或颜色。
 
-- DRAFT_SUGGESTION：阴影形状是否强化了造型而不是制造噪声；
-- DRAFT_SUGGESTION：面部阴影和高光是否保留角色表情；
-- DRAFT_SUGGESTION：头发高光的形状、密度和节奏；
-- DRAFT_SUGGESTION：不同材质之间的光泽差异；
-- DRAFT_SUGGESTION：哪些局部允许软边或有限渐变；
-- DRAFT_SUGGESTION：配色是否符合用户期望的角色气质；
-- DRAFT_SUGGESTION：最终方案是否具有整体一致性。
+## 当前案例施工建议
 
-人工审美结论：TODO_USER_INPUT
+以下没有被用户确认为最终颜色或施工细节：
+
+- DRAFT_SUGGESTION：头发可按主要发束组织分块式高光和根部阴影；具体色相、明度和块面位置仍需人工审美判断。
+- DRAFT_SUGGESTION：肌肉区域可使用硬边阴影表达结构；具体阴影形状仍需人工确认。
+- DRAFT_SUGGESTION：蓝色上衣可探索深蓝或蓝紫阴影，但具体颜色未确认。
+- DRAFT_SUGGESTION：橙色裤装可探索较亮高光与红橙阴影，但具体颜色未确认。
+- DRAFT_SUGGESTION：护腕、靴子和腰部布料应分别确认材质表现，不因颜色相近而自动合并规则。
+- DRAFT_SUGGESTION：不在 MVP 中自动生成精确混色比例。
+- DRAFT_SUGGESTION：当前图片存在环境光、背景虚化和可能的色彩增强，不用于精确颜色校准。
+
+## 底色、阴影与高光边界
+
+- USER_CONFIRMED：阴影采用两层、硬边、中等强度的规则。
+- USER_CONFIRMED：高光采用分块硬边规则。
+- DRAFT_SUGGESTION：底色优先保持稳定色面，避免未经确认的纹理、脏化和材质特效。
+- DRAFT_SUGGESTION：第二层阴影的局部覆盖范围需要逐区域人工判断。
+- DRAFT_SUGGESTION：面部阴影应优先保留表情可读性，但具体块面未确认。
+- DRAFT_SUGGESTION：不同材质的光泽差异需要人工审美判断。
+
+## 渐变与人工过渡边界
+
+- USER_CONFIRMED：`gradient_policy=generally_disallowed`。
+- USER_CONFIRMED：`limited_manual_transition=allowed`。
+- DRAFT_SUGGESTION：仅在人工认为硬边会损害结构可读性的极少局部考虑手工过渡。
+- DRAFT_SUGGESTION：手工过渡的位置、宽度、颜料和施工方式尚未确认。
+- 禁止解释：不得把极少量人工过渡转换为自动渐变生成、精确混色比例或物理级光照计算。
+
+## 容易失败的地方
+
+- DRAFT_SUGGESTION：不同区域的左上光源解释不一致。
+- DRAFT_SUGGESTION：两层阴影覆盖过多，破坏 Cel Shading 色块感。
+- DRAFT_SUGGESTION：面部硬边阴影过重，影响表情可读性。
+- DRAFT_SUGGESTION：头发分块高光过密或与发束方向冲突。
+- DRAFT_SUGGESTION：把摄影反光、环境色或后期增强误当作固有色。
+- DRAFT_SUGGESTION：把允许的人工过渡误实现为系统自动渐变。
+
+## 尚未确认
+
+- Vallejo 产品系列、具体颜色、编号和实际库存；
+- GSI Creos / Mr.Hobby 补土具体型号；
+- GSI Creos / Mr.Hobby 消光具体型号；
+- 具体区域颜色值；
+- 每个 Polygon 内的阴影与高光块面位置；
+- 极少量人工过渡的具体施工位置和材料；
+- 最终知识库资料及其施工规则来源。
+
+不得在上述信息确认前写入具体产品型号、色值、混色比例或材料兼容性结论。

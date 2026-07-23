@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1.0",
-  "status": "draft_pending_user_confirmation",
+  "status": "semantic_regions_confirmed_geometry_pending",
   "primary_image": "assets/primary-front.jpeg",
   "regions": [
     {
@@ -8,14 +8,16 @@
       "display_name": "头发",
       "material": "painted_plastic",
       "required": true,
-      "user_confirmed": false
+      "semantic_definition_confirmed": true,
+      "geometry_status": "not_started"
     },
     {
       "label": "skin",
       "display_name": "皮肤",
       "material": "painted_plastic",
       "required": true,
-      "user_confirmed": false,
+      "semantic_definition_confirmed": true,
+      "geometry_status": "not_started",
       "notes": "包括面部、颈部、胸部、手臂和手部，可由多个不连续多边形组成"
     },
     {
@@ -23,35 +25,40 @@
       "display_name": "上衣",
       "material": "painted_plastic",
       "required": true,
-      "user_confirmed": false
+      "semantic_definition_confirmed": true,
+      "geometry_status": "not_started"
     },
     {
       "label": "pants",
       "display_name": "裤装",
       "material": "painted_plastic",
       "required": true,
-      "user_confirmed": false
+      "semantic_definition_confirmed": true,
+      "geometry_status": "not_started"
     },
     {
       "label": "waist_sash",
       "display_name": "腰带与腰部布料",
       "material": "painted_plastic",
       "required": true,
-      "user_confirmed": false
+      "semantic_definition_confirmed": true,
+      "geometry_status": "not_started"
     },
     {
       "label": "wristbands",
       "display_name": "护腕",
       "material": "painted_plastic",
       "required": false,
-      "user_confirmed": false
+      "semantic_definition_confirmed": true,
+      "geometry_status": "not_started"
     },
     {
       "label": "boots",
       "display_name": "靴子",
       "material": "painted_plastic",
       "required": false,
-      "user_confirmed": false
+      "semantic_definition_confirmed": true,
+      "geometry_status": "not_started"
     }
   ],
   "excluded_objects": [
@@ -68,7 +75,7 @@
       "reason": "图片顶部文字不是手办组成部分"
     },
     {
-      "label": "human_hand",
+      "label": "human_hand_occlusion",
       "reason": "仅出现在失败案例图片中，应视为遮挡物"
     }
   ]
