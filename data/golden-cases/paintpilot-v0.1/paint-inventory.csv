@@ -1,0 +1,4 @@
+category,brand,product_line,code,name,hex,planned_use,owned,verified,data_source,notes
+paint,Vallejo,TODO_USER_CONFIRM,,,,true,TODO_USER_CONFIRM,false,USER_PROVIDED_PLAN,"具体系列、颜色与产品必须由用户确认；确认具体产品前不得作出材料兼容性结论"
+primer,GSI Creos / Mr.Hobby,TODO_USER_CONFIRM,,,,true,TODO_USER_CONFIRM,false,USER_PROVIDED_PLAN,"郡士补土存在不同产品体系；具体型号必须由用户确认；当前不能推断水性、溶剂型或喷罐类型"
+matte_finish,GSI Creos / Mr.Hobby,TODO_USER_CONFIRM,,,,true,TODO_USER_CONFIRM,false,USER_PROVIDED_PLAN,"郡士消光存在不同产品体系；具体型号必须由用户确认；当前不能推断水性、溶剂型或喷罐类型"
