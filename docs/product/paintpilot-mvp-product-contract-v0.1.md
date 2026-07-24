@@ -3,23 +3,29 @@
 ## 1. Document Metadata
 
 - Document Status: `APPROVED_FOR_IMPLEMENTATION`
-- Version: `0.1.1`
+- Version: `0.1.2`
 - Product: `PaintPilot`
 - Parent Project: `CreativeDeploy`
-- Current Phase: `Phase 0B — Requirements Baseline Approved`
-- Implementation Status: `NOT_STARTED`
-- Approval Date: `2026-07-23`
+- Current Phase: `Phase 1D — Ready for Implementation`
+- Implementation Status: `FOUNDATION_IMPLEMENTED_PAINTPROJECT_NOT_STARTED`
+- Baseline Approval Date: `2026-07-23`
+- Amendment Date: `2026-07-24`
+- Approval Date: `2026-07-24`
+- Previous Approved Version: `0.1.1`
 - Golden Case: `Super Saiyan Goku Cel-Shading Planning Case`
 
 ### 1.1 Approval Scope
 
-- 产品需求基线获批。
-- 允许进入实现规划和 Vertical Slice 开发。
-- 不代表任何功能已经实现。
+- Version 0.1.1 产品需求基线已获批。
+- Version 0.1.2 是已批准用于实施的 PaintProject 创建、读取和幂等边界窄范围修订。
+- Phase 1B Foundation 已实现；PaintProject 业务实现尚未开始。
+- 本版本允许拆分后续 Phase 1D 实现任务，但不表示业务代码或 Migration 已存在。
 - 不代表真实重涂结果已经验证。
-- 后续需求变更必须通过文档修订或新的 ADR 记录。
+- 后续需求变更必须通过新版本或新的 ADR 记录。
 
-本文档是已批准的 MVP 需求基线，不是实现说明、上线承诺或真实涂装效果声明。
+本文档保留已批准的 MVP 需求，只修订创建流程合同；它不是实现说明、上线承诺或真实
+涂装效果声明。16 个状态、47 条 Transition、17 个编号 Guard、Golden Case 艺术规则、
+ImageAsset Rights Attestation 和 planning-only 验证边界均不在本次修订范围内。
 
 ## 2. Problem Statement
 
@@ -105,7 +111,7 @@ MVP 只支持一个核心流程：创建 Paint Project，上传一张主手办�
 
 | Step | Input | Planned System Behavior | Output | Failure / Fallback | User Confirmation |
 | --- | --- | --- | --- | --- | --- |
-| 1. 创建项目 | 标题与案例意图 | 创建 `PaintProject`，初始状态为 `DRAFT` | 项目 ID 与空项目记录 | 输入无效时返回可解释错误，不创建记录 | 否 |
+| 1. 创建项目 | 标题、可选说明与 Idempotency-Key | 创建 `PaintProject`，写入初始意图和 planning-only 边界，并以 `DRAFT` 保存初始审计事件 | 真实项目记录与项目 ID | 输入无效或事务失败时不创建任何记录 | 否 |
 | 2. 上传图片与权利声明 | 一张主图片、来源、权利声明和预期用途 | 校验文件头、允许格式和上传限制，保存不可变 `ImageAsset`；只记录用户 attestation | `IMAGE_UPLOADED`、图片元数据与权利状态 | 文件不安全或不支持时拒绝；权利状态未确认时不得分析 | 权利声明由用户提交 |
 | 3. 图片质量检查 | `ImageAsset` | 程序读取尺寸并依据版本化 Policy 执行模糊、亮度、遮挡检查 | `ImageQualityAssessment`；`pass` 进入 `IMAGE_VALIDATED`；`review` 进入 `IMAGE_REVIEW_REQUIRED` | `fail` 进入 `IMAGE_VALIDATION_FAILED`；服务故障进入有限重试；用户可重新上传 | `review` 时是 |
 | 4. 区域建议 | 已验证且权利声明已确认的图片 | 启动一次 `AgentRun`，模型只生成候选语义、Bounding Box、材质、置信度和不确定原因 | `RegionSuggestion[]`；进入 `REGION_REVIEW_REQUIRED` 或低置信度阻塞 | Provider 或 Schema 错误按受限重试处理；未知标签必须人工重分类或删除 | 是 |
@@ -126,12 +132,20 @@ MVP 只支持一个核心流程：创建 Paint Project，上传一张主手办�
 
 - Requirement: 系统应允许用户创建一个 `PaintProject`，并以 `DRAFT` 作为初始状态。
 - Rationale: 为图片、区域、方案、审批和 Trace 提供稳定聚合根。
-- Input: 项目标题、可选说明、`Idempotency-Key`。
-- Output: 项目 ID、版本时间戳、`DRAFT` 状态和从请求 Principal 写入的 `owner_principal_id`。
-- Acceptance Criteria: 有效输入只创建一个项目；owner 不可为空且不能由客户端任意指定；说明受配置的有限长度上限约束；重复幂等请求遵守 14.1 Command Idempotency Contract；状态转换被记录。
+- Input: Header `Idempotency-Key: UUID`；Body 只接受 `title` 与可选 `description`。
+- Validation: `title` trim 后为 1–80 个 Unicode code point；`description` trim 后最多
+  500 个 Unicode code point，空字符串归一化为 `null`。
+- Program-owned Fields: 从请求 Principal 写入不可为空的 `owner_principal_id`；确定性
+  写入 `requested_target_style=cel_shading`、`planning_mode=planning_only_demo` 和
+  `status=DRAFT`。客户端不能提供或覆盖这些字段、ID 或时间戳。
+- Output: HTTP 201；返回真实 PaintProject Read Schema，包括项目 ID、Owner、规范化
+  字段、初始意图、planning-only 边界、`DRAFT` 状态和带时区时间戳。
+- Acceptance Criteria: 有效输入只创建一个项目；重复请求遵守 14.1；创建同时保存
+  `from_state=null → to_state=DRAFT` 的初始 StateTransitionEvent；PaintProject、状态
+  事件和完成后的幂等结果在同一数据库事务提交，任一失败全部回滚。
 - Failure / Fallback: 输入无效时返回字段级错误；持久化失败时不返回成功。
 - Human Review Required: No.
-- Planned Phase: MVP implementation.
+- Planned Phase: Phase 1D vertical slice.
 
 ### FR-002 — Upload One Primary Image
 
@@ -437,13 +451,54 @@ MVP 只支持一个核心流程：创建 Paint Project，上传一张主手办�
 
 ### 14.1 Command Idempotency Contract
 
-- 适用命令：`create_project`、`upload_image`、`confirm_regions`、`start_plan_generation`、`approve_plan`。
-- 客户端必须提供 `Idempotency-Key`。
-- 作用域为 `principal_id + project_id + command_type + key`；`create_project` 在检查前预分配 project ID。
-- 记录保存 24 小时。
-- 相同 key 与相同规范化 payload 返回原响应，不重复执行 side effect。
-- 相同 key 与不同 payload 返回 HTTP 409 和 `IDEMPOTENCY_KEY_REUSED`。
-- 幂等重放不得重复创建版本、Approval、AgentRun 或 ModelCall。
+- 适用命令：`create_paint_project`、`upload_image`、`confirm_regions`、
+  `start_plan_generation`、`approve_plan`。
+- 客户端必须提供 UUID 格式的 `Idempotency-Key`；客户端不能提供 `scope_key`。
+- Idempotency-Key 是一次逻辑命令的唯一标识。客户端必须为每个新的逻辑命令生成新的
+  UUID，不得在不同业务操作之间主动复用旧 Key；只有同一逻辑命令因 timeout 或未知
+  结果重试时才复用原 Key 和不变的 canonical payload。
+- 服务端为每条命令计算稳定 `scope_key`：
+  - 创建项目：`principal:{principal_id}:command:create_paint_project`
+  - 已有项目命令：
+    `principal:{principal_id}:project:{project_id}:command:{command_type}`
+- 唯一约束为 `scope_key + idempotency_key`。
+- 创建命令不要求 project ID 进入幂等作用域，不从 Idempotency-Key 派生业务资源 ID，
+  不使用客户端 project ID，也不确定性预分配 PaintProject UUID。
+- `CommandIdempotencyRecord` 至少保存 `id`、`scope_key`、`principal_id`、
+  `command_type`、`idempotency_key`、`payload_hash`、`execution_status`、
+  `resource_type`、`resource_id`、`http_status`、`response_snapshot`、`created_at` 和
+  `expires_at`。
+- `execution_status` 至少允许 `in_progress/completed`。
+- 对 Phase 1D 同步 Create Project，只有 `completed` 记录可以被其他请求读取；
+  `in_progress` 保留给未来异步命令，不是当前 API 状态或响应分支。
+- 规范化 payload hash 对版本化 canonical serialization 计算。Create Project 使用
+  trim 后的 Title、trim 且空字符串转 `null` 后的 Description；不包含 Header 顺序、
+  Secret、认证信息或服务端生成字段。
+- Phase 1D Create Project 使用单一短数据库事务和 PostgreSQL 唯一约束仲裁：
+
+  1. 开始事务，规范化请求并计算 payload_hash；
+  2. 服务端计算 scope_key；
+  3. 使用 `INSERT ... ON CONFLICT DO NOTHING` 尝试取得
+     `scope_key + idempotency_key` 的执行权；
+  4. 插入成功时，在同一事务创建 PaintProject、初始 StateTransitionEvent、保存 HTTP
+     201 响应快照并把幂等记录完成为 `completed`；
+  5. 唯一冲突时等待竞争事务结束，再读取已提交记录；相同 payload_hash 重放原 HTTP
+     201，不同 payload_hash 返回 HTTP 409 `IDEMPOTENCY_KEY_REUSED`；
+  6. 竞争事务回滚时，并发请求可以取得执行权并继续。
+- 当前 API 不读取其他事务尚未提交的记录，也不暴露 in-progress 响应。
+- 事务中只执行本地数据库工作，不包含外部网络调用。
+- 数据库事务失败时业务资源、状态事件和幂等结果全部回滚；客户端可以使用同一 key
+  安全重试。
+- `expires_at` 固定为 `created_at + 24 hours`，表示记录最早可以进入清理流程的时间，
+  即 minimum retention / cleanup eligibility；它不会自动使数据库中的现有记录失效，
+  也不是客户端可以复用 Key 的时间。
+- 只要幂等记录仍存在，相同 Key 与相同 payload_hash 重放原响应，相同 Key 与不同
+  payload_hash 返回 HTTP 409 `IDEMPOTENCY_KEY_REUSED`，即使当前时间已经超过
+  `expires_at`。
+- 记录被未来清理机制删除后，旧 Key 可能不再被服务端识别；客户端仍不得依赖旧 Key
+  的长期复用，新的逻辑命令必须使用新的 UUID。
+- Phase 1D 不实现后台清理任务；清理机制延后到未来后台任务阶段，并需单独批准。
+- 幂等重放不得重复创建项目、版本、Approval、AgentRun 或 ModelCall。
 
 ### 14.2 Image Upload Contract
 
@@ -625,8 +680,11 @@ MVP 不要求或推断具体 Vallejo 产品编号，也不使用未经校准的�
 `category` 至少包含：
 
 - `VALIDATION_ERROR`
+- `NOT_FOUND`
+- `IDEMPOTENCY_KEY_REUSED`
 - `INVALID_STATE_TRANSITION`
 - `CONFLICT`
+- `DATABASE_UNAVAILABLE`
 - `STORAGE_ERROR`
 - `PROVIDER_TIMEOUT`
 - `PROVIDER_RATE_LIMIT`
@@ -667,6 +725,10 @@ Product Contract 使用且只允许以下 16 个项目状态：
 
 终态为 `COMPLETED`、`FAILED_FINAL`、`ABANDONED`。用户主动终止只能进入 `ABANDONED`。
 
+Create Project 由服务端写入初始 `DRAFT`，客户端不能提交 status。数据库 status 约束
+必须允许本节全部 16 个状态，并拒绝集合外字符串；初始默认值不能被实现为只允许
+`DRAFT` 的永久数据库约束。
+
 ### 14.13 Revision and Termination Command Semantics
 
 - `reopen_regions`: `REGIONS_CONFIRMED → REGION_REVIEW_REQUIRED`；用户主动重新打开已确认区域。
@@ -674,6 +736,75 @@ Product Contract 使用且只允许以下 16 个项目状态：
 - `request_plan_revision`: `PLAN_REVIEW_REQUIRED → REGIONS_CONFIRMED`；区域保持不变，只重新组织或修订方案。
 - 前两个区域返工事件必须新建 RegionGeometryVersion、supersede 旧区域 Approval、使旧计划 stale/superseded、保留旧计划及其 Citation，并清除或更新 current_plan_id。
 - `abandon_project`: 任一非终态进入 `ABANDONED`；运行中同时设置 AgentRun.cancel_requested_at。
+
+### 14.14 Phase 1D PaintProject Creation and Read API Contract
+
+完整 PaintProject 逻辑领域定义包含：
+
+- `id`
+- `owner_principal_id`
+- `title`
+- `description`
+- `requested_target_style`
+- `planning_mode`
+- `status`
+- `created_at`
+- `updated_at`
+- `current_image_asset_id`
+- `current_region_version_id`
+- `current_plan_id`
+
+`requested_target_style` 是创建时初始意图。未来 StyleConfiguration 创建并确认后，详细
+艺术配置以当前已确认 StyleConfiguration 为权威；两个字段不得静默冲突。
+
+Phase 1D 首次物理表和 Read Schema 只包含前九个字段，即从 `id` 到 `updated_at`。
+三个 `current_*` 字段保留为逻辑领域字段，但分别推迟到 ImageAsset、
+RegionGeometryVersion 和 PaintPlan 实体表存在时通过后续 Migration 增加，并同时建立
+真实 Foreign Key。不得提前创建没有引用完整性的 UUID 列。
+
+#### Create
+
+`POST /api/v1/paint-projects`
+
+- Header：`Idempotency-Key: UUID`。
+- Body 只接受 `title` 和 `description`。
+- Body 不接受 `owner_principal_id`、`requested_target_style`、`planning_mode`、
+  `status`、`id` 或 timestamps。
+- 成功返回 HTTP 201 和真实 PaintProject Read Schema。
+
+#### List
+
+`GET /api/v1/paint-projects`
+
+- 只返回当前 Principal 拥有的项目。
+- 响应 Envelope 固定包含 `items`、`total`、`limit` 和 `offset`。
+- 默认 `limit=20`、`offset=0`。
+- `limit` 范围为 1–100；`offset` 最小为 0。
+- `total` 表示应用分页前当前 Principal 可访问的匹配项目总数。
+- 默认排序为 `updated_at DESC, id DESC`。
+- 前端首屏卡片数量不限制 API 可返回的项目数量。
+
+#### Detail
+
+`GET /api/v1/paint-projects/{project_id}`
+
+- 当前 Owner 读取存在的项目返回 HTTP 200。
+- 项目不存在返回 HTTP 404。
+- 项目属于其他 Principal 时同样返回 HTTP 404，不使用 403 暴露资源存在性。
+- UUID 格式错误使用统一 Validation Error。
+
+#### Errors
+
+Phase 1D 至少规划：
+
+- HTTP 422 validation error；
+- HTTP 404 project not found；
+- HTTP 409 `IDEMPOTENCY_KEY_REUSED`；
+- HTTP 503 database unavailable；
+- HTTP 500 safe internal error。
+
+错误响应遵守 14.10，不得返回 SQL、Database URL、原始异常、Stack Trace 或其他
+Principal 信息。
 
 ## 15. Implementation Readiness Gate
 
@@ -698,7 +829,7 @@ Product Contract 使用且只允许以下 16 个项目状态：
 
 | Requirement | Normative Contract / Readiness Evidence |
 | --- | --- |
-| `FR-001` | 14.1 Command Idempotency；17.3 Project Ownership；project creation fixture |
+| `FR-001` | 14.1 Command Idempotency；14.14 PaintProject API；17.3 Project Ownership；project creation fixture |
 | `FR-002` | 14.2 Image Upload；14.11 Rights Attestation；upload/EXIF/rights fixtures |
 | `FR-003` | 14.3 Image Quality；Policy calibration Gate；pass/review/fail/error fixtures |
 | `FR-004` | 14.4 RegionSuggestion Schema；known/unknown label fixtures |
@@ -775,6 +906,8 @@ Principal 表示一次请求或已授权后台操作中已经识别的操作者�
 开发和本地演示：
 
 - 使用固定、由环境配置的开发 Principal。
+- Phase 1D 使用 `authentication_mode=configured_demo_operator` 或等价配置型 Adapter，
+  且创建项目的 Principal 必须是 `principal_type=human`。
 - 非秘密示例 ID 为 `local-demo-owner`。
 - 不得把个人邮箱、密码、API Key 或 Session Secret 硬编码进仓库。
 - 环境变量只可保存非秘密 Principal 标识和展示名称；认证秘密不属于 Principal 数据。
@@ -791,6 +924,7 @@ Principal 表示一次请求或已授权后台操作中已经识别的操作者�
 PaintProject 必须保存 `owner_principal_id`：
 
 - 创建项目时从经过验证的请求 Principal 写入。
+- worker/system Principal 不能创建归属于 human 的 Phase 1D 项目。
 - 创建后不可为空，MVP 不支持转移所有权。
 - 客户端不得任意提交或覆盖其他 owner_principal_id。
 - project_private 文档、图片、库存、方案和 Trace 必须属于同一 PaintProject。

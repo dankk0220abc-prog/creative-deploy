@@ -3,11 +3,17 @@
 ## 1. Document Metadata
 
 - Document Status: `APPROVED_FOR_IMPLEMENTATION`
-- Version: `0.1.1`
-- Implementation Status: `NOT_STARTED`
+- Version: `0.1.2`
+- Approval Date: `2026-07-24`
+- Implementation Status: `NOT_STARTED_FOR_PAINTPROJECT`
 - Scope: PaintPilot MVP only
+- Amendment Date: `2026-07-24`
+- Previous Approved Version: `0.1.1`
 
-本实现基线定义 18 个持久化实体；PrincipalContext 仍是非持久化 Value Object。数据库表和 Migration 尚未创建。本文档不是已存在数据的声明，所有示例均满足所列 Validation，但不代表 Golden Case 的真实业务记录。
+本批准版本继续定义 18 个持久化实体；PrincipalContext 仍是非持久化 Value Object。
+Version 0.1.2 对齐 PaintProject 创建字段、初始审计事件与命令幂等边界。数据库表和
+Migration 尚未创建。本文档不是已存在数据的声明，所有示例均满足所列 Validation，
+但不代表 Golden Case 的真实业务记录。后续变更必须通过新版本或 ADR。
 
 ## 2. Data Design Principles
 
@@ -20,6 +26,8 @@
 - **版本优先**：图片不覆盖；RegionDefinition 不可变；RegionGeometryVersion 保存完整语义与几何快照；PaintPlan 版本化。
 - **稳定 Principal**：权限判断使用稳定 principal_id；展示名称仅作为历史快照，不作为身份或授权依据。
 - **单一项目所有者**：MVP 的 project_private 数据由 PaintProject.owner_principal_id 隔离，不引入 Workspace、Tenant 或复杂 RBAC。
+- **初始意图与详细配置分离**：PaintProject 保存创建时的 requested_target_style；
+  实际版本化艺术规则由用户确认的 StyleConfiguration 负责。
 - **最小范围**：MVP 不定义 Workspace、Tenant、Billing、Subscription 或独立任务队列实体。
 
 ## 3. Type and Classification Conventions
@@ -61,6 +69,15 @@ PrincipalContext 来自请求认证或演示访问 Adapter，仅描述当前已�
 
 需要审计时，将 principal_id 与必要的展示名称快照写入对应业务实体。后续接入真实认证系统只替换 Adapter，不改变项目所有权或人工审批的领域语义。认证秘密不属于 PrincipalContext。
 
+### 3.5 Phase 1D Creation Enums
+
+- `PaintProject.requested_target_style`: 当前只允许 `cel_shading`。
+- `PaintProject.planning_mode`: 当前只允许 `planning_only_demo`。
+- `CommandIdempotencyRecord.execution_status`: `in_progress/completed`。
+
+这些枚举是当前创建范围，不增加尚未实现的 UI 选项。16-state PaintProject 状态集合保持
+不变。
+
 ## 4. Entity Definitions
 
 ### 4.1 PaintProject
@@ -71,14 +88,38 @@ PrincipalContext 来自请求认证或演示访问 Adapter，仅描述当前已�
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `id` | UUID | Yes | Program/database | No | 项目标识 | UUID | INTERNAL | `00000000-0000-4000-8000-000000000001` |
 | `owner_principal_id` | PrincipalID | Yes | Request PrincipalContext/program | No | MVP 项目所有者 | Non-empty stable ID; cannot be client-overridden; ownership transfer unsupported | INTERNAL | `local-demo-owner` |
-| `title` | String | Yes | User | Yes | 用户可见标题 | 1–200 chars | INTERNAL | `Goku planning case` |
-| `description` | String | No | User | Yes | 可选项目说明；不承载系统状态 | Configured finite upper bound; fixture limit 2000 chars | INTERNAL | `Planning-only cel-shading study` |
-| `status` | Enum | Yes | Program/database | Yes, guarded | 当前工作流状态 | 16-state inventory | INTERNAL | `IMAGE_REVIEW_REQUIRED` |
+| `title` | String | Yes | User | Yes | 用户可见标题 | Trim; 1–80 Unicode code points | INTERNAL | `Goku planning case` |
+| `description` | String | No | User | Yes | 可选项目说明；不承载系统状态 | Trim; empty string becomes null; maximum 500 Unicode code points | INTERNAL | `Planning-only cel-shading study` |
+| `requested_target_style` | Enum | Yes | Program at creation | No | 创建项目时的初始创作意图 | Current allowed value: `cel_shading`; not client-overridable in Phase 1D | PUBLIC | `cel_shading` |
+| `planning_mode` | Enum | Yes | Program at creation | No | 项目级验证边界 | Current allowed value: `planning_only_demo`; not a user choice | PUBLIC | `planning_only_demo` |
+| `status` | Enum | Yes | Program/database | Yes, guarded | 当前工作流状态 | 16-state inventory; initial value `DRAFT` | INTERNAL | `DRAFT` |
 | `created_at` | Timestamp | Yes | Program | No | 创建时间 | ISO-8601 | INTERNAL | `2026-07-23T09:00:00+08:00` |
 | `updated_at` | Timestamp | Yes | Program | Yes | 最近更新时间 | Monotonic per record | INTERNAL | `2026-07-23T09:15:00+08:00` |
 | `current_image_asset_id` | UUID | No | Program/database | Yes, guarded | 当前主图片 | Existing project ImageAsset | INTERNAL | `00000000-0000-4000-8000-000000000002` |
 | `current_region_version_id` | UUID | No | Program/database | Yes, guarded | 当前完整区域快照 | Existing project RegionGeometryVersion | INTERNAL | `00000000-0000-4000-8000-000000000007` |
 | `current_plan_id` | UUID | No | Program/database | Yes, guarded | 当前非 stale 方案 | Existing project PaintPlan or null | INTERNAL | `00000000-0000-4000-8000-000000000013` |
+
+`requested_target_style` 只记录创建时的初始意图。未来 StyleConfiguration 可以使用它
+初始化版本化的风格、光源、阴影和高光配置；一旦当前 StyleConfiguration 已创建并由
+用户确认，方案生成以该 StyleConfiguration 为权威。实现不得让初始意图和当前详细
+配置静默冲突，也不得把 PaintProject 的初始意图解释为永久艺术配置。
+
+#### 4.1.1 Logical-to-Physical Field Boundary
+
+完整 PaintProject 逻辑领域定义保留三个 current reference。Phase 1D 首次
+`paint_projects` Migration 只创建 `id`、`owner_principal_id`、`title`、
+`description`、`requested_target_style`、`planning_mode`、`status`、`created_at` 和
+`updated_at` 九个物理列。
+
+| Field | Logical Entity Field | Phase 1D Physical Column | Introduced With | Foreign Key Required When Introduced |
+| --- | --- | --- | --- | --- |
+| `current_image_asset_id` | Yes | Deferred | ImageAsset phase | Yes, to same-project ImageAsset |
+| `current_region_version_id` | Yes | Deferred | RegionGeometryVersion phase | Yes, to same-project RegionGeometryVersion |
+| `current_plan_id` | Yes | Deferred | PaintPlan phase | Yes, to same-project PaintPlan |
+
+被引用实体表尚不存在时，不创建这三个物理列，也不使用没有 Foreign Key 的裸 UUID
+占位。后续各阶段通过独立 Migration 同时增加目标实体表、current reference 和真实
+Foreign Key。
 
 ### 4.2 ImageAsset
 
@@ -202,6 +243,10 @@ HumanApproval 的区域审批只绑定 RegionGeometryVersion.id；该 ID 同时�
 | `gradient_policy` | Enum | Yes | User-confirmed | No | 自动渐变政策 | Allowed enum | PUBLIC | `generally_disallowed` |
 | `limited_manual_transition` | Enum | Yes | User-confirmed | No | 极少量人工过渡 | `allowed/disallowed` | PUBLIC | `allowed` |
 | `user_confirmed` | Boolean | Yes | HumanApproval | Yes, guarded | 配置是否获确认 | Requires active Approval | INTERNAL | `true` |
+
+StyleConfiguration 是方案生成阶段详细艺术配置的权威来源。它可以由
+`PaintProject.requested_target_style` 初始化，但其 `target_style`、光源、阴影和高光
+字段具有独立版本与人工确认语义；创建或确认配置时必须显式检查初始意图差异。
 
 ### 4.8 PaintInventoryItem
 
@@ -435,12 +480,31 @@ Provider 未返回用量时，usage_status 必须为 `usage_unavailable`，token
 | `event` | String | Yes | Program command | No | 触发事件 | Transition table event | INTERNAL | `approve_image` |
 | `actor_type` | Enum | Yes | Execution context | No | 实际执行通道或主体类别 | `user/api/worker/system` | INTERNAL | `api` |
 | `actor_principal_id` | PrincipalID | Yes | Verified PrincipalContext/execution context | No | 可归责的稳定 Principal | Human action must retain verified human ID; system action uses authorized system ID | INTERNAL | `local-demo-owner` |
-| `actor_display_name_snapshot` | String | No | PrincipalContext snapshot | No | 事件发生时展示名称 | History only; never used for authorization | SENSITIVE | `Local Demo Owner` |
-| `reason` | String | Conditional | Actor/program | No | 转换原因 | Required for review/failure/abandon/revision | SENSITIVE | `Approved for planning only.` |
-| `occurred_at` | Timestamp | Yes | Program | No | 事件时间 | ISO-8601 | INTERNAL | `2026-07-23T09:08:00+08:00` |
+| `actor_display_name_snapshot` | String | Conditional | PrincipalContext snapshot | No | 事件发生时展示名称 | Required for human user event; history only; never used for authorization | SENSITIVE | `Local Demo Owner` |
+| `reason` | String | Conditional | Actor/program | No | 转换原因 | Required for creation/review/failure/abandon/revision | SENSITIVE | `Approved for planning only.` |
+| `created_at` | Timestamp | Yes | Program | No | 审计事件创建时间 | ISO-8601 | INTERNAL | `2026-07-23T09:08:00+08:00` |
 | `correlation_id` | UUID | Yes | Program | No | Trace 关联 ID | UUID | INTERNAL | `20000000-0000-4000-8000-000000000001` |
 | `agent_run_id` | UUID | No | Program | No | 关联运行 | Existing AgentRun | INTERNAL | `00000000-0000-4000-8000-000000000016` |
 | `metadata` | JSON | Yes | Program | No | 版本化命令元数据 | Audit metadata Schema | INTERNAL | `{"image_quality_assessment_id":"00000000-0000-4000-8000-000000000003"}` |
+
+Phase 1D 创建项目必须同时保存初始事件：
+
+- `project_id`: 新建 PaintProject ID；
+- `from_state`: `null`；
+- `to_state`: `DRAFT`；
+- `event`: `create_project`；
+- `actor_type`: `user`；
+- `actor_principal_id`: 当前 human Principal；
+- `actor_display_name_snapshot`: 当前显示名称的审计快照；
+- `reason`: `project_created`；
+- `correlation_id`: 当前请求关联 ID；
+- `created_at`: 带时区数据库事实时间；
+- `agent_run_id`: `null`；
+- `metadata`: 空的版本化对象 `{}`。
+
+PaintProject、该事件与完成后的 CommandIdempotencyRecord 必须在同一事务提交；任何一项
+失败全部回滚。不允许存在没有对应初始事件的 `DRAFT` 项目。本修订不增加或删除工作流
+状态、Transition 或 Guard。
 
 ### 4.18 CommandIdempotencyRecord
 
@@ -449,21 +513,53 @@ Provider 未返回用量时，usage_status 必须为 `usage_unavailable`，token
 | Field Name | Type | Required | Source of Truth | Mutable | Description | Validation | Classification | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `id` | UUID | Yes | Program | No | 记录 ID | UUID | INTERNAL | `00000000-0000-4000-8000-000000000020` |
-| `principal_id` | PrincipalID | Yes | Authorized command context | No | 发起命令的稳定 Principal | Non-empty; authorized for project | INTERNAL | `local-demo-owner` |
-| `project_id` | UUID | Yes | Program | No | 命令作用域；create 前预分配 | UUID | INTERNAL | `00000000-0000-4000-8000-000000000001` |
-| `command_type` | Enum | Yes | Program | No | 命令类型 | Contract-listed command | INTERNAL | `start_plan_generation` |
-| `idempotency_key` | String | Yes | Client | No | 客户端键 | Non-empty; configured length bound | SENSITIVE | `idem-20260723-0001` |
+| `scope_key` | String | Yes | Program | No | 服务端计算的命令作用域 | Versioned allowed format; client cannot provide | INTERNAL | `principal:local-demo-owner:command:create_paint_project` |
+| `principal_id` | PrincipalID | Yes | Authorized command context | No | 发起命令的稳定 Principal | Non-empty; must match scope_key Principal | INTERNAL | `local-demo-owner` |
+| `command_type` | Enum | Yes | Program | No | 命令类型 | Contract-listed command | INTERNAL | `create_paint_project` |
+| `idempotency_key` | String | Yes | Client | No | 客户端键 | UUID; configured length bound | SENSITIVE | `00000000-0000-4000-8000-000000000021` |
 | `payload_hash` | String | Yes | Program | No | 规范化 payload 哈希 | 64 lowercase hex chars | INTERNAL | `cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc` |
-| `response_snapshot` | JSON | Yes | Program | No | 原响应的受控快照 | Response Schema; no secret | SENSITIVE | `{"status":"accepted","project_id":"00000000-0000-4000-8000-000000000001"}` |
-| `http_status` | Integer | Yes | Program | No | 原 HTTP 状态 | 100–599 | INTERNAL | `202` |
+| `execution_status` | Enum | Yes | Program | Yes, guarded | 命令执行状态 | `in_progress/completed`; Phase 1D create is externally visible only as completed | INTERNAL | `completed` |
+| `resource_type` | String | Yes | Program | No | 命令目标或创建的资源类型 | Controlled value | INTERNAL | `paint_project` |
+| `resource_id` | UUID | Conditional | Program | Yes once | 成功创建或操作的业务资源 | Required when completed response contains a resource | INTERNAL | `00000000-0000-4000-8000-000000000001` |
+| `http_status` | Integer | Conditional | Program | Yes once | 原 HTTP 状态 | Required when completed; 100–599 | INTERNAL | `201` |
+| `response_snapshot` | JSON | Conditional | Program | Yes once | 原响应的受控快照 | Required when completed; response Schema; no secret | SENSITIVE | `{"id":"00000000-0000-4000-8000-000000000001","status":"DRAFT"}` |
 | `created_at` | Timestamp | Yes | Program | No | 创建时间 | ISO-8601 | INTERNAL | `2026-07-23T10:19:00+08:00` |
-| `expires_at` | Timestamp | Yes | Program | No | 24 小时过期时间 | Exactly 24 hours after creation | INTERNAL | `2026-07-24T10:19:00+08:00` |
+| `expires_at` | Timestamp | Yes | Program | No | 最早清理资格时间 | Exactly 24 hours after creation; minimum retention, not automatic invalidation or client reuse time | INTERNAL | `2026-07-24T10:19:00+08:00` |
 
-唯一约束为 `principal_id + project_id + command_type + idempotency_key`。相同作用域内的 key 与不同 payload hash 返回 409 `IDEMPOTENCY_KEY_REUSED`；不同 Principal 不会错误复用同一幂等结果。
+唯一约束为 `scope_key + idempotency_key`。创建项目的 scope_key 是
+`principal:{principal_id}:command:create_paint_project`；已有项目命令使用
+`principal:{principal_id}:project:{project_id}:command:{command_type}`。scope_key
+只由服务端计算。
+
+Idempotency-Key 标识一次逻辑命令。新的逻辑命令必须使用新的客户端 UUID，不得在
+不同业务操作之间主动复用旧 Key；只有同一逻辑命令因 timeout 或未知结果重试时才
+复用原 Key 和不变的 canonical payload。
+
+Phase 1D Create Project 在一个短事务中使用
+`INSERT ... ON CONFLICT DO NOTHING` 仲裁 `scope_key + idempotency_key`：
+
+1. 插入成功的请求取得执行权，在同一事务创建 PaintProject 和初始 StateTransitionEvent，
+   保存响应，并只以 `completed` 状态提交幂等记录；
+2. 唯一冲突的请求等待竞争事务完成，然后读取已提交记录；
+3. 相同 payload hash 重放原 HTTP 201；不同 payload hash 返回 409
+   `IDEMPOTENCY_KEY_REUSED`；
+4. 竞争事务回滚后，并发请求可以取得执行权并继续；
+5. 任何事务失败都不留下 Project、StateTransitionEvent 或完成记录。
+
+`in_progress` 保留给未来异步命令，不是 Phase 1D 当前 API 可读取的持久状态或响应路径。
+事务不能包含外部网络调用。Payload hash 使用版本化 canonical serialization，不包含
+Secret、Header 顺序或服务端生成字段。创建项目不预分配确定性 Project UUID，不从
+Idempotency-Key 派生资源 ID，也不接受客户端 project ID。
+
+`expires_at` 是 minimum retention / cleanup eligibility，不会自动让仍存在的记录
+失效，也不是客户端可重用 Key 的时间。只要记录仍存在，相同 Key + 相同 payload hash
+重放原响应，相同 Key + 不同 payload hash 返回 409 `IDEMPOTENCY_KEY_REUSED`，包括
+当前时间已经超过 `expires_at` 的情况。未来清理后旧 Key 可能不再被识别，但客户端
+仍不得依赖长期复用。Phase 1D 不实现后台清理任务；清理机制延后到未来后台任务阶段。
 
 ## 5. Key Relationships
 
-- PaintProject 由 owner_principal_id 标识唯一 MVP 所有者，并 1—N ImageAsset、PaintInventoryItem、AgentRun、PaintPlan、HumanApproval、StateTransitionEvent、CommandIdempotencyRecord。
+- PaintProject 由 owner_principal_id 标识唯一 MVP 所有者，并 1—N ImageAsset、PaintInventoryItem、AgentRun、PaintPlan、HumanApproval 和 StateTransitionEvent。CommandIdempotencyRecord 通过受控 `resource_type + resource_id` 关联成功创建或操作的资源；创建前作用域不依赖 project ID。
 - ImageAsset 1—N ImageQualityAssessment；标准化分析资产可引用原始不可变 ImageAsset。
 - ImageQualityAssessment 1—N HumanApproval，其中当前有效 image-quality Approval 决定 review 分支。
 - AgentRun 1—N ModelCall，且 AgentRun 可在没有 ModelCall 时执行纯确定性操作。
@@ -482,6 +578,9 @@ Provider 未返回用量时，usage_status 必须为 `usage_unavailable`，token
 | --- | --- | --- |
 | 当前 Principal | Authentication/demo access Adapter | display_name, client-supplied owner |
 | 项目所有权 | PaintProject.owner_principal_id | URL、客户端本地状态、展示名称 |
+| 项目创建风格意图 | PaintProject.requested_target_style | 客户端选项、未来详细配置的替代物 |
+| 当前详细风格配置 | User-confirmed StyleConfiguration | PaintProject.requested_target_style alone |
+| 项目验证边界 | PaintProject.planning_mode | UI 文案或客户端字段 |
 | 项目状态 | Program Guard + database | LLM text, client-local state |
 | 状态审计 | Database StateTransitionEvent | External observability platform |
 | 图片尺寸、大小、SHA-256 | Program inspection | Model observation, filename |
@@ -513,9 +612,11 @@ Provider 未返回用量时，usage_status 必须为 `usage_unavailable`，token
 6. 区域返工将旧区域 Approval 标记 superseded，相关旧计划标记 stale/superseded。
 7. 旧 PaintPlan 不删除；旧 Citation 留在旧计划，不转移到新计划。
 8. StyleConfiguration、Prompt、Schema 和 ImageQualityPolicy 使用显式版本。
-9. HumanApproval 绑定创建时的确切 target_type + target_id；目标产生新版本时旧 Approval 不自动适用，失效记录只标记 superseded。
-10. StateTransitionEvent、AgentRun、ModelCall 和 CommandIdempotencyRecord 是追加式记录。
-11. 并发写入使用版本检查；旧客户端不得覆盖新版本。
+9. PaintProject.requested_target_style 不随 StyleConfiguration 变化而静默回写；详细配置
+   创建后，方案生成以当前已确认 StyleConfiguration 为权威。
+10. HumanApproval 绑定创建时的确切 target_type + target_id；目标产生新版本时旧 Approval 不自动适用，失效记录只标记 superseded。
+11. StateTransitionEvent、AgentRun、ModelCall 和 CommandIdempotencyRecord 是追加式记录。
+12. 并发写入使用版本检查；旧客户端不得覆盖新版本。
 
 ## 8. Sensitive Data Handling Matrix
 
@@ -531,7 +632,29 @@ API Key、Authorization header、完整 Prompt、完整 Provider 原始响应、
 
 PrincipalID 是非秘密内部标识，可以按最小必要原则进入受控日志；display-name snapshot 属于敏感历史数据，不参与权限判断。认证秘密不得进入 PrincipalContext 或任何业务实体。
 
-## 9. Future Extensions
+## 9. Phase 1D Database Constraint Plan
+
+应用层和数据库层都必须验证关键业务不变量。计划使用稳定、显式的约束名称，至少包括：
+
+- `ck_paint_projects_title_not_blank`: trim 后 Title 非空；
+- `ck_paint_projects_title_length`: Title 长度不超过 80；
+- `ck_paint_projects_description_length`: 非 null Description 长度不超过 500；
+- `ck_paint_projects_requested_target_style`: 当前值为 `cel_shading`；
+- `ck_paint_projects_planning_mode`: 当前值为 `planning_only_demo`；
+- `ck_paint_projects_status_allowed`: PaintProject status 创建默认值为 `DRAFT`，但稳定
+  命名的 Check Constraint 覆盖现有完整 16-state 词汇并拒绝集合外字符串；
+- `owner_principal_id` 使用 non-null constraint；
+- `uq_command_idempotency_records_scope_key_idempotency_key`: 幂等唯一作用域；
+- `ck_command_idempotency_records_execution_status`: 只允许 `in_progress/completed`；
+- completed 记录必须具有相应 `http_status`、`response_snapshot` 和所需 resource reference；
+- `ck_command_idempotency_records_expiration_order`: `expires_at > created_at`；应用层确定性
+  设置为创建时间后 24 小时，表示最小保留期限和最早清理资格，不表示自动失效或
+  客户端复用时间。
+
+Migration 必须为外键、唯一约束和 Check Constraint 使用一致 naming convention，并由
+人工审查 Alembic autogenerate 结果。
+
+## 10. Future Extensions
 
 以下仅为未来可能扩展，不属于 MVP 数据模型或当前实现：
 
