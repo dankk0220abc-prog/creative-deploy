@@ -15,6 +15,17 @@
 API、前端路由、页面或测试已经实现。Product Contract 0.1.2、Data Dictionary 0.1.2
 和 ADR-0002 已批准或接受；任何实现仍需在后续授权任务中完成。
 
+## Implementation Progress
+
+- Phase 1D-1A — Database Metadata and Alembic Foundation: `COMPLETE`
+- Phase 1D-1B — PaintProject ORM Models and First Migration Candidate: `NOT_STARTED`
+- Phase 1D-2 — PaintProject Persistence and API: `NOT_STARTED`
+- Phase 1D-3 — React Router and Projects Pages: `NOT_STARTED`
+- Phase 1D-4 — Integrated Product Review: `NOT_STARTED`
+
+Phase 1D-1A establishes only shared empty Metadata and Migration tooling. It does not change the
+approved business contract or create an ORM entity, Revision, database table, API or frontend page.
+
 ## 1. Objective
 
 交付第一个真实、数据库支持的 PaintProject 纵向切片：
@@ -192,9 +203,10 @@ reduced incompatible audit schema.
 Planned initialization location:
 
 - `apps/api/alembic.ini`
-- `apps/api/alembic/`
-- `apps/api/alembic/env.py`
-- `apps/api/alembic/versions/`
+- `apps/api/migrations/`
+- `apps/api/migrations/env.py`
+- `apps/api/migrations/script.py.mako`
+- `apps/api/migrations/versions/`
 
 Implementation sequence:
 

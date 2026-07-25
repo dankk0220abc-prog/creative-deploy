@@ -1,11 +1,13 @@
 # CreativeDeploy
 
-Project Status: Phase 1B — Foundation Vertical Slice Complete
+Project Status: Phase 1D-1A — Database Foundation Complete
 
 Implementation Status:
 
 - Foundation implemented
+- Database metadata and Alembic foundation complete
 - PaintPilot business features `NOT_STARTED`
+- Next implementation phase: Phase 1D-1B ORM Models and First Migration Candidate `NOT_STARTED`
 
 Browser Review: `PASSED`
 
@@ -21,6 +23,9 @@ CreativeDeploy 的主案例是 PaintPilot。Phase 0 已建立 Golden Case、MVP 
 这不是 PaintPilot 业务实现。当前不存在 PaintProject、Authentication / Principal
 Adapter、图片上传、区域分析、Polygon Editor、AI Provider、RAG、Paint inventory、
 Agent 工作流、HumanApproval、Trace、业务 Migration、CI 或生产部署能力。
+
+Phase 1D-1A 只增加统一 SQLAlchemy Metadata 和 Alembic 管理基础设施。当前仍没有
+PaintProject ORM Model、业务表或业务 Revision。
 
 ## Prerequisites
 
@@ -98,12 +103,34 @@ make db-down
 
 该命令保留命名 Volume，不执行 prune 或数据重置。
 
+## Database Migration Foundation
+
+Alembic async 环境已经建立，并复用应用的仓库根目录 Settings 和数据库 Engine
+创建边界。当前没有业务 Revision，也没有 PaintProject 或其他业务表。
+
+Migration 必须由开发者明确运行；应用启动不会自动执行 Migration。以下只读或差异
+检查命令从仓库根目录运行：
+
+```bash
+make migration-current
+make migration-heads
+make migration-history
+make migration-check
+```
+
+当前环境只支持 Online Migration，不支持离线 SQL 生成。未来 autogenerate 输出只能
+作为 Migration Candidate：每份 Revision 都必须人工检查 upgrade、downgrade、约束
+名称以及是否误删或误改对象。`alembic check` 只检查 ORM Metadata 与现有 Revision
+的差异，不能替代人工审查。
+
+这只是数据库迁移基础设施，不表示 PaintProject 数据库已经实现。
+
 ## Repository Structure
 
 ```text
 .
 ├── apps/
-│   ├── api/               # FastAPI、配置、数据库健康服务和 pytest
+│   ├── api/               # FastAPI、配置、数据库 Metadata/Alembic 基础和 pytest
 │   └── web/               # React、Vite、Tailwind、Vitest
 ├── data/golden-cases/     # 用户授权的只读 Golden Case 素材
 ├── docs/
@@ -119,7 +146,7 @@ make db-down
 ## Known Limitations
 
 - 仅支持本机开发，不包含 API/Web Dockerfile、CI 或生产部署；
-- 数据库仅用于 `SELECT 1` readiness，没有表、ORM Entity 或 Migration；
+- 数据库仍没有业务表、ORM Entity 或业务 Revision；Alembic 仅完成基础环境；
 - 前端只展示基础设施状态，不是 PaintPilot 产品页面；
 - 未配置 CORS，开发访问依赖 Vite Proxy；
 - 未实现认证、授权、多用户、AI、RAG、Trace、后台任务或 Redis。

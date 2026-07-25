@@ -1,6 +1,8 @@
 SHELL := /bin/sh
 
 PYTHON_PROJECT := apps/api
+ALEMBIC_CONFIG := apps/api/alembic.ini
+API_CHECK_PATHS := apps/api/src apps/api/tests apps/api/migrations
 WEB_PACKAGE := @creativedeploy/web
 ENV_FILE ?= .env
 PNPM ?= pnpm
@@ -17,6 +19,7 @@ WEB_COMMAND_ENV := env \
 
 .PHONY: bootstrap bootstrap-env db-up db-down api web test-api test-api-integration test-web \
 	lint-api format-check-api typecheck-api lint-web typecheck-web build-web \
+	migration-current migration-heads migration-history migration-check \
 	check require-env ensure-db
 
 bootstrap-env:
@@ -45,6 +48,18 @@ db-up: require-env
 db-down: require-env
 	docker compose --env-file "$(ENV_FILE)" down
 
+migration-current: require-env
+	uv run --project $(PYTHON_PROJECT) alembic -c $(ALEMBIC_CONFIG) current
+
+migration-heads: require-env
+	uv run --project $(PYTHON_PROJECT) alembic -c $(ALEMBIC_CONFIG) heads
+
+migration-history: require-env
+	uv run --project $(PYTHON_PROJECT) alembic -c $(ALEMBIC_CONFIG) history
+
+migration-check: require-env
+	uv run --project $(PYTHON_PROJECT) alembic -c $(ALEMBIC_CONFIG) check
+
 api: require-env
 	uv run --project $(PYTHON_PROJECT) uvicorn creativedeploy_api.main:app \
 		--host 127.0.0.1 --port 8000
@@ -63,10 +78,10 @@ test-web:
 	$(WEB_COMMAND_ENV) $(PNPM) --filter $(WEB_PACKAGE) test --run
 
 lint-api:
-	uv run --project $(PYTHON_PROJECT) ruff check apps/api/src apps/api/tests
+	uv run --project $(PYTHON_PROJECT) ruff check $(API_CHECK_PATHS)
 
 format-check-api:
-	uv run --project $(PYTHON_PROJECT) ruff format --check apps/api/src apps/api/tests
+	uv run --project $(PYTHON_PROJECT) ruff format --check $(API_CHECK_PATHS)
 
 typecheck-api:
 	uv run --project $(PYTHON_PROJECT) mypy apps/api/src
