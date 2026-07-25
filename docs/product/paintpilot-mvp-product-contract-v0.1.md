@@ -3,29 +3,35 @@
 ## 1. Document Metadata
 
 - Document Status: `APPROVED_FOR_IMPLEMENTATION`
-- Version: `0.1.2`
+- Version: `0.1.3`
 - Product: `PaintPilot`
 - Parent Project: `CreativeDeploy`
 - Current Phase: `Phase 1D — Ready for Implementation`
 - Implementation Status: `FOUNDATION_IMPLEMENTED_PAINTPROJECT_NOT_STARTED`
 - Baseline Approval Date: `2026-07-23`
-- Amendment Date: `2026-07-24`
-- Approval Date: `2026-07-24`
-- Previous Approved Version: `0.1.1`
+- Amendment Date: `2026-07-26`
+- Approval Date: `2026-07-26`
+- Previous Approved Version: `0.1.2`
 - Golden Case: `Super Saiyan Goku Cel-Shading Planning Case`
 
 ### 1.1 Approval Scope
 
 - Version 0.1.1 产品需求基线已获批。
 - Version 0.1.2 是已批准用于实施的 PaintProject 创建、读取和幂等边界窄范围修订。
+- Version 0.1.3 是已批准用于实施的物理字段长度、StateTransitionEvent
+  `event_metadata` 和 `agent_run_id` 延后边界基线。
 - Phase 1B Foundation 已实现；PaintProject 业务实现尚未开始。
-- 本版本允许拆分后续 Phase 1D 实现任务，但不表示业务代码或 Migration 已存在。
+- Phase 1D-1A 数据库迁移基础已实现；PaintProject ORM、业务 Revision 和业务表尚未实现。
+- Phase 1D-1B 已解除合同阻塞，但 PaintProject ORM、业务 Revision 和业务表仍未实现。
+- 先前的 Phase 1D-1B 实施指令已废弃，不构成合同来源；新实施必须以本批准版本、
+  Data Dictionary 0.1.3 和 ADR-0003 为准。
 - 不代表真实重涂结果已经验证。
 - 后续需求变更必须通过新版本或新的 ADR 记录。
 
-本文档保留已批准的 MVP 需求，只修订创建流程合同；它不是实现说明、上线承诺或真实
-涂装效果声明。16 个状态、47 条 Transition、17 个编号 Guard、Golden Case 艺术规则、
-ImageAsset Rights Attestation 和 planning-only 验证边界均不在本次修订范围内。
+本文档保留已批准的 MVP 需求，只澄清 Phase 1D 物理字段和审计事件边界；它不是实现
+说明、上线承诺或真实涂装效果声明。创建事务、幂等行为、Rights Attestation 所属阶段、
+16 个状态、47 条 Transition、17 个编号 Guard、Golden Case 艺术规则和 planning-only
+验证边界均不在本次修订范围内。
 
 ## 2. Problem Statement
 
@@ -657,6 +663,8 @@ MVP 不要求或推断具体 Vallejo 产品编号，也不使用未经校准的�
 
 - PaintProject.status 更新与 StateTransitionEvent 写入必须在同一数据库事务中。
 - 状态变化没有对应 StateTransitionEvent 时不得提交。
+- StateTransitionEvent 的结构化补充审计字段命名为 `event_metadata`，必须是 JSON
+  object；它不能替代一等业务字段或保存未经合同批准的任意上下文。
 - AgentRun 和 ModelCall 使用 correlation ID 关联。
 - 数据库中的 StateTransitionEvent 是权威审计记录。
 - 外部观测平台不是状态或审计事实来源；外部写入失败不得破坏数据库事实。
@@ -806,6 +814,90 @@ Phase 1D 至少规划：
 错误响应遵守 14.10，不得返回 SQL、Database URL、原始异常、Stack Trace 或其他
 Principal 信息。
 
+### 14.15 Phase 1D Physical Persistence Contract
+
+本节冻结 Phase 1D-1B 首次物理 Schema 所需的字符串长度与 StateTransitionEvent
+边界。所有字符串长度均以 Unicode 字符数量作为 API 和产品验证合同；PostgreSQL 使用
+对应的 `VARCHAR(n)`，未来 Pydantic Schema 与数据库都必须执行相同上限。
+
+#### PrincipalId
+
+`PrincipalId` 是系统内部稳定 opaque identifier，物理类型为 `VARCHAR(128)`。它必须
+trim、长度为 1–128、不得是空白字符串，不使用邮箱或 display name，也不得由客户端
+覆盖项目 Owner。未来外部认证 subject 必须通过 Principal Adapter 映射为内部
+PrincipalId；当前仍不创建 Principal 表，也不对安全格式施加过度严格的字符正则。
+
+#### Physical String Matrix
+
+| Table | Column | PostgreSQL type | Nullability / value boundary |
+| --- | --- | --- | --- |
+| `paint_projects` | `owner_principal_id` | `VARCHAR(128)` | Non-null PrincipalId |
+| `paint_projects` | `title` | `VARCHAR(80)` | Non-null; trimmed; 1–80 |
+| `paint_projects` | `description` | `VARCHAR(500)` | Nullable; trimmed when present |
+| `paint_projects` | `requested_target_style` | `VARCHAR(32)` | Non-null; currently `cel_shading` |
+| `paint_projects` | `planning_mode` | `VARCHAR(32)` | Non-null; currently `planning_only_demo` |
+| `paint_projects` | `status` | `VARCHAR(64)` | Non-null; all 16 approved states |
+| `state_transition_events` | `from_state` | `VARCHAR(64)` | Nullable; approved state when present |
+| `state_transition_events` | `to_state` | `VARCHAR(64)` | Non-null approved state |
+| `state_transition_events` | `event` | `VARCHAR(64)` | Non-null controlled machine token |
+| `state_transition_events` | `actor_type` | `VARCHAR(32)` | Non-null controlled machine token |
+| `state_transition_events` | `actor_principal_id` | `VARCHAR(128)` | Non-null PrincipalId |
+| `state_transition_events` | `actor_display_name_snapshot` | `VARCHAR(200)` | Conditional; trimmed; 1–200 when present |
+| `state_transition_events` | `reason` | `VARCHAR(128)` | Conditional controlled reason code |
+| `command_idempotency_records` | `scope_key` | `VARCHAR(512)` | Non-null; server-generated; trimmed; 1–512 |
+| `command_idempotency_records` | `principal_id` | `VARCHAR(128)` | Non-null PrincipalId |
+| `command_idempotency_records` | `command_type` | `VARCHAR(64)` | Non-null controlled machine token |
+| `command_idempotency_records` | `payload_hash` | `VARCHAR(64)` | Non-null lowercase SHA-256 hex |
+| `command_idempotency_records` | `execution_status` | `VARCHAR(32)` | Non-null; `in_progress/completed` |
+| `command_idempotency_records` | `resource_type` | `VARCHAR(64)` | Nullable until completed |
+
+以下小写 machine-token 字段使用 canonical syntax：
+
+`^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$`
+
+适用于 `command_type`、`event`、`reason`、`resource_type`、`actor_type`、
+`execution_status`、`requested_target_style` 和 `planning_mode`。Token 必须以小写
+英文字母开头；后续 segment 只包含小写字母或数字，segment 间使用单个下划线。禁止
+大写、空格、连字符、连续下划线和尾随下划线。
+
+格式 Check 不替代批准值白名单。固定枚举字段必须同时满足长度、machine-token 格式和
+allowed-values 约束。
+
+`PaintProject.status`、`StateTransitionEvent.from_state` 和
+`StateTransitionEvent.to_state` 是例外：它们不使用小写正则，继续只允许 14.12 中
+批准的 16 个大写 Workflow State，不改变名称、数量或大小写。
+
+该正则不适用于 PrincipalId、`scope_key`、`title`、`description`、
+`actor_display_name_snapshot`、`payload_hash`、UUID 或 JSONB 字段。`payload_hash`
+独立使用 `^[0-9a-f]{64}$`；PrincipalId 不增加过度严格字符正则；`scope_key` 使用
+服务端结构生成规则，不使用 snake_case 正则，也不包含 Secret 或原始请求正文。
+`actor_display_name_snapshot` 是允许 Unicode 的审计显示快照。未来确需人工说明时，
+必须新增经过批准的独立字段，不得把自由文本塞入 `reason`。
+
+#### StateTransitionEvent First Physical Boundary
+
+Phase 1D-1B 首次 `state_transition_events` 表恰好包含 12 个物理字段：
+`id`、`project_id`、`from_state`、`to_state`、`event`、`actor_type`、
+`actor_principal_id`、`actor_display_name_snapshot`、`reason`、`correlation_id`、
+`event_metadata` 和 `created_at`。
+
+`event_metadata` 使用 non-null PostgreSQL JSONB，server default 为 `{}`，并通过
+`ck_state_transition_events_event_metadata_is_object` 保证顶层只能是 JSON object。
+它只保存明确 Event Contract 批准的非敏感结构化审计补充字段；禁止原始请求或响应、
+认证信息、Secret、DATABASE_URL、Stack Trace、异常对象、Prompt、模型完整输出、二进制、
+文件内容、无 Schema 自由文本或为逃避建模而放入 JSON 的核心业务字段。当前
+`create_project` 事件必须保存 `{}`，本阶段不创建 JSONB Index 或查询 API。
+
+`agent_run_id` 仍是 StateTransitionEvent 的 nullable 逻辑领域字段，但 Phase 1D-1B
+不创建该物理列。它随 `agent_runs` 表在 AgentRun persistence phase 引入，类型为 UUID，
+同时建立真实 Foreign Key；默认 `NO ACTION / RESTRICT`，既有事件回填 `null`。在目标表
+存在前，不创建裸 UUID、ORM relationship 或虚假 AgentRun 表，也不使用
+`event_metadata` 替代该引用。
+
+这项物理澄清不改变 Create Project 的单事务语义、幂等行为、Rights Attestation
+所属阶段、16-state vocabulary、47 条 Transition 或 17 个 Guard，也不允许创建任何
+没有真实 Foreign Key 的未来资源 UUID。
+
 ## 15. Implementation Readiness Gate
 
 以下 Gate 是进入业务实现前的阻塞条件，不是隐含待办：
@@ -893,13 +985,15 @@ Principal 表示一次请求或已授权后台操作中已经识别的操作者�
 
 规则：
 
-1. principal_id 必须稳定、非空，且不能依赖 display_name。
+1. principal_id 使用统一 `PrincipalId` Value Type：trim 后长度 1–128，物理持久化为
+   `VARCHAR(128)`；它必须稳定、非空，且不能依赖 display_name。
 2. display_name 只用于界面显示和历史展示快照，不参与权限判断。
 3. API、worker 和 system actor 不得伪装成人工审批者。
 4. HumanApproval 只能由 `principal_type=human` 的 Principal 创建。
 5. 系统自动转换使用 system actor，但不能创建 approved 的人工审批。
 6. 日志可记录非秘密 principal_id，不得记录认证秘密。
-7. 当前只定义 Adapter 契约，不实现第三方登录或完整用户管理。
+7. 外部认证 subject 必须由未来 Adapter 映射为内部 PrincipalId；当前只定义 Adapter
+   契约，不实现第三方登录、Principal 表或完整用户管理。
 
 ### 17.2 MVP Access Mode
 

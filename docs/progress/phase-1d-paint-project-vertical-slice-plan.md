@@ -3,28 +3,34 @@
 - Phase Status: `READY_FOR_IMPLEMENTATION`
 - Approval Date: `2026-07-24`
 - Implementation Status: `NOT_STARTED`
+- Contract Status: `APPROVED`
 - Plan Status: `APPROVED`
+- Unblocked Date: `2026-07-26`
 - Product: `CreativeDeploy / PaintPilot`
 - Planned Routes: `/paintpilot/projects`, `/paintpilot/projects/new`,
   `/paintpilot/projects/:projectId`
-- Product Contract: `0.1.2 APPROVED_FOR_IMPLEMENTATION`
-- Data Dictionary: `0.1.2 APPROVED_FOR_IMPLEMENTATION`
-- Decision Record: `ADR-0002 Accepted`
+- Product Contract: `0.1.3 APPROVED_FOR_IMPLEMENTATION`
+- Data Dictionary: `0.1.3 APPROVED_FOR_IMPLEMENTATION`
+- Decision Records: `ADR-0002 Accepted`; `ADR-0003 Accepted`
 
 本文档已获准用于拆分 Phase 1D 实现任务，但仍只描述计划，不表示 Migration、数据表、
-API、前端路由、页面或测试已经实现。Product Contract 0.1.2、Data Dictionary 0.1.2
-和 ADR-0002 已批准或接受；任何实现仍需在后续授权任务中完成。
+API、前端路由、页面或测试已经实现。Product Contract 0.1.3、Data Dictionary 0.1.3
+和 ADR-0003 已批准或接受；Phase 1D-1B 已具备实施合同，但实现仍未开始。
 
 ## Implementation Progress
 
 - Phase 1D-1A — Database Metadata and Alembic Foundation: `COMPLETE`
-- Phase 1D-1B — PaintProject ORM Models and First Migration Candidate: `NOT_STARTED`
+- Phase 1D-1B — PaintProject ORM Models and First Migration Candidate:
+  `READY_FOR_IMPLEMENTATION`
+- Phase 1D-1B Implementation: `NOT_STARTED`
+- Phase 1D-1B Unblocked Date: `2026-07-26`
 - Phase 1D-2 — PaintProject Persistence and API: `NOT_STARTED`
 - Phase 1D-3 — React Router and Projects Pages: `NOT_STARTED`
 - Phase 1D-4 — Integrated Product Review: `NOT_STARTED`
 
-Phase 1D-1A establishes only shared empty Metadata and Migration tooling. It does not change the
-approved business contract or create an ORM entity, Revision, database table, API or frontend page.
+Phase 1D-1A establishes only shared empty SQLAlchemy Metadata and Migration tooling. It does not
+create an ORM entity, business Revision, database table, API or frontend page. Phase 1D-0C only
+clarifies contracts and likewise does not start Phase 1D-1B.
 
 ## 1. Objective
 
@@ -90,8 +96,8 @@ planning-only capability note。两者都不是选择控件，也不能由客户
 
 ## 4. Versioned Contract Alignment Gate
 
-Phase 1D-0 records the narrow alignment as Product Contract 0.1.2 and Data Dictionary 0.1.2 draft
-amendments plus proposed ADR-0002:
+Phase 1D-0C records the approved physical-field alignment in Product Contract 0.1.3, Data Dictionary
+0.1.3 and accepted ADR-0003, while ADR-0002 remains accepted:
 
 | Topic | Aligned draft contract |
 | --- | --- |
@@ -103,13 +109,19 @@ amendments plus proposed ADR-0002:
 | Create idempotency | Server-computed scope_key; no project ID in create scope |
 | Initial audit | `null → DRAFT` StateTransitionEvent in the create transaction |
 | Ownership | configured human Principal; non-Owner detail returns 404 |
+| PrincipalId | Stable internal identifier; `VARCHAR(128)`; trim; 1–128 |
+| Physical strings | Explicit Phase 1D `VARCHAR(n)` matrix |
+| Event metadata | `event_metadata` JSONB object; no arbitrary/uncontracted content |
+| AgentRun reference | Logical `agent_run_id` retained; physical column deferred with real FK |
 
 Rights Attestation remains attached to each ImageAsset and is not part of Create Project. The 16
 states, 47 Transitions, 17 numbered Guards, Golden Case art rules and planning-only validation
 boundary are unchanged.
 
-The alignment remains a draft until Owner review. Migration and business-code implementation are
-blocked until the draft amendments and ADR-0002 are accepted.
+The 0.1.3 alignment is approved. Phase 1D-1B ORM and Migration implementation is
+`READY_FOR_IMPLEMENTATION / NOT_STARTED`. Earlier Phase 1D-1B implementation instructions are
+obsolete and are not contract sources; a revised implementation task must use Product Contract
+0.1.3, Data Dictionary 0.1.3 and ADR-0003.
 
 ## 5. Database Plan
 
@@ -120,12 +132,12 @@ The first `paint_projects` Migration contains exactly these nine physical column
 | Column | Planned type / constraint |
 | --- | --- |
 | `id` | UUID primary key; generated before insert |
-| `owner_principal_id` | Non-null stable Principal ID; immutable in Phase 1D |
-| `title` | Non-null trimmed string; non-empty check; proposed maximum `80` |
-| `description` | Nullable trimmed string; proposed maximum `500` |
-| `requested_target_style` | Non-null; current allowed value `cel_shading`; immutable initial intent |
-| `planning_mode` | Non-null; current allowed value `planning_only_demo`; server-owned |
-| `status` | Non-null; initial value `DRAFT`; guarded program write |
+| `owner_principal_id` | `VARCHAR(128)`; non-null trimmed PrincipalId; 1–128; immutable in Phase 1D |
+| `title` | `VARCHAR(80)`; non-null; trimmed; 1–80 |
+| `description` | `VARCHAR(500)`; nullable; trimmed when present |
+| `requested_target_style` | `VARCHAR(32)`; non-null; current allowed value `cel_shading` |
+| `planning_mode` | `VARCHAR(32)`; non-null; current value `planning_only_demo` |
+| `status` | `VARCHAR(64)`; non-null; initial `DRAFT`; all 16 approved states allowed |
 | `created_at` | Non-null timezone-aware timestamp |
 | `updated_at` | Non-null timezone-aware timestamp; maintained on real writes |
 
@@ -145,21 +157,21 @@ schema-valid, and an unknown string is rejected.
 
 ### 5.2 `command_idempotency_records`
 
-Use the version 0.1.2 draft Data Dictionary names and semantics:
+Use the version 0.1.3 draft Data Dictionary names and semantics:
 
-| Column | Purpose |
+| Column | Physical type / purpose |
 | --- | --- |
 | `id` | UUID record ID |
-| `scope_key` | Stable server-computed command scope |
-| `principal_id` | Stable authorized Principal |
-| `command_type` | Controlled value for create project |
-| `idempotency_key` | Validated client UUID |
-| `payload_hash` | SHA-256 of versioned canonical request |
-| `execution_status` | Full dictionary allows `in_progress/completed`; committed Phase 1D create record is `completed` |
-| `resource_type` | Controlled resource type, `paint_project` for create |
-| `resource_id` | Created project ID when completed |
+| `scope_key` | `VARCHAR(512)`; server-generated; trimmed; 1–512 |
+| `principal_id` | `VARCHAR(128)`; non-null trimmed PrincipalId; 1–128 |
+| `command_type` | `VARCHAR(64)`; lowercase snake_case controlled token |
+| `idempotency_key` | PostgreSQL UUID; validated client UUID |
+| `payload_hash` | `VARCHAR(64)`; exactly 64 lowercase SHA-256 hex chars |
+| `execution_status` | `VARCHAR(32)`; `in_progress/completed`; committed Phase 1D create is `completed` |
+| `resource_type` | `VARCHAR(64)`; nullable until completed; `paint_project` for create |
+| `resource_id` | UUID; nullable until completed; created project ID when completed |
 | `http_status` | Original HTTP status; 201 for successful create |
-| `response_snapshot` | Controlled response-schema JSON with no secret |
+| `response_snapshot` | PostgreSQL JSONB; nullable until completed; controlled response object |
 | `created_at` | Timezone-aware creation timestamp |
 | `expires_at` | Exactly 24 hours after creation; minimum retention / cleanup eligibility |
 
@@ -180,7 +192,7 @@ deterministically preallocate the PaintProject UUID from the Idempotency-Key.
 
 ### 5.3 `state_transition_events`
 
-FR-001 and the version 0.1.2 draft Data Dictionary require creation to record the initial transition
+FR-001 and the version 0.1.3 draft Data Dictionary require creation to record the initial transition
 as an authoritative transactional fact. The initial Migration therefore includes the
 `StateTransitionEvent` table.
 
@@ -193,10 +205,87 @@ For creation:
 - `actor_principal_id` and `actor_display_name_snapshot` come from the current human Principal;
 - `reason=project_created`;
 - `correlation_id` comes from the request;
+- `event_metadata={}`;
 - `created_at` is timezone-aware.
 
-The exact table fields follow the version 0.1.2 draft Data Dictionary. Phase 1D must not create a
-reduced incompatible audit schema.
+The first `state_transition_events` physical table contains exactly 12 columns:
+
+| Column | Physical type / boundary |
+| --- | --- |
+| `id` | UUID primary key; generated before insert |
+| `project_id` | UUID; non-null Foreign Key to `paint_projects.id`; no ORM delete cascade |
+| `from_state` | `VARCHAR(64)`; nullable; approved state when present |
+| `to_state` | `VARCHAR(64)`; non-null approved state |
+| `event` | `VARCHAR(64)`; non-null lowercase snake_case controlled token |
+| `actor_type` | `VARCHAR(32)`; non-null; `user/api/worker/system` |
+| `actor_principal_id` | `VARCHAR(128)`; non-null trimmed PrincipalId |
+| `actor_display_name_snapshot` | `VARCHAR(200)`; conditional; trimmed; 1–200 when present |
+| `reason` | `VARCHAR(128)`; conditional lowercase snake_case controlled reason code |
+| `correlation_id` | UUID; non-null |
+| `event_metadata` | PostgreSQL JSONB; non-null; server default `{}`; JSON object only |
+| `created_at` | Non-null timezone-aware timestamp; server default `now()` |
+
+`event_metadata` can contain only non-sensitive, serializable, machine-readable keys approved by the
+specific Event Contract. It must not become arbitrary or uncontracted metadata and must not contain
+raw request/response bodies, credentials, secrets, database URLs, exceptions, stack traces, prompts,
+model output, binaries, file contents or core business fields. The first Migration creates no GIN or
+JSON path Index.
+
+Earlier instructions that prohibited every metadata JSON field are obsolete. A revised Phase 1D-1B
+implementation must include the constrained `event_metadata` column while continuing to prohibit
+arbitrary or uncontracted metadata.
+
+`agent_run_id` remains a nullable logical StateTransitionEvent field but is physically deferred until
+the AgentRun persistence phase. That later Migration must add a UUID Foreign Key to `agent_runs.id`
+with `NO ACTION / RESTRICT` unless a future approved contract changes it, backfill existing rows with
+`null`, and then introduce the ORM relationship. Phase 1D-1B must not create the column, a naked UUID,
+a fake `agent_runs` table or an `event_metadata` substitute for the relationship.
+
+### 5.4 Phase 1D Physical String Matrix
+
+| Table | Column | PostgreSQL type |
+| --- | --- | --- |
+| `paint_projects` | `owner_principal_id` | `VARCHAR(128)` |
+| `paint_projects` | `title` | `VARCHAR(80)` |
+| `paint_projects` | `description` | `VARCHAR(500)`, nullable |
+| `paint_projects` | `requested_target_style` | `VARCHAR(32)` |
+| `paint_projects` | `planning_mode` | `VARCHAR(32)` |
+| `paint_projects` | `status` | `VARCHAR(64)` |
+| `state_transition_events` | `from_state` | `VARCHAR(64)`, nullable |
+| `state_transition_events` | `to_state` | `VARCHAR(64)` |
+| `state_transition_events` | `event` | `VARCHAR(64)` |
+| `state_transition_events` | `actor_type` | `VARCHAR(32)` |
+| `state_transition_events` | `actor_principal_id` | `VARCHAR(128)` |
+| `state_transition_events` | `actor_display_name_snapshot` | `VARCHAR(200)` |
+| `state_transition_events` | `reason` | `VARCHAR(128)` |
+| `command_idempotency_records` | `scope_key` | `VARCHAR(512)` |
+| `command_idempotency_records` | `principal_id` | `VARCHAR(128)` |
+| `command_idempotency_records` | `command_type` | `VARCHAR(64)` |
+| `command_idempotency_records` | `payload_hash` | `VARCHAR(64)` |
+| `command_idempotency_records` | `execution_status` | `VARCHAR(32)` |
+| `command_idempotency_records` | `resource_type` | `VARCHAR(64)`, nullable until completed |
+
+All API/product lengths count Unicode characters. Future Pydantic validation and PostgreSQL
+`VARCHAR(n)` must enforce the same limits.
+
+Canonical lowercase machine-token syntax is:
+
+`^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$`
+
+It applies to `command_type`, `event`, `reason`, `resource_type`, `actor_type`,
+`execution_status`, `requested_target_style` and `planning_mode`. Tokens begin with a lowercase
+ASCII letter; later segments contain lowercase ASCII letters or digits separated by one underscore.
+Uppercase letters, spaces, hyphens, consecutive underscores and trailing underscores are invalid.
+Format Checks do not replace approved-value allowlists; fixed enums require length, format and
+allowed-values validation.
+
+`status`, `from_state` and `to_state` do not use the lowercase expression. They continue to use the
+approved 16 uppercase Workflow States without name, count or case changes.
+
+PrincipalId, `scope_key`, `title`, `description`, `actor_display_name_snapshot`, `payload_hash`,
+UUID and JSONB fields do not use the expression. `payload_hash` independently uses
+`^[0-9a-f]{64}$`; PrincipalId receives no restrictive character regex; `scope_key` uses its
+server-generated structural format.
 
 ## 6. Alembic Migration Plan
 
@@ -493,6 +582,20 @@ controls.
 - list returns only current owner's projects;
 - list Envelope, defaults, limits, offset and stable ordering;
 - safe error mapping contains no database details.
+- PrincipalId boundary: trimmed 1 and 128 accepted; blank and over 128 rejected;
+- scope_key boundary: trimmed 1 and 512 accepted; blank and over 512 rejected;
+- command_type, event and resource_type controlled-token boundaries through 64 characters;
+- actor display snapshot Unicode and 200-character boundary;
+- reason controlled-code boundary through 128 characters;
+- every Phase 1D string column matches the frozen physical matrix;
+- canonical machine-token syntax accepts valid lowercase segmented tokens and rejects uppercase,
+  spaces, hyphens, consecutive underscores and trailing underscores;
+- allowed-value constraints remain independent from the machine-token format Check;
+- workflow-state fields use only the 16 uppercase allowlisted values and do not use the lowercase
+  machine-token Check;
+- payload_hash uses its independent `^[0-9a-f]{64}$` format;
+- StateTransitionEvent model exposes `event_metadata`, not a conflicting `metadata` ORM attribute;
+- StateTransitionEvent model does not expose `agent_run_id` before the AgentRun persistence phase.
 
 ### 16.2 Backend Integration
 
@@ -514,6 +617,12 @@ controls.
   an existing record still replays or conflicts after that timestamp;
 - status constraint accepts all 16 approved states, while Create writes only DRAFT;
 - first paint_projects schema has exactly nine columns and no current reference UUID columns;
+- first state_transition_events schema has exactly the frozen 12 columns, includes
+  `event_metadata`, and excludes `agent_run_id`;
+- `event_metadata` accepts `{}` and JSON objects but rejects array, string, number, boolean and JSON
+  null; it has no GIN or JSON path Index;
+- migration constraints reject over-limit PrincipalId, scope_key, command_type, event, display
+  snapshot, reason and resource_type values at their exact boundaries;
 - rollback leaves no partial rows;
 - database failure returns a safe response;
 - owner isolation across two test Principal contexts.
@@ -555,7 +664,8 @@ Playwright remains out of scope unless separately approved.
 
 ## 17. Implementation Sequence
 
-1. Owner reviews and accepts Product Contract 0.1.2, Data Dictionary 0.1.2 and ADR-0002.
+1. Use the approved Product Contract 0.1.3, Data Dictionary 0.1.3 and ADR-0003 as the Phase 1D-1B
+   contract baseline; earlier implementation instructions are obsolete.
 2. Reconfirm request/response/error schemas, scope_key format and canonical serialization version.
 3. Query the official Alembic stable version; add the reviewed dependency and shared model metadata.
 4. Implement named database constraints and manually review the initial Migration.
@@ -589,6 +699,10 @@ Phase 1D is complete only when:
 - database status constraint permits all 16 approved states and rejects unknown values;
 - first paint_projects Migration has nine columns; logical current references remain deferred until
   their target tables and Foreign Keys exist;
+- first state_transition_events Migration has exactly 12 columns, uses constrained JSONB
+  `event_metadata`, and defers logical `agent_run_id` until a real `agent_runs` Foreign Key exists;
+- every Phase 1D string column uses the reviewed `VARCHAR(n)` limit and every PrincipalId column uses
+  `VARCHAR(128)`;
 - list and detail read only the current owner's real data;
 - list uses the frozen Envelope and ordering; other-owner detail returns 404;
 - success navigates to the detail route and refresh reads the same record;

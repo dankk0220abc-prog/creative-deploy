@@ -3,17 +3,19 @@
 ## 1. Document Metadata
 
 - Document Status: `APPROVED_FOR_IMPLEMENTATION`
-- Version: `0.1.2`
-- Approval Date: `2026-07-24`
+- Version: `0.1.3`
+- Approval Date: `2026-07-26`
 - Implementation Status: `NOT_STARTED_FOR_PAINTPROJECT`
 - Scope: PaintPilot MVP only
-- Amendment Date: `2026-07-24`
-- Previous Approved Version: `0.1.1`
+- Amendment Date: `2026-07-26`
+- Previous Approved Version: `0.1.2`
 
-本批准版本继续定义 18 个持久化实体；PrincipalContext 仍是非持久化 Value Object。
-Version 0.1.2 对齐 PaintProject 创建字段、初始审计事件与命令幂等边界。数据库表和
-Migration 尚未创建。本文档不是已存在数据的声明，所有示例均满足所列 Validation，
-但不代表 Golden Case 的真实业务记录。后续变更必须通过新版本或 ADR。
+本批准版本继续定义 18 个持久化实体；PrincipalContext 仍是非持久化 Value Object，
+不新增 Principal 表。Version 0.1.3 澄清 Phase 1D 物理字符串长度、将
+StateTransitionEvent 的 `metadata` 更名为 `event_metadata`，并把 `agent_run_id`
+物理列推迟到 AgentRun persistence phase。数据库业务表和业务 Migration 尚未创建。
+本文档不是已存在数据的声明，所有示例均满足所列 Validation，但不代表 Golden Case
+的真实业务记录。后续变更必须通过新版本或 ADR。
 
 ## 2. Data Design Principles
 
@@ -35,7 +37,8 @@ Migration 尚未创建。本文档不是已存在数据的声明，所有示例�
 ### 3.1 Types
 
 - `UUID`: RFC 4122 格式的稳定唯一标识。
-- `PrincipalID`: 已识别 human 或 system Principal 的稳定、非空标识；不得使用 display_name 代替。
+- `PrincipalId`: 已识别 human 或 system Principal 的稳定 opaque identifier；trim 后
+  长度 1–128，物理持久化使用 `VARCHAR(128)`，不得使用邮箱或 display_name 代替。
 - `String`: UTF-8 字符串。
 - `Enum`: 受版本化枚举约束的字符串。
 - `Timestamp`: ISO-8601 带时区时间。
@@ -43,6 +46,54 @@ Migration 尚未创建。本文档不是已存在数据的声明，所有示例�
 - `Decimal`: 精确定点数；不用于声称精确实物颜色。
 - `Polygon[]`: 一个或多个 normalized polygon。
 - `BBox`: normalized `{x, y, width, height}` 粗略框。
+
+#### 3.1.1 Phase 1D Physical String Rules
+
+所有长度以 Unicode 字符数量作为 API 和产品验证合同；PostgreSQL 使用
+`VARCHAR(n)`，数据库和未来 Pydantic Schema 都必须执行对应上限。`PrincipalId`、
+`scope_key` 和允许人类阅读的 display snapshot 必须存储 trim 后的规范化值。Machine
+token 由服务端或受控枚举产生，不接受任意显示文本。
+
+| Table | Column | PostgreSQL type | Required boundary |
+| --- | --- | --- | --- |
+| `paint_projects` | `owner_principal_id` | `VARCHAR(128)` | Non-null PrincipalId; trimmed; 1–128 |
+| `paint_projects` | `title` | `VARCHAR(80)` | Non-null; trimmed; 1–80 |
+| `paint_projects` | `description` | `VARCHAR(500)` | Nullable; trimmed when present; maximum 500 |
+| `paint_projects` | `requested_target_style` | `VARCHAR(32)` | Non-null; currently `cel_shading` |
+| `paint_projects` | `planning_mode` | `VARCHAR(32)` | Non-null; currently `planning_only_demo` |
+| `paint_projects` | `status` | `VARCHAR(64)` | Non-null; all 16 approved states |
+| `state_transition_events` | `from_state` | `VARCHAR(64)` | Nullable; approved state when present |
+| `state_transition_events` | `to_state` | `VARCHAR(64)` | Non-null approved state |
+| `state_transition_events` | `event` | `VARCHAR(64)` | Non-null lowercase snake_case token; 1–64 |
+| `state_transition_events` | `actor_type` | `VARCHAR(32)` | Non-null controlled token |
+| `state_transition_events` | `actor_principal_id` | `VARCHAR(128)` | Non-null PrincipalId; trimmed; 1–128 |
+| `state_transition_events` | `actor_display_name_snapshot` | `VARCHAR(200)` | Conditional; trimmed; 1–200 when present |
+| `state_transition_events` | `reason` | `VARCHAR(128)` | Conditional lowercase snake_case code; 1–128 |
+| `command_idempotency_records` | `scope_key` | `VARCHAR(512)` | Non-null; server-generated; trimmed; 1–512 |
+| `command_idempotency_records` | `principal_id` | `VARCHAR(128)` | Non-null PrincipalId; trimmed; 1–128 |
+| `command_idempotency_records` | `command_type` | `VARCHAR(64)` | Non-null lowercase snake_case token; 1–64 |
+| `command_idempotency_records` | `payload_hash` | `VARCHAR(64)` | Non-null; exactly 64 lowercase hex chars |
+| `command_idempotency_records` | `execution_status` | `VARCHAR(32)` | Non-null; `in_progress/completed` |
+| `command_idempotency_records` | `resource_type` | `VARCHAR(64)` | Nullable until completed; controlled token |
+
+Canonical lowercase machine-token syntax 为：
+
+`^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$`
+
+适用于 `requested_target_style`、`planning_mode`、`event`、`actor_type`、`reason`、
+`command_type`、`execution_status` 和 `resource_type`。Token 必须以小写英文字母开头；
+后续 segment 只含小写字母或数字，segment 之间使用单个下划线。禁止大写、空格、连字符、
+连续下划线和尾随下划线。格式 Check 不替代批准值白名单；固定枚举字段同时执行长度、
+machine-token 格式和 allowed-values 约束。
+
+`status`、`from_state` 和 `to_state` 保存批准的 Workflow State，不使用小写正则，继续
+只允许 3.3 中 16 个大写状态，不改变名称、数量或大小写。
+
+PrincipalId、`scope_key`、`title`、`description`、`actor_display_name_snapshot`、
+`payload_hash`、UUID 和 JSONB 字段不使用该正则。`payload_hash` 独立使用
+`^[0-9a-f]{64}$`；PrincipalId 不增加过度严格字符正则；`scope_key` 只由服务端从结构化
+命令作用域生成，不包含 Secret 或原始请求正文，也不使用 snake_case 正则。未来确需
+人工说明时，应增加经批准的独立字段，不得把自由文本存入 `reason`。
 
 ### 3.2 Data Classifications
 
@@ -62,12 +113,15 @@ PrincipalContext 来自请求认证或演示访问 Adapter，仅描述当前已�
 
 | Field Name | Type | Required | Source of Truth | Description | Validation | Example |
 | --- | --- | --- | --- | --- | --- | --- |
-| `principal_id` | PrincipalID | Yes | Authentication/demo access Adapter | 当前操作者的稳定标识 | Non-empty; independent of display_name | `local-demo-owner` |
+| `principal_id` | PrincipalId | Yes | Authentication/demo access Adapter | 当前操作者的稳定标识 | Trim; 1–128; independent of display_name | `local-demo-owner` |
 | `principal_type` | Enum | Yes | Authentication/demo access Adapter | 主体类型 | `human/system` | `human` |
 | `display_name` | String | Yes | Authentication/demo access Adapter | 界面展示名称 | Non-empty; never used for authorization | `Local Demo Owner` |
 | `authentication_mode` | Enum | Yes | Authentication/demo access Adapter | 身份识别方式 | `local_development/configured_demo_operator/future_authenticated_user` | `local_development` |
 
-需要审计时，将 principal_id 与必要的展示名称快照写入对应业务实体。后续接入真实认证系统只替换 Adapter，不改变项目所有权或人工审批的领域语义。认证秘密不属于 PrincipalContext。
+需要审计时，将 PrincipalId 与必要的展示名称快照写入对应业务实体。外部认证 subject
+必须由未来 Principal Adapter 映射为内部 PrincipalId。后续接入真实认证系统只替换
+Adapter，不改变项目所有权或人工审批的领域语义。认证秘密不属于 PrincipalContext；
+本修订不新增 Principal 持久化实体。
 
 ### 3.5 Phase 1D Creation Enums
 
@@ -87,12 +141,12 @@ PrincipalContext 来自请求认证或演示访问 Adapter，仅描述当前已�
 | Field Name | Type | Required | Source of Truth | Mutable | Description | Validation | Classification | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `id` | UUID | Yes | Program/database | No | 项目标识 | UUID | INTERNAL | `00000000-0000-4000-8000-000000000001` |
-| `owner_principal_id` | PrincipalID | Yes | Request PrincipalContext/program | No | MVP 项目所有者 | Non-empty stable ID; cannot be client-overridden; ownership transfer unsupported | INTERNAL | `local-demo-owner` |
-| `title` | String | Yes | User | Yes | 用户可见标题 | Trim; 1–80 Unicode code points | INTERNAL | `Goku planning case` |
-| `description` | String | No | User | Yes | 可选项目说明；不承载系统状态 | Trim; empty string becomes null; maximum 500 Unicode code points | INTERNAL | `Planning-only cel-shading study` |
-| `requested_target_style` | Enum | Yes | Program at creation | No | 创建项目时的初始创作意图 | Current allowed value: `cel_shading`; not client-overridable in Phase 1D | PUBLIC | `cel_shading` |
-| `planning_mode` | Enum | Yes | Program at creation | No | 项目级验证边界 | Current allowed value: `planning_only_demo`; not a user choice | PUBLIC | `planning_only_demo` |
-| `status` | Enum | Yes | Program/database | Yes, guarded | 当前工作流状态 | 16-state inventory; initial value `DRAFT` | INTERNAL | `DRAFT` |
+| `owner_principal_id` | PrincipalId | Yes | Request PrincipalContext/program | No | MVP 项目所有者 | `VARCHAR(128)`; trim; 1–128; cannot be client-overridden; ownership transfer unsupported | INTERNAL | `local-demo-owner` |
+| `title` | String | Yes | User | Yes | 用户可见标题 | `VARCHAR(80)`; trim; 1–80 Unicode code points | INTERNAL | `Goku planning case` |
+| `description` | String | No | User | Yes | 可选项目说明；不承载系统状态 | `VARCHAR(500)`; trim; empty string becomes null; maximum 500 Unicode code points | INTERNAL | `Planning-only cel-shading study` |
+| `requested_target_style` | Enum | Yes | Program at creation | No | 创建项目时的初始创作意图 | `VARCHAR(32)`; current allowed value: `cel_shading`; not client-overridable in Phase 1D | PUBLIC | `cel_shading` |
+| `planning_mode` | Enum | Yes | Program at creation | No | 项目级验证边界 | `VARCHAR(32)`; current allowed value: `planning_only_demo`; not a user choice | PUBLIC | `planning_only_demo` |
+| `status` | Enum | Yes | Program/database | Yes, guarded | 当前工作流状态 | `VARCHAR(64)`; 16-state inventory; initial value `DRAFT` | INTERNAL | `DRAFT` |
 | `created_at` | Timestamp | Yes | Program | No | 创建时间 | ISO-8601 | INTERNAL | `2026-07-23T09:00:00+08:00` |
 | `updated_at` | Timestamp | Yes | Program | Yes | 最近更新时间 | Monotonic per record | INTERNAL | `2026-07-23T09:15:00+08:00` |
 | `current_image_asset_id` | UUID | No | Program/database | Yes, guarded | 当前主图片 | Existing project ImageAsset | INTERNAL | `00000000-0000-4000-8000-000000000002` |
@@ -140,7 +194,7 @@ Foreign Key。
 | `normalized_from_asset_id` | UUID | No | Program | No | 标准化分析版本的原始资产 | Existing immutable ImageAsset | INTERNAL | `null` |
 | `source_type` | Enum | Yes | User attestation | No | 图片来源类型 | `user_provided/user_photographed/user_provided_other` | INTERNAL | `user_provided` |
 | `rights_attestation_status` | Enum | Yes | User attestation | Yes, versioned event | 权利声明状态 | `pending/confirmed/rejected` | INTERNAL | `confirmed` |
-| `rights_attested_by_principal_id` | PrincipalID | Conditional | PrincipalContext | No | 完成权利声明的 human Principal | Required when confirmed/rejected; must match authorized project owner | INTERNAL | `local-demo-owner` |
+| `rights_attested_by_principal_id` | PrincipalId | Conditional | PrincipalContext | No | 完成权利声明的 human Principal | Required when confirmed/rejected; must match authorized project owner | INTERNAL | `local-demo-owner` |
 | `rights_attested_at` | Timestamp | Conditional | Program | No | 声明时间 | Required when confirmed/rejected | INTERNAL | `2026-07-23T09:04:00+08:00` |
 | `intended_usage` | Enum[] | Yes | User attestation | Yes, versioned event | 明确预期用途 | Values from allowed usage enum | INTERNAL | `["private_project","portfolio_demo","public_repository"]` |
 | `uploaded_at` | Timestamp | Yes | Program | No | 上传时间 | ISO-8601 | INTERNAL | `2026-07-23T09:05:00+08:00` |
@@ -200,7 +254,7 @@ Foreign Key。
 | `material` | Enum | Yes | User-confirmed definition | No | 区域材质 | Allowed material enum | INTERNAL | `painted_plastic` |
 | `required` | Boolean | Yes | User-confirmed definition | No | 是否是必须区域 | Boolean | INTERNAL | `true` |
 | `supersedes_region_definition_id` | UUID | No | Program command | No | 被替代的旧定义 | Existing same-project RegionDefinition | INTERNAL | `00000000-0000-4000-8000-000000000006` |
-| `created_by_principal_id` | PrincipalID | Yes | PrincipalContext/execution context | No | 创建主体 | Verified human or authorized system Principal | INTERNAL | `local-demo-owner` |
+| `created_by_principal_id` | PrincipalId | Yes | PrincipalContext/execution context | No | 创建主体 | Verified human or authorized system Principal | INTERNAL | `local-demo-owner` |
 | `created_at` | Timestamp | Yes | Program | No | 创建时间 | ISO-8601 | INTERNAL | `2026-07-23T09:18:00+08:00` |
 
 修改 label、display_name、material 或 required 时必须创建新的 RegionDefinition，并通过 supersedes 字段建立替代关系。
@@ -219,7 +273,7 @@ Foreign Key。
 | `geometry_by_region` | JSON | Yes | User edit/model suggestion | No | Definition ID 到 Polygon[] 和坐标版本的映射 | Geometry Contract Schema | INTERNAL | `{"00000000-0000-4000-8000-000000000005":{"polygons":[[[0.10,0.10],[0.20,0.10],[0.15,0.20]]],"coordinate_system_version":"normalized_top_left_v1"}}` |
 | `source` | Enum | Yes | Program command | No | 快照来源 | `ai_suggestion/user_edit/reopen` | INTERNAL | `user_edit` |
 | `status` | Enum | Yes | Program/user event | Yes, guarded | 快照状态 | `draft/confirmed/superseded` | INTERNAL | `confirmed` |
-| `created_by_principal_id` | PrincipalID | Yes | PrincipalContext/execution context | No | 创建者 | Verified human or authorized system Principal | INTERNAL | `local-demo-owner` |
+| `created_by_principal_id` | PrincipalId | Yes | PrincipalContext/execution context | No | 创建者 | Verified human or authorized system Principal | INTERNAL | `local-demo-owner` |
 | `created_at` | Timestamp | Yes | Program | No | 创建时间 | ISO-8601 | INTERNAL | `2026-07-23T09:20:00+08:00` |
 | `confirmed_at` | Timestamp | No | HumanApproval event | No | 确认时间 | Requires matching active Approval | INTERNAL | `2026-07-23T09:22:00+08:00` |
 
@@ -370,7 +424,7 @@ PaintPlan 中按确认语义组织的施工子计划。
 | `approval_type` | Enum | Yes | Program command | No | 审批类型 | `image_quality/region_geometry/paint_plan/style_configuration` | INTERNAL | `image_quality` |
 | `decision` | Enum | Yes | User | No | 人工决定 | `approved/rejected/revision_requested` | INTERNAL | `approved` |
 | `status` | Enum | Yes | Program | Yes, guarded | Approval 有效性 | `active/superseded` | INTERNAL | `active` |
-| `reviewer_principal_id` | PrincipalID | Yes | Verified PrincipalContext | No | 审批者稳定标识 | Must identify `principal_type=human`; must be authorized project owner | INTERNAL | `local-demo-owner` |
+| `reviewer_principal_id` | PrincipalId | Yes | Verified PrincipalContext | No | 审批者稳定标识 | Must identify `principal_type=human`; must be authorized project owner | INTERNAL | `local-demo-owner` |
 | `reviewer_display_name_snapshot` | String | Yes | PrincipalContext snapshot | No | 审批时展示名称 | Non-empty; history only; never used for authorization | SENSITIVE | `Local Demo Owner` |
 | `reason` | String | Yes | User | No | 决定原因 | Configured finite length; required | SENSITIVE | `Image is sufficient for planning, not color calibration.` |
 | `target_type` | Enum | Yes | Program command | No | 受控多态目标类型 | `image_quality_assessment/region_geometry_version/paint_plan/style_configuration` | INTERNAL | `image_quality_assessment` |
@@ -412,7 +466,7 @@ HumanApproval 的 `target_type + target_id` 是受控多态引用，固定映射
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `id` | UUID | Yes | Program | No | 业务运行 ID | UUID | INTERNAL | `00000000-0000-4000-8000-000000000016` |
 | `project_id` | UUID | Yes | Program | No | 所属项目 | Existing project | INTERNAL | `00000000-0000-4000-8000-000000000001` |
-| `initiating_principal_id` | PrincipalID | Yes | Authorized command context | No | 发起业务运行的 Principal | Must be authorized for project; carried by worker/system | INTERNAL | `local-demo-owner` |
+| `initiating_principal_id` | PrincipalId | Yes | Authorized command context | No | 发起业务运行的 Principal | Must be authorized for project; carried by worker/system | INTERNAL | `local-demo-owner` |
 | `run_type` | Enum | Yes | Program command | No | 业务运行类别 | `quality_assessment/region_workflow/plan_workflow` | INTERNAL | `plan_workflow` |
 | `operation_type` | Enum | Yes | Program command | No | 可恢复操作 | `image_validation/region_analysis/plan_generation` | INTERNAL | `plan_generation` |
 | `status` | Enum | Yes | Program | Yes, guarded | 业务运行状态 | `running/succeeded/failed/blocked/cancelled` | INTERNAL | `running` |
@@ -475,17 +529,17 @@ Provider 未返回用量时，usage_status 必须为 `usage_unavailable`，token
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `id` | UUID | Yes | Program | No | 事件 ID | UUID | INTERNAL | `00000000-0000-4000-8000-000000000018` |
 | `project_id` | UUID | Yes | Program | No | 所属项目 | Existing project | INTERNAL | `00000000-0000-4000-8000-000000000001` |
-| `from_state` | Enum | Conditional | Database | No | 原状态 | 16-state enum or null at creation | INTERNAL | `IMAGE_REVIEW_REQUIRED` |
-| `to_state` | Enum | Yes | Program guard | No | 新状态 | 16-state enum | INTERNAL | `IMAGE_VALIDATED` |
-| `event` | String | Yes | Program command | No | 触发事件 | Transition table event | INTERNAL | `approve_image` |
-| `actor_type` | Enum | Yes | Execution context | No | 实际执行通道或主体类别 | `user/api/worker/system` | INTERNAL | `api` |
-| `actor_principal_id` | PrincipalID | Yes | Verified PrincipalContext/execution context | No | 可归责的稳定 Principal | Human action must retain verified human ID; system action uses authorized system ID | INTERNAL | `local-demo-owner` |
-| `actor_display_name_snapshot` | String | Conditional | PrincipalContext snapshot | No | 事件发生时展示名称 | Required for human user event; history only; never used for authorization | SENSITIVE | `Local Demo Owner` |
-| `reason` | String | Conditional | Actor/program | No | 转换原因 | Required for creation/review/failure/abandon/revision | SENSITIVE | `Approved for planning only.` |
-| `created_at` | Timestamp | Yes | Program | No | 审计事件创建时间 | ISO-8601 | INTERNAL | `2026-07-23T09:08:00+08:00` |
+| `from_state` | Enum | Conditional | Database | No | 原状态 | `VARCHAR(64)`; 16-state enum or null at creation | INTERNAL | `IMAGE_REVIEW_REQUIRED` |
+| `to_state` | Enum | Yes | Program guard | No | 新状态 | `VARCHAR(64)`; 16-state enum | INTERNAL | `IMAGE_VALIDATED` |
+| `event` | String | Yes | Program command | No | 触发事件 | `VARCHAR(64)`; lowercase snake_case controlled token; 1–64 | INTERNAL | `approve_image` |
+| `actor_type` | Enum | Yes | Execution context | No | 实际执行通道或主体类别 | `VARCHAR(32)`; `user/api/worker/system` | INTERNAL | `api` |
+| `actor_principal_id` | PrincipalId | Yes | Verified PrincipalContext/execution context | No | 可归责的稳定 Principal | `VARCHAR(128)`; trim; 1–128; human action retains verified human ID | INTERNAL | `local-demo-owner` |
+| `actor_display_name_snapshot` | String | Conditional | PrincipalContext snapshot | No | 事件发生时展示名称 | `VARCHAR(200)`; trim; 1–200 when present; required for human user event; history only | SENSITIVE | `Local Demo Owner` |
+| `reason` | String | Conditional | Actor/program | No | 转换原因码 | `VARCHAR(128)`; lowercase snake_case controlled code; 1–128; required for creation/review/failure/abandon/revision | SENSITIVE | `project_created` |
 | `correlation_id` | UUID | Yes | Program | No | Trace 关联 ID | UUID | INTERNAL | `20000000-0000-4000-8000-000000000001` |
-| `agent_run_id` | UUID | No | Program | No | 关联运行 | Existing AgentRun | INTERNAL | `00000000-0000-4000-8000-000000000016` |
-| `metadata` | JSON | Yes | Program | No | 版本化命令元数据 | Audit metadata Schema | INTERNAL | `{"image_quality_assessment_id":"00000000-0000-4000-8000-000000000003"}` |
+| `agent_run_id` | UUID | No | Program | No | 关联运行的逻辑领域字段 | Physically deferred until AgentRun persistence; real FK required when introduced | INTERNAL | `00000000-0000-4000-8000-000000000016` |
+| `event_metadata` | JSON | Yes | Program | No | 版本化事件审计补充字段 | PostgreSQL JSONB object; non-null; Event Contract-approved keys only | INTERNAL | `{"image_quality_assessment_id":"00000000-0000-4000-8000-000000000003"}` |
+| `created_at` | Timestamp | Yes | Program | No | 审计事件创建时间 | ISO-8601 | INTERNAL | `2026-07-23T09:08:00+08:00` |
 
 Phase 1D 创建项目必须同时保存初始事件：
 
@@ -499,12 +553,43 @@ Phase 1D 创建项目必须同时保存初始事件：
 - `reason`: `project_created`；
 - `correlation_id`: 当前请求关联 ID；
 - `created_at`: 带时区数据库事实时间；
-- `agent_run_id`: `null`；
-- `metadata`: 空的版本化对象 `{}`。
+- `agent_run_id`: 逻辑值为 `null`，Phase 1D-1B 不存在该物理列；
+- `event_metadata`: 空的版本化 JSON object `{}`。
 
 PaintProject、该事件与完成后的 CommandIdempotencyRecord 必须在同一事务提交；任何一项
 失败全部回滚。不允许存在没有对应初始事件的 `DRAFT` 项目。本修订不增加或删除工作流
 状态、Transition 或 Guard。
+
+#### 4.17.1 Logical-to-Physical Field Boundary
+
+Phase 1D-1B 首次 `state_transition_events` 物理表恰好包含：
+
+1. `id`
+2. `project_id`
+3. `from_state`
+4. `to_state`
+5. `event`
+6. `actor_type`
+7. `actor_principal_id`
+8. `actor_display_name_snapshot`
+9. `reason`
+10. `correlation_id`
+11. `event_metadata`
+12. `created_at`
+
+`event_metadata` 物理类型为 PostgreSQL JSONB、non-null、server default 为 `{}`，且
+`ck_state_transition_events_event_metadata_is_object` 必须拒绝 array、string、number、
+boolean 和 JSON null。本阶段不建立 GIN/JSON path Index 或 metadata 查询 API。它只
+允许保存对应 Event Contract 批准的非敏感结构化审计补充字段；不得保存原始请求或
+响应、Authorization Header、Cookie、DATABASE_URL、Secret、Stack Trace、异常对象、
+Prompt、模型完整输出、图片二进制、文件内容、无 Schema 自由文本或核心业务字段。
+
+| Field | Logical Entity Field | Nullable | Phase 1D-1B Physical Column | Introduced With | Physical Type When Introduced | Foreign Key | ondelete | Existing-row backfill |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `agent_run_id` | Yes | Yes | Deferred | AgentRun persistence phase | UUID | Required to `agent_runs.id` | `NO ACTION / RESTRICT` unless a future approved contract changes it | `null` |
+
+在 `agent_runs` 表存在前，不创建 `agent_run_id` 裸 UUID、Foreign Key、ORM relationship
+或虚假 AgentRun 表，也不得用 `event_metadata` 替代该引用。
 
 ### 4.18 CommandIdempotencyRecord
 
@@ -513,16 +598,16 @@ PaintProject、该事件与完成后的 CommandIdempotencyRecord 必须在同一
 | Field Name | Type | Required | Source of Truth | Mutable | Description | Validation | Classification | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `id` | UUID | Yes | Program | No | 记录 ID | UUID | INTERNAL | `00000000-0000-4000-8000-000000000020` |
-| `scope_key` | String | Yes | Program | No | 服务端计算的命令作用域 | Versioned allowed format; client cannot provide | INTERNAL | `principal:local-demo-owner:command:create_paint_project` |
-| `principal_id` | PrincipalID | Yes | Authorized command context | No | 发起命令的稳定 Principal | Non-empty; must match scope_key Principal | INTERNAL | `local-demo-owner` |
-| `command_type` | Enum | Yes | Program | No | 命令类型 | Contract-listed command | INTERNAL | `create_paint_project` |
-| `idempotency_key` | String | Yes | Client | No | 客户端键 | UUID; configured length bound | SENSITIVE | `00000000-0000-4000-8000-000000000021` |
-| `payload_hash` | String | Yes | Program | No | 规范化 payload 哈希 | 64 lowercase hex chars | INTERNAL | `cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc` |
-| `execution_status` | Enum | Yes | Program | Yes, guarded | 命令执行状态 | `in_progress/completed`; Phase 1D create is externally visible only as completed | INTERNAL | `completed` |
-| `resource_type` | String | Yes | Program | No | 命令目标或创建的资源类型 | Controlled value | INTERNAL | `paint_project` |
+| `scope_key` | String | Yes | Program | No | 服务端计算的命令作用域 | `VARCHAR(512)`; trim; 1–512; versioned allowed format; client cannot provide | INTERNAL | `principal:local-demo-owner:command:create_paint_project` |
+| `principal_id` | PrincipalId | Yes | Authorized command context | No | 发起命令的稳定 Principal | `VARCHAR(128)`; trim; 1–128; must match scope_key Principal | INTERNAL | `local-demo-owner` |
+| `command_type` | Enum | Yes | Program | No | 命令类型 | `VARCHAR(64)`; lowercase snake_case controlled token; 1–64 | INTERNAL | `create_paint_project` |
+| `idempotency_key` | UUID | Yes | Client | No | 客户端键 | PostgreSQL UUID | SENSITIVE | `00000000-0000-4000-8000-000000000021` |
+| `payload_hash` | String | Yes | Program | No | 规范化 payload 哈希 | `VARCHAR(64)`; exactly 64 lowercase hex chars | INTERNAL | `cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc` |
+| `execution_status` | Enum | Yes | Program | Yes, guarded | 命令执行状态 | `VARCHAR(32)`; `in_progress/completed`; Phase 1D create is externally visible only as completed | INTERNAL | `completed` |
+| `resource_type` | String | Conditional | Program | Yes once | 命令目标或创建的资源类型 | `VARCHAR(64)`; lowercase snake_case controlled token; required when completed | INTERNAL | `paint_project` |
 | `resource_id` | UUID | Conditional | Program | Yes once | 成功创建或操作的业务资源 | Required when completed response contains a resource | INTERNAL | `00000000-0000-4000-8000-000000000001` |
 | `http_status` | Integer | Conditional | Program | Yes once | 原 HTTP 状态 | Required when completed; 100–599 | INTERNAL | `201` |
-| `response_snapshot` | JSON | Conditional | Program | Yes once | 原响应的受控快照 | Required when completed; response Schema; no secret | SENSITIVE | `{"id":"00000000-0000-4000-8000-000000000001","status":"DRAFT"}` |
+| `response_snapshot` | JSON | Conditional | Program | Yes once | 原响应的受控快照 | PostgreSQL JSONB object; required when completed; response Schema; no secret | SENSITIVE | `{"id":"00000000-0000-4000-8000-000000000001","status":"DRAFT"}` |
 | `created_at` | Timestamp | Yes | Program | No | 创建时间 | ISO-8601 | INTERNAL | `2026-07-23T10:19:00+08:00` |
 | `expires_at` | Timestamp | Yes | Program | No | 最早清理资格时间 | Exactly 24 hours after creation; minimum retention, not automatic invalidation or client reuse time | INTERNAL | `2026-07-24T10:19:00+08:00` |
 
@@ -570,7 +655,7 @@ Idempotency-Key 派生资源 ID，也不接受客户端 project ID。
 - PaintPlan 1—N PaintPlanRegion。
 - KnowledgeDocument 1—N KnowledgeChunk；RetrievalCitation 同时绑定确切 PaintPlan、文档版本与 chunk。
 - HumanApproval 通过受控 `target_type + target_id` 精确指向 ImageQualityAssessment、RegionGeometryVersion、PaintPlan 或 StyleConfiguration，且目标必须属于同一 PaintProject。
-- PrincipalContext 不是实体关系；需要审计时只把稳定 PrincipalID 和必要的展示名称快照写入业务记录。
+- PrincipalContext 不是实体关系；需要审计时只把稳定 PrincipalId 和必要的展示名称快照写入业务记录。
 
 ## 6. Source of Truth Matrix
 
@@ -630,7 +715,7 @@ Idempotency-Key 派生资源 ID，也不接受客户端 project ID。
 
 API Key、Authorization header、完整 Prompt、完整 Provider 原始响应、图片二进制和不必要 EXIF 位置数据不得进入普通日志、错误响应或通用 Trace。
 
-PrincipalID 是非秘密内部标识，可以按最小必要原则进入受控日志；display-name snapshot 属于敏感历史数据，不参与权限判断。认证秘密不得进入 PrincipalContext 或任何业务实体。
+PrincipalId 是非秘密内部标识，可以按最小必要原则进入受控日志；display-name snapshot 属于敏感历史数据，不参与权限判断。认证秘密不得进入 PrincipalContext 或任何业务实体。
 
 ## 9. Phase 1D Database Constraint Plan
 
@@ -643,10 +728,15 @@ PrincipalID 是非秘密内部标识，可以按最小必要原则进入受控�
 - `ck_paint_projects_planning_mode`: 当前值为 `planning_only_demo`；
 - `ck_paint_projects_status_allowed`: PaintProject status 创建默认值为 `DRAFT`，但稳定
   命名的 Check Constraint 覆盖现有完整 16-state 词汇并拒绝集合外字符串；
-- `owner_principal_id` 使用 non-null constraint；
+- PrincipalId 列必须 non-null（实体合同要求时）、trim-normalized、非空且长度不超过 128；
+- `scope_key` 必须 trim-normalized、非空且长度不超过 512；
+- `command_type`、`event` 和 `resource_type` 必须满足对应 64 字符 controlled-token 边界；
+- `actor_display_name_snapshot` 存在时 trim-normalized、非空且长度不超过 200；
+- `reason` 存在时必须满足 128 字符 controlled reason-code 边界；
 - `uq_command_idempotency_records_scope_key_idempotency_key`: 幂等唯一作用域；
 - `ck_command_idempotency_records_execution_status`: 只允许 `in_progress/completed`；
 - completed 记录必须具有相应 `http_status`、`response_snapshot` 和所需 resource reference；
+- `ck_state_transition_events_event_metadata_is_object`: `event_metadata` 必须为 JSON object；
 - `ck_command_idempotency_records_expiration_order`: `expires_at > created_at`；应用层确定性
   设置为创建时间后 24 小时，表示最小保留期限和最早清理资格，不表示自动失效或
   客户端复用时间。
