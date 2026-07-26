@@ -1,12 +1,12 @@
 # Phase 1D-1B — PaintProject Models and Migration Candidate
 
-- Phase Status: `IN_REVIEW`
+- Phase Status: `COMPLETE_AND_COMMITTED`
 - Contract Status: `APPROVED`
-- Implementation Status: `IMPLEMENTED_PENDING_REVIEW`
-- Migration Status: `CANDIDATE_PENDING_REVIEW`
-- Commit Status: `UNCOMMITTED — COMMIT_8_NOT_CREATED`
+- Implementation Status: `COMPLETE_AND_COMMITTED`
+- Migration Status: `APPROVED_AND_COMMITTED`
+- Commit Status: `COMMITTED_AS_COMMIT_8`
 - Phase 1D-1A Status: `COMPLETE_AND_COMMITTED`
-- Phase 1D-1B Approval: `NOT_APPROVED`
+- Phase 1D-1B Approval: `APPROVED_FOR_COMMIT_8`
 - Revision ID: `a10d3d8dab38`
 - Revision Parent: `None`
 - Review Date: `2026-07-26`
@@ -33,8 +33,8 @@ This phase does not implement an API, Principal Adapter, Repository, Service, pr
 transaction, idempotency execution algorithm, initial-event business write path or frontend page.
 It does not complete the vertical slice, a real product loop, production validation, repainting
 validation or real-user validation. ORM, Migration and PostgreSQL Catalog consistency is only
-schema-candidate evidence. This remediation record is implementation evidence, not independent
-approval.
+schema evidence; it does not expand Phase 1D-1B into later application or product layers. The
+focused independent review approved this bounded schema work for Commit 8.
 
 ## Contract Sources
 
@@ -117,7 +117,9 @@ imports `REGISTERED_MODELS` before binding `target_metadata`, which remains iden
 - Parent: `None`
 - Heads: one
 - Revisions: one
-- Candidate committed: no
+- Candidate committed: yes, as Commit 8
+- Commit: `2c76e5ef51e4fea726407d5cccfe409a2643d694`
+- Commit subject: `feat(api): add PaintProject persistence foundation`
 
 ## Autogenerate Output
 
@@ -150,7 +152,7 @@ The first Catalog review found that
 supports at most 63 bytes and SQLAlchemy deterministically compiled the name with an `_8ef7` suffix.
 This was framework truncation, not database damage, but it did not satisfy the explicit naming
 policy. Implementation stopped safely, the Owner approved
-`ck_state_transition_events_actor_display_snapshot_normalized`, and the same uncommitted Candidate
+`ck_state_transition_events_actor_display_snapshot_normalized`, and the then-uncommitted Candidate
 was revised without creating a second Revision.
 
 The final Metadata audit covers 43 tables/constraints/indexes. Every identifier is lowercase ASCII,
@@ -281,21 +283,20 @@ The round-trip test passes and leaves no temporary database or ephemeral owner r
 
 | Finding | Closure evidence | Status |
 | --- | --- | --- |
-| F-01 | Tests define independent immutable Python/PostgreSQL regex contracts and a complete 43-identifier contract, then compare production constants, ORM Metadata and Migration source separately against those test-local values. | `REMEDIATED_AWAITING_INDEPENDENT_REVIEW` |
-| F-02 | Integration rejection helpers assert case label, SQLSTATE and exact database constraint name, roll back the failing transaction/savepoint and prove the same connection remains usable. | `REMEDIATED_AWAITING_INDEPENDENT_REVIEW` |
-| F-03 | Owner-role proof closed the 42P04 TOCTOU deletion race, after which an independent overlap probe found per-fixture server-global zero counts falsely rejected a still-active peer fixture. Teardown now verifies only the fixture's exact database, owner role, marker and connections; a separate module lifecycle gate performs detection-only global audits when no valid module fixture is active. Real PostgreSQL regressions prove A exits while B and its same connection remain usable, both later reach zero residuals, and a real marked orphan is detected without auto-deletion. Existing 42P04, marker, owner-change, role-collision, uncertain-success, definite-failure and pre-existing-resource protections remain covered. | `REMEDIATED_AWAITING_FINAL_INDEPENDENT_REVIEW` |
-| F-04 | Independent database boundaries cover all 16 states and approved edge values; the ORM regression invokes the JSON object default twice and proves mutation isolation. | `REMEDIATED_AWAITING_INDEPENDENT_REVIEW` |
-| F-05 | Both progress documents explicitly distinguish approved Contract, implemented-but-unapproved Phase 1D-1B, Candidate Migration and the uncreated eighth Commit without claiming product completion. | `REMEDIATED_AWAITING_INDEPENDENT_REVIEW` |
+| F-01 | Tests define independent immutable Python/PostgreSQL regex contracts and a complete 43-identifier contract, then compare production constants, ORM Metadata and Migration source separately against those test-local values. | `CLOSED` |
+| F-02 | Integration rejection helpers assert case label, SQLSTATE and exact database constraint name, roll back the failing transaction/savepoint and prove the same connection remains usable. | `CLOSED` |
+| F-03 | Owner-role proof closed the 42P04 TOCTOU deletion race, after which an independent overlap probe found per-fixture server-global zero counts falsely rejected a still-active peer fixture. Teardown now verifies only the fixture's exact database, owner role, marker and connections; a separate module lifecycle gate performs detection-only global audits when no valid module fixture is active. Real PostgreSQL regressions prove A exits while B and its same connection remain usable, both later reach zero residuals, and a real marked orphan is detected without auto-deleting it. Existing 42P04, marker, owner-change, role-collision, uncertain-success, definite-failure and pre-existing-resource protections remain covered. | `CLOSED` |
+| F-04 | Independent database boundaries cover all 16 states and approved edge values; the ORM regression invokes the JSON object default twice and proves mutation isolation. | `CLOSED` |
+| F-05 | Both progress documents explicitly distinguish approved Contract, implemented-but-unapproved Phase 1D-1B, Candidate Migration and the uncreated eighth Commit without claiming product completion. | `CLOSED` |
 
 The focused F-03 lifecycle run passed 12 cases, and the complete Migration integration module passed
 all 15 cases. The implementation rerun also passed 74 backend unit tests at 97% coverage, all 16
 integration tests, Ruff, format check, strict mypy, uv lock checks, all frontend checks and
-`make check`. The development database completed `head -> base -> head`; final Catalog evidence is
-three tables, 37 constraints, three explicit indexes, 43 approved identifiers, maximum 62 bytes,
-empty business tables and zero temporary databases/roles. Containers were returned to the
-pre-task stopped state while retaining the PostgreSQL Volume. These implementation checks do not
-constitute independent approval. This status means remediation is ready for final independent
-review, not that F-03, the Candidate, the Migration or Commit 8 has been independently approved.
+`make check`. The development database completed `head -> base -> head`; final Catalog evidence was
+three tables, 37 named contract constraints, three explicit indexes, 43 approved identifiers,
+maximum 62 bytes, empty business tables and zero temporary databases/roles. The focused independent review closed
+F-01 through F-05 and authorized Commit 8. Commit
+`2c76e5ef51e4fea726407d5cccfe409a2643d694` is now the protected baseline for the next phase.
 
 ## Security Boundary
 
@@ -307,20 +308,19 @@ review, not that F-03, the Candidate, the Migration or Commit 8 has been indepen
 
 ## Known Limitations
 
-Three tables and a Migration candidate do not make PaintProject creation usable. There is no
-Principal Adapter, Repository, Service, API, create transaction, idempotency execution logic,
-initial-event business write logic, project list/detail route or frontend page. Future event/reason
-pairing beyond the approved `create_project` case remains a service-contract and later-Migration
-concern.
+Phase 1D-1B intentionally delivered schema only; it did not itself make PaintProject creation
+usable. Phase 1D-2 now has an uncommitted Principal/Repository/Service/API candidate, while the
+frontend remains deferred. Future event/reason pairing beyond the approved `create_project` case
+remains a service-contract and later-Migration concern.
 
 ## Remaining Risks
 
-- the candidate still requires a dedicated read-only ORM/Migration technical review;
-- service-layer validation must later mirror every database boundary;
+- the approved historical Migration and ORM models must remain immutable during Phase 1D-2;
+- Phase 1D-2 service/API behavior requires its own focused read-only review;
 - future event contracts may require additional conditional database constraints;
-- this uncommitted candidate must not be treated as an applied shared historical Migration.
+- schema approval does not imply frontend or integrated product completion.
 
 ## Next Task
 
-Perform the final independent focused read-only Phase 1D-1B review. Do not start API, persistence
-services or frontend implementation before that review.
+Perform the focused read-only Phase 1D-2 PaintProject persistence/API review. Do not start Phase
+1D-3 frontend implementation until that candidate is independently approved.

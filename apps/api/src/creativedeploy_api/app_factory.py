@@ -5,9 +5,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from creativedeploy_api.api.error_handlers import register_error_handlers
 from creativedeploy_api.api.router import api_router
 from creativedeploy_api.core.config import Settings, get_settings
+from creativedeploy_api.core.principal import ConfiguredDemoPrincipalAdapter
 from creativedeploy_api.db.engine import create_database_engine
+from creativedeploy_api.db.session import create_database_session_factory
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -18,6 +21,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         engine = create_database_engine(resolved_settings)
         app.state.database_engine = engine
+        app.state.database_session_factory = create_database_session_factory(engine)
         try:
             yield
         finally:
@@ -29,5 +33,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = resolved_settings
+    app.state.principal_adapter = ConfiguredDemoPrincipalAdapter.from_settings(resolved_settings)
+    register_error_handlers(app)
     app.include_router(api_router)
     return app

@@ -8,8 +8,12 @@ model suggestions, and human-owned facts separate.
 
 ## Current Implemented Capability
 
-Phase 1B and the Phase 1D-1A database foundation are complete. The current implementation remains
-limited to foundation capabilities:
+Phase 1B, Phase 1D-1A and Phase 1D-1B are complete and committed. Commit 8
+`2c76e5ef51e4fea726407d5cccfe409a2643d694` contains the approved three-model
+PaintProject persistence foundation and sole Alembic Revision `a10d3d8dab38`.
+
+Phase 1D-2 — PaintProject Persistence and API is implemented as an uncommitted candidate pending
+focused independent review. The current source and local automated evidence include:
 
 - monorepo foundation;
 - FastAPI process liveness;
@@ -19,33 +23,44 @@ limited to foundation capabilities:
 - backend and frontend automated quality checks;
 - browser-based healthy, failure, and recovery validation;
 - one shared SQLAlchemy Declarative Base with a runtime-immutable naming convention;
-- an Online-only async Alembic environment with no business revisions or tables.
+- one reviewed business Revision with `PaintProject`, `StateTransitionEvent` and
+  `CommandIdempotencyRecord`;
+- an explicit-configuration, non-production single human `configured_demo_operator` Principal
+  Adapter with no fallback identity;
+- one request-scoped `AsyncSession`, a PaintProject-specific Repository and an application Service;
+- atomic project creation with initial audit event and completed idempotency result;
+- bounded transaction-local PostgreSQL lock/statement waits and narrow safe database-error
+  classification;
+- owner-scoped create, list and detail APIs at `/api/v1/paint-projects`;
+- deterministic real-PostgreSQL regressions for replay, conflict, rollback, response-loss recovery,
+  timeout, concurrency, owner isolation and process restart persistence.
 
-These statements are supported by local automated tests and smoke-test evidence. They do
-not mean PaintPilot itself is implemented.
+The Phase 1D-2 statements are implementation evidence, not independent approval, a Git commit,
+production validation or completion of the PaintProject vertical slice.
 
-The PaintProject business implementation has not started. Phase 1D-1B ORM models and the first
-Migration candidate are the next planned implementation step and remain `NOT_STARTED`. The
-foundation health page is not the final PaintPilot UI. Phase 1C design direction is approved;
-follow its specifications and discuss any proposed UX change with the project owner. Codex must
-not unilaterally apply a generic administration-dashboard template.
+The foundation health page remains the only frontend and is not the final PaintPilot UI. Phase 1C
+design direction is approved; follow its specifications during the later Phase 1D-3 frontend task
+and discuss any proposed UX change with the project owner. Codex must not unilaterally apply a
+generic administration-dashboard template.
 
 ## Not Implemented
 
-Do not claim or imply implementation of:
+Do not claim or imply implementation or independent approval of:
 
-- PaintProject or any business entity;
-- authentication, authorization, or Principal Adapter;
+- public authentication, full authorization, JWT, OAuth or a real-user Principal Adapter;
 - image upload, analysis, segmentation, or Polygon Editor;
 - AI providers, Agent workflows, RAG, inventory, citations, or Trace;
-- HumanApproval or workflow state transitions;
-- business Migration revisions, database tables, Redis, workers, CI, or production deployment.
+- HumanApproval or workflow transitions beyond the transactional `null -> DRAFT` creation event;
+- PaintProject update/delete/owner transfer;
+- React Router or PaintPilot Projects/Create/Detail pages;
+- Redis, workers, CI, production deployment or real-user validation.
 
 ## Directory Responsibilities
 
-- `apps/api`: the independent uv-managed FastAPI package, health schemas, configuration,
-  async database engine, shared empty Metadata, Alembic foundation, readiness service, and
-  pytest tests.
+- `apps/api`: the independent uv-managed FastAPI package, health and PaintProject schemas,
+  configuration, async database engine/session, shared Metadata, Alembic, the approved three-model
+  persistence foundation, the uncommitted Phase 1D-2 Repository/Service/API candidate, and pytest
+  tests.
 - `apps/web`: the pnpm-managed React/Vite health dashboard and Vitest tests.
 - `docs/product`, `docs/architecture`, `docs/decisions`: approved Phase 0 baselines; do not
   edit them casually.
@@ -75,6 +90,11 @@ make bootstrap
 Run Make commands from the repository root. API settings resolve the repository-root
 `.env` independently of the current working directory.
 
+`APP_ENV` must be explicit and is limited to `development`, `test` or `production`. The current
+Demo Principal Adapter requires explicit ID and display-name configuration in development/test and
+rejects production. It is not public authentication; do not expose its write API publicly without
+separately approved real authentication or deployment-platform access protection.
+
 PostgreSQL:
 
 ```bash
@@ -91,8 +111,8 @@ make migration-history
 make migration-check
 ```
 
-These commands never generate or upgrade a revision. The current repository has no business
-revision or business table.
+These commands never generate or upgrade a revision. The current repository has exactly one
+business Revision, `a10d3d8dab38`, and exactly three approved business tables.
 
 Backend:
 
@@ -157,9 +177,18 @@ under normal operating-system rules, unlike the standard Make targets.
 - Run `alembic check` after changing ORM models.
 - Never create empty revisions.
 - Do not rewrite a shared or applied historical Migration merely to silence a diff.
-- The current repository has no business Revision, business table, or PaintProject ORM Model.
-- Phase 1D-1A must not introduce a PaintProject Model.
+- Preserve the sole historical business Revision `a10d3d8dab38`; do not rewrite it or create a
+  second Revision without a separately approved schema task.
+- Preserve the three approved ORM Models and physical constants during Phase 1D-2 review.
 - Preserve safe 503 responses: never expose database URLs, passwords, stack traces, or raw
   infrastructure exceptions.
+- Keep Create Project database waits finite and transaction-local. Do not remove the positive,
+  bounded lock/statement timeout settings, interpolate timeout SQL, or replace PostgreSQL
+  arbitration with a process-local lock.
+- Do not classify every SQLAlchemy exception as retryable: connection/invalidation and tagged
+  database-wait failures may return safe 503; unexpected integrity, programming, data and generic
+  SQLAlchemy failures remain safe non-retryable 500 responses.
+- Never introduce a default Demo Principal, allow HTTP fields to select it, or permit the current
+  Demo Principal Adapter in production.
 - Preserve the frontend AbortController and request-generation guards so late health
   responses cannot overwrite newer state.

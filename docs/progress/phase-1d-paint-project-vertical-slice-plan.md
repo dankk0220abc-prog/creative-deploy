@@ -1,11 +1,11 @@
 # Phase 1D — PaintProject Vertical Slice Implementation Plan
 
-- Phase Status: `IN_REVIEW`
+- Phase Status: `IN_PROGRESS`
 - Approval Date: `2026-07-24`
-- Implementation Status: `IMPLEMENTED_PENDING_REVIEW`
-- Migration Status: `CANDIDATE_PENDING_REVIEW`
+- Implementation Status: `PHASE_1D_2_IMPLEMENTED_PENDING_REVIEW`
+- Migration Status: `APPROVED_AND_COMMITTED`
 - Contract Status: `APPROVED`
-- Commit Status: `UNCOMMITTED — COMMIT_8_NOT_CREATED`
+- Commit Status: `COMMIT_8_CREATED — PHASE_1D_2_UNCOMMITTED`
 - Plan Status: `APPROVED`
 - Unblocked Date: `2026-07-26`
 - Product: `CreativeDeploy / PaintPilot`
@@ -16,24 +16,22 @@
 - Decision Records: `ADR-0002 Accepted`; `ADR-0003 Accepted`
 
 本文档已获准用于拆分 Phase 1D 实现任务。Phase 1D-1B 的三个 ORM Model、唯一
-Migration Candidate 和数据库测试已实现并等待聚焦复审；这不表示 Principal Adapter、
-Repository、Service、API、前端路由或页面已经实现。Product Contract 0.1.3、Data
-Dictionary 0.1.3 和 ADR-0003 已批准或接受。F-03 的 owner-role ownership proof 已关闭
-42P04 TOCTOU 误删窗口；随后的独立并发探针又发现，每个 fixture teardown 执行服务器全局
-零计数会把仍在正常运行的另一 fixture 误报为泄漏。本轮已将 per-fixture 精确清理验证与
-global hygiene audit 分离，并增加真实重叠 fixture 和 orphan 检测回归，等待最终独立聚焦
-只读复审；本实施记录不构成独立批准。
+Migration 和数据库测试已经独立复审、批准并作为 Commit 8
+`2c76e5ef51e4fea726407d5cccfe409a2643d694` 提交；F-01 至 F-05 均已关闭。Phase
+1D-2 的 Principal Adapter、AsyncSession 边界、Repository、Service、创建幂等事务和
+create/list/detail API 已实现为未提交候选，等待聚焦只读复审。Phase 1D-3 的 React Router
+和页面仍未开始。本实施记录只陈述候选证据，不构成对 Phase 1D-2 的独立批准。
 
 ## Implementation Progress
 
 - Phase 1D-1A — Database Metadata and Alembic Foundation: `COMPLETE_AND_COMMITTED`
 - Phase 1D-1B — PaintProject ORM Models and First Migration Candidate:
-  `IN_REVIEW`
-- Phase 1D-1B Implementation: `IMPLEMENTED_PENDING_REVIEW`
-- Phase 1D-1B Approval: `NOT_APPROVED`
-- Phase 1D-1B Commit: `NOT_COMMITTED — COMMIT_8_NOT_CREATED`
-- Phase 1D-1B F-03 Remediation:
-  `REMEDIATED_AWAITING_FINAL_INDEPENDENT_REVIEW`
+  `COMPLETE_AND_COMMITTED`
+- Phase 1D-1B Implementation: `COMPLETE_AND_COMMITTED`
+- Phase 1D-1B Approval: `APPROVED_FOR_COMMIT_8`
+- Phase 1D-1B Commit:
+  `2c76e5ef51e4fea726407d5cccfe409a2643d694 — feat(api): add PaintProject persistence foundation`
+- Phase 1D-1B Findings: `F-01 THROUGH F-05 CLOSED`
 - Phase 1D-1B F-03 Ownership Proof: each fixture transactionally claims a unique `NOLOGIN` role
   with a unique comment token, then uses `CREATE DATABASE ... OWNER ...`; 42P04 never acquires
   ownership, and teardown revalidates the role token, `NOLOGIN` state and current database owner
@@ -53,20 +51,34 @@ global hygiene audit 分离，并增加真实重叠 fixture 和 orphan 检测回
   Migration integration module, 74 backend unit tests at 97% coverage, all 16 integration tests,
   Ruff, format check, strict mypy, uv lock checks, all frontend checks and `make check` passed.
   The development database completed `head -> base -> head`; final Catalog evidence remains three
-  tables, 37 constraints, three explicit indexes, 43 approved identifiers, maximum 62 bytes, empty
-  business tables and zero temporary databases/roles.
+  tables, 37 named contract constraints, three explicit indexes, 43 approved identifiers, maximum
+  62 bytes, empty business tables and zero temporary databases/roles.
 - Phase 1D-1B Unblocked Date: `2026-07-26`
-- Phase 1D-2 — PaintProject Persistence and API: `NOT_STARTED`
+- Phase 1D-2 — PaintProject Persistence and API: `IMPLEMENTED_PENDING_REVIEW`
+- Phase 1D-2 Approval: `NOT_APPROVED`
+- Phase 1D-2 Commit: `UNCOMMITTED — NO_NEW_COMMIT_CREATED`
+- Phase 1D-2 F-09-01 Demo Principal fail-closed:
+  `REMEDIATED_AWAITING_INDEPENDENT_REVIEW`
+- Phase 1D-2 F-09-02 finite PostgreSQL wait policy:
+  `REMEDIATED_AWAITING_INDEPENDENT_REVIEW`
+- Phase 1D-2 F-09-03 SQLAlchemy error classification:
+  `REMEDIATED_AWAITING_INDEPENDENT_REVIEW`
+- Phase 1D-2 F-09-04 deterministic concurrency matrix:
+  `REMEDIATED_AWAITING_INDEPENDENT_REVIEW`
+- Phase 1D-2 Verification: 160 backend unit tests at 98% coverage, all 29 PostgreSQL integration
+  tests, Ruff, format check, strict mypy, uv lock checks, all existing frontend checks and
+  `make check` passed. The development database completed `head -> base -> head`; the sole Revision
+  remains `a10d3d8dab38`, all business tables are empty, and no temporary database or role remains.
 - Phase 1D-3 — React Router and Projects Pages: `NOT_STARTED`
 - Phase 1D-4 — Integrated Product Review: `NOT_STARTED`
 
 Phase 1D-1A establishes only shared empty SQLAlchemy Metadata and Migration tooling. It does not
 create an ORM entity, business Revision, database table, API or frontend page. Phase 1D-0C only
-clarified contracts before implementation. Phase 1D-1B now contains the implemented, uncommitted
-ORM and Migration candidate under review; later persistence, API and frontend phases remain
-`NOT_STARTED`. ORM, Migration and PostgreSQL Catalog consistency is only schema-candidate evidence;
-it does not complete the vertical slice, a real product loop, production validation or real-user
-validation.
+clarified contracts before implementation. Phase 1D-1B is approved and committed. Phase 1D-2 now
+contains the implemented, uncommitted backend persistence/API candidate; Phase 1D-3 frontend work
+remains `NOT_STARTED`. The backend candidate proves database-backed create/list/detail behavior,
+transactionality, owner isolation and idempotency, but it does not complete the UI loop, production
+validation or real-user validation.
 
 ## 1. Objective
 
@@ -155,10 +167,10 @@ states, 47 Transitions, 17 numbered Guards, Golden Case art rules and planning-o
 boundary are unchanged.
 
 The 0.1.3 alignment is approved. Phase 1D-1B ORM and Migration implementation is
-`IN_REVIEW / IMPLEMENTED_PENDING_REVIEW`, and its sole Revision remains
-`CANDIDATE_PENDING_REVIEW`. Earlier Phase 1D-1B implementation instructions are obsolete and are
-not contract sources; the current candidate uses Product Contract 0.1.3, Data Dictionary 0.1.3 and
-ADR-0003.
+`COMPLETE_AND_COMMITTED`, and its sole Revision `a10d3d8dab38` is approved historical schema.
+Earlier Phase 1D-1B implementation instructions are obsolete and are not contract sources. The
+Phase 1D-2 backend candidate uses Product Contract 0.1.3, Data Dictionary 0.1.3 and ADR-0003 and
+does not modify that Revision, its ORM models or its frozen constants.
 
 ## 5. Database Plan
 
@@ -363,13 +375,20 @@ current style and planning-mode values, owner non-null, status allowed-set Check
 uniqueness, execution status, completed-result completeness and expiration ordering. Both application
 and database layers validate critical invariants.
 
-Phase 1D-1A established Alembic without a business Revision. Phase 1D-1B now supplies one
-uncommitted business Migration candidate and does not change dependencies or Lockfiles.
+Phase 1D-1A established Alembic without a business Revision. Phase 1D-1B supplied the sole approved
+and committed business Migration `a10d3d8dab38`. Phase 1D-2 leaves that Migration, all ORM models,
+dependency manifests and Lockfiles unchanged.
 
 ## 7. Principal and Ownership Plan
 
 - Implement a small PrincipalContext Adapter using approved `configured_demo_operator` semantics.
-- Source a stable, non-secret `principal_id` and display name from configuration.
+- Require explicit `APP_ENV` from the finite `development/test/production` set.
+- Source a stable, non-secret `principal_id` and display name from explicit configuration; neither
+  has a code default.
+- Reject current Demo Principal Adapter startup in `production`; a future approved real Principal
+  Adapter is required before production or public writes.
+- Require both configured Principal fields in development/test and fail during application
+  construction when either is absent.
 - Never use `display_name` for authorization.
 - Never hardcode a personal email, password, token or API key.
 - Inject PrincipalContext into routes/services through an explicit FastAPI dependency.
@@ -381,7 +400,8 @@ uncommitted business Migration candidate and does not change dependencies or Loc
 - Require `principal_type=human` for Phase 1D project creation. A worker/system Principal cannot
   create a human-owned project.
 - Do not add public registration, Workspace or multi-tenant abstractions.
-- Do not expose an anonymous online write entry before real authentication; use protected access.
+- Do not expose an anonymous online write entry before real authentication; current API is only for
+  local, internal or deployment-platform-protected access.
 
 ## 8. Async Session and Application Layer Plan
 
@@ -396,6 +416,10 @@ uncommitted business Migration candidate and does not change dependencies or Loc
 - Do not execute SQL directly in routes.
 - Ensure cancellation and exceptions roll back the active transaction and close the session.
 - Keep health-check behavior independent and regression-tested.
+- Apply positive, bounded PostgreSQL lock and statement timeouts before the create idempotency claim
+  with parameterized transaction-local `set_config(..., true)`. Defaults are 2000 ms and 5000 ms;
+  each setting is bounded at 60000 ms and is not client-controlled.
+- Do not catch `asyncio.CancelledError` as an application/database response.
 
 ## 9. API Plan
 
@@ -480,6 +504,9 @@ exceptions never enter the response.
   record. The same key remains safe to retry.
 - Concurrent requests rely on the unique constraint and reviewed PostgreSQL transaction/lock
   behavior, not a check-then-insert race.
+- Create transactions configure `lock_timeout` and `statement_timeout` locally before the
+  conflicting INSERT. A waiter that exceeds either approved limit returns safe retryable 503
+  `DATABASE_WAIT_TIMEOUT`; commit/rollback clears the local settings before pool reuse.
 - The transaction contains only local database work and no external network call.
 - As long as a record exists, same key + same payload replays the original response and same key +
   different payload returns 409, even after `expires_at`.
@@ -591,7 +618,11 @@ controls.
 - A `409 IDEMPOTENCY_KEY_REUSED` explains that the protected request identifier was reused with
   different data and does not claim a project was created.
 - Both missing and other-owner detail requests return 404.
-- Validation uses 422; database unavailable uses 503; unexpected server failures use a safe 500.
+- Validation uses 422; idempotency payload conflict remains 409; connection failure,
+  connection invalidation and create-policy lock/statement timeout use safe retryable 503.
+- Unexpected IntegrityError, ProgrammingError, DataError and unclassified SQLAlchemyError use safe
+  non-retryable 500; raw query cancellation outside the tagged create wait policy is not
+  automatically treated as retryable.
 - All server failures log only controlled context; secrets, SQL parameters and raw driver messages
   are excluded.
 - Retry actions remain keyboard-accessible and do not clear real loaded data unnecessarily.
@@ -664,6 +695,19 @@ controls.
 - rollback leaves no partial rows;
 - database failure returns a safe response;
 - owner isolation across two test Principal contexts.
+- deterministic concurrent matrix:
+  - A: same Principal/key/payload creates once and replays once;
+  - B: same Principal/key with different payloads yields one 201 and one stable 409;
+  - C: different Principals sharing a key remain independent;
+  - D: different keys create distinct projects;
+  - E: a committed response-confirmation loss replays without duplication;
+  - F: a PostgreSQL-confirmed blocked waiter acquires after winner rollback;
+  - G: expired existing records retain concurrent replay/conflict semantics;
+  - H: a PostgreSQL-confirmed lock waiter reaches bounded safe 503 and succeeds after retry;
+  - I: list/detail and same-key behavior preserve Owner isolation.
+- all concurrent cases use explicit Event barriers or observed PostgreSQL blocking state, bounded
+  TaskGroup execution, independent AsyncSessions and exact project/event/record counts; no fixed
+  sleep is used to infer overlap or lock waiting.
 
 ### 16.3 Frontend
 
@@ -702,7 +746,7 @@ Playwright remains out of scope unless separately approved.
 
 ## 17. Implementation Sequence
 
-1. Use the approved Product Contract 0.1.3, Data Dictionary 0.1.3 and ADR-0003 as the Phase 1D-1B
+1. Use the approved Product Contract 0.1.3, Data Dictionary 0.1.3 and ADR-0003 as the Phase 1D
    contract baseline; earlier implementation instructions are obsolete.
 2. Reconfirm request/response/error schemas, scope_key format and canonical serialization version.
 3. Query the official Alembic stable version; add the reviewed dependency and shared model metadata.
@@ -720,6 +764,10 @@ Playwright remains out of scope unless separately approved.
 
 Each step should remain reviewable. Do not combine schema, API, router and cinematic Product Entry
 work into one unbounded change.
+
+Sequence status on 2026-07-26: steps 1–5 are complete in the approved Phase 1D-1B Commit 8; steps
+6–9 are implemented as the uncommitted Phase 1D-2 candidate and await focused read-only review;
+steps 10–13 belong to Phase 1D-3 or later and remain deferred.
 
 ## 18. Definition of Done
 
@@ -751,8 +799,8 @@ Phase 1D is complete only when:
 - browser smoke evidence covers the real loop and failure recovery;
 - no unimplemented image, AI, RAG, Polygon or approval capability is presented as available.
 
-Until these checks pass, implementation and portfolio claims remain `NOT_STARTED` or in-progress, not
-complete.
+The backend subset is implemented but still in review. Until the remaining frontend and integrated
+checks pass, the full Phase 1D vertical slice and portfolio claims remain in progress, not complete.
 
 ## 19. Planned Evidence
 
