@@ -9,10 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from creativedeploy_api.core.config import get_settings
 from creativedeploy_api.db.base import Base
 from creativedeploy_api.db.engine import create_database_engine
+from creativedeploy_api.db.models import REGISTERED_MODELS
 
 OFFLINE_MIGRATIONS_ERROR = (
     "Offline migrations are not supported in the current database foundation."
 )
+REGISTERED_MODEL_TABLES = tuple(model.__table__.name for model in REGISTERED_MODELS)
 target_metadata = Base.metadata
 
 

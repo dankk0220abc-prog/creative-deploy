@@ -37,6 +37,11 @@ APPROVED_NAMING_CONVENTION = {
     "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
     "pk": "pk_%(table_name)s",
 }
+APPROVED_BUSINESS_TABLES = {
+    "command_idempotency_records",
+    "paint_projects",
+    "state_transition_events",
+}
 SourceDeclaration = tuple[Path, int, str, str]
 
 
@@ -195,8 +200,8 @@ def test_naming_convention_contains_every_constraint_category() -> None:
     assert set(NAMING_CONVENTION) == {"ix", "uq", "ck", "fk", "pk"}
 
 
-def test_official_metadata_has_no_tables() -> None:
-    assert len(Base.metadata.tables) == 0
+def test_official_metadata_has_exactly_the_approved_business_tables() -> None:
+    assert set(Base.metadata.tables) == APPROVED_BUSINESS_TABLES
 
 
 def test_source_declares_only_one_declarative_base() -> None:
@@ -306,7 +311,7 @@ def test_named_check_constraint_uses_the_stable_convention() -> None:
         constraint for constraint in table.constraints if isinstance(constraint, CheckConstraint)
     )
     assert str(check.name) == "ck_named_check_example_value_positive"
-    assert len(Base.metadata.tables) == 0
+    assert set(Base.metadata.tables) == APPROVED_BUSINESS_TABLES
 
 
 def test_all_constraint_categories_use_stable_names_with_immutable_convention() -> None:
@@ -345,7 +350,7 @@ def test_all_constraint_categories_use_stable_names_with_immutable_convention() 
     assert str(foreign_key.name) == "fk_naming_child_parent_id_naming_parent"
     assert str(index.name) == "ix_naming_child_slug"
     assert str(check.name) == "ck_naming_child_id_positive"
-    assert len(Base.metadata.tables) == 0
+    assert set(Base.metadata.tables) == APPROVED_BUSINESS_TABLES
 
 
 def test_importing_base_does_not_construct_an_engine() -> None:
@@ -357,7 +362,11 @@ def fail(*args, **kwargs):
 
 sqlalchemy.ext.asyncio.create_async_engine = fail
 from creativedeploy_api.db.base import Base
-assert len(Base.metadata.tables) == 0
+assert set(Base.metadata.tables) == {
+    "paint_projects",
+    "state_transition_events",
+    "command_idempotency_records",
+}
 """
     result = subprocess.run(
         [sys.executable, "-c", source],
@@ -393,7 +402,8 @@ def test_alembic_target_metadata_is_the_official_metadata() -> None:
     module = _load_alembic_env("creativedeploy_test_alembic_env_metadata")
 
     assert module.target_metadata is Base.metadata
-    assert len(module.target_metadata.tables) == 0
+    assert set(module.target_metadata.tables) == APPROVED_BUSINESS_TABLES
+    assert set(module.REGISTERED_MODEL_TABLES) == APPROVED_BUSINESS_TABLES
 
 
 def test_offline_error_message_contains_no_connection_information() -> None:

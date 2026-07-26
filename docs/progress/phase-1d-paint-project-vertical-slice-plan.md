@@ -1,9 +1,11 @@
 # Phase 1D — PaintProject Vertical Slice Implementation Plan
 
-- Phase Status: `READY_FOR_IMPLEMENTATION`
+- Phase Status: `IN_REVIEW`
 - Approval Date: `2026-07-24`
-- Implementation Status: `NOT_STARTED`
+- Implementation Status: `IMPLEMENTED_PENDING_REVIEW`
+- Migration Status: `CANDIDATE_PENDING_REVIEW`
 - Contract Status: `APPROVED`
+- Commit Status: `UNCOMMITTED — COMMIT_8_NOT_CREATED`
 - Plan Status: `APPROVED`
 - Unblocked Date: `2026-07-26`
 - Product: `CreativeDeploy / PaintPilot`
@@ -13,16 +15,46 @@
 - Data Dictionary: `0.1.3 APPROVED_FOR_IMPLEMENTATION`
 - Decision Records: `ADR-0002 Accepted`; `ADR-0003 Accepted`
 
-本文档已获准用于拆分 Phase 1D 实现任务，但仍只描述计划，不表示 Migration、数据表、
-API、前端路由、页面或测试已经实现。Product Contract 0.1.3、Data Dictionary 0.1.3
-和 ADR-0003 已批准或接受；Phase 1D-1B 已具备实施合同，但实现仍未开始。
+本文档已获准用于拆分 Phase 1D 实现任务。Phase 1D-1B 的三个 ORM Model、唯一
+Migration Candidate 和数据库测试已实现并等待聚焦复审；这不表示 Principal Adapter、
+Repository、Service、API、前端路由或页面已经实现。Product Contract 0.1.3、Data
+Dictionary 0.1.3 和 ADR-0003 已批准或接受。F-03 的 owner-role ownership proof 已关闭
+42P04 TOCTOU 误删窗口；随后的独立并发探针又发现，每个 fixture teardown 执行服务器全局
+零计数会把仍在正常运行的另一 fixture 误报为泄漏。本轮已将 per-fixture 精确清理验证与
+global hygiene audit 分离，并增加真实重叠 fixture 和 orphan 检测回归，等待最终独立聚焦
+只读复审；本实施记录不构成独立批准。
 
 ## Implementation Progress
 
-- Phase 1D-1A — Database Metadata and Alembic Foundation: `COMPLETE`
+- Phase 1D-1A — Database Metadata and Alembic Foundation: `COMPLETE_AND_COMMITTED`
 - Phase 1D-1B — PaintProject ORM Models and First Migration Candidate:
-  `READY_FOR_IMPLEMENTATION`
-- Phase 1D-1B Implementation: `NOT_STARTED`
+  `IN_REVIEW`
+- Phase 1D-1B Implementation: `IMPLEMENTED_PENDING_REVIEW`
+- Phase 1D-1B Approval: `NOT_APPROVED`
+- Phase 1D-1B Commit: `NOT_COMMITTED — COMMIT_8_NOT_CREATED`
+- Phase 1D-1B F-03 Remediation:
+  `REMEDIATED_AWAITING_FINAL_INDEPENDENT_REVIEW`
+- Phase 1D-1B F-03 Ownership Proof: each fixture transactionally claims a unique `NOLOGIN` role
+  with a unique comment token, then uses `CREATE DATABASE ... OWNER ...`; 42P04 never acquires
+  ownership, and teardown revalidates the role token, `NOLOGIN` state and current database owner
+  before any connection termination or DROP.
+- Phase 1D-1B F-03 Cleanup Separation: a fixture teardown verifies only its exact database, owner
+  role, ownership marker and connections while preserving the development and maintenance
+  databases; it never requires other valid fixture resources or all test prefixes to be absent.
+- Phase 1D-1B F-03 Global Hygiene Gate: the current repository has no pytest-xdist dependency,
+  worker option or parallel integration command, so a module lifecycle gate performs prefix-wide
+  zero-residual audits only before any module fixture and after all module fixtures have exited,
+  without relying on test-name or collection order.
+- Phase 1D-1B F-03 Race Evidence: real PostgreSQL regressions preserve the concurrent actor database
+  and live actor connection after 42P04, prove Fixture A can cleanly exit while Fixture B and its
+  connection remain active, detect a real marked orphan without auto-deleting it, retain resources
+  when ownership proof changes, and safely recover uncertain success belonging to the fixture.
+- Phase 1D-1B F-03 Verification: 12 focused lifecycle/ownership cases, the complete 15-case
+  Migration integration module, 74 backend unit tests at 97% coverage, all 16 integration tests,
+  Ruff, format check, strict mypy, uv lock checks, all frontend checks and `make check` passed.
+  The development database completed `head -> base -> head`; final Catalog evidence remains three
+  tables, 37 constraints, three explicit indexes, 43 approved identifiers, maximum 62 bytes, empty
+  business tables and zero temporary databases/roles.
 - Phase 1D-1B Unblocked Date: `2026-07-26`
 - Phase 1D-2 — PaintProject Persistence and API: `NOT_STARTED`
 - Phase 1D-3 — React Router and Projects Pages: `NOT_STARTED`
@@ -30,7 +62,11 @@ API、前端路由、页面或测试已经实现。Product Contract 0.1.3、Data
 
 Phase 1D-1A establishes only shared empty SQLAlchemy Metadata and Migration tooling. It does not
 create an ORM entity, business Revision, database table, API or frontend page. Phase 1D-0C only
-clarifies contracts and likewise does not start Phase 1D-1B.
+clarified contracts before implementation. Phase 1D-1B now contains the implemented, uncommitted
+ORM and Migration candidate under review; later persistence, API and frontend phases remain
+`NOT_STARTED`. ORM, Migration and PostgreSQL Catalog consistency is only schema-candidate evidence;
+it does not complete the vertical slice, a real product loop, production validation or real-user
+validation.
 
 ## 1. Objective
 
@@ -119,9 +155,10 @@ states, 47 Transitions, 17 numbered Guards, Golden Case art rules and planning-o
 boundary are unchanged.
 
 The 0.1.3 alignment is approved. Phase 1D-1B ORM and Migration implementation is
-`READY_FOR_IMPLEMENTATION / NOT_STARTED`. Earlier Phase 1D-1B implementation instructions are
-obsolete and are not contract sources; a revised implementation task must use Product Contract
-0.1.3, Data Dictionary 0.1.3 and ADR-0003.
+`IN_REVIEW / IMPLEMENTED_PENDING_REVIEW`, and its sole Revision remains
+`CANDIDATE_PENDING_REVIEW`. Earlier Phase 1D-1B implementation instructions are obsolete and are
+not contract sources; the current candidate uses Product Contract 0.1.3, Data Dictionary 0.1.3 and
+ADR-0003.
 
 ## 5. Database Plan
 
@@ -326,7 +363,8 @@ current style and planning-mode values, owner non-null, status allowed-set Check
 uniqueness, execution status, completed-result completeness and expiration ordering. Both application
 and database layers validate critical invariants.
 
-No Alembic files or dependency changes are made by this planning task.
+Phase 1D-1A established Alembic without a business Revision. Phase 1D-1B now supplies one
+uncommitted business Migration candidate and does not change dependencies or Lockfiles.
 
 ## 7. Principal and Ownership Plan
 
