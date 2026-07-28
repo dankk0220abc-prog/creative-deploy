@@ -61,11 +61,20 @@ describe("Projects workspace", () => {
     expect(
       await screen.findByRole("heading", { name: "No paint projects yet" }),
     ).toBeInTheDocument();
+    const main = screen.getByRole("main");
+    const createLinks = within(main).getAllByRole("link", {
+      name: /create (?:your first )?project/i,
+    });
+    expect(createLinks).toHaveLength(1);
+    expect(createLinks[0]).toHaveAttribute("href", "/paintpilot/projects/new");
     expect(screen.queryByText("Demo project")).not.toBeInTheDocument();
     expect(screen.queryByText("Image not added")).not.toBeInTheDocument();
   });
 
-  it("preserves the backend order and renders every approved card fact", async () => {
+  it("preserves backend order and renders only the approved first-release card fields", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(
+      new Date("2026-07-28T10:00:00.000Z").getTime(),
+    );
     const first = projectFixture({
       id: PROJECT_ID,
       title: "Most recently updated",
@@ -98,24 +107,35 @@ describe("Projects workspace", () => {
     ).toBeInTheDocument();
 
     const firstCard = cards[0] as HTMLElement;
-    expect(within(firstCard).getByText("Cel Shading")).toBeInTheDocument();
-    expect(within(firstCard).getByText("Planning only")).toBeInTheDocument();
     expect(within(firstCard).getByText("No active review gate")).toBeInTheDocument();
     expect(
       within(firstCard).getByLabelText("Workflow status: Draft"),
     ).toBeInTheDocument();
+    expect(within(firstCard).getByText("1 day ago")).toBeInTheDocument();
     expect(
-      within(firstCard).getByText("<img src=x onerror=alert(1)> is rendered as text"),
-    ).toBeInTheDocument();
+      within(firstCard).getByLabelText(
+        "Updated July 27, 2026 at 10:00:00 AM UTC",
+      ),
+    ).toHaveAttribute("datetime", "2026-07-27T10:00:00.000Z");
     expect(firstCard.querySelector("img")).toBeNull();
     expect(
-      within(cards[1] as HTMLElement).getByText("No description provided."),
-    ).toBeInTheDocument();
+      within(firstCard).queryByText("<img src=x onerror=alert(1)> is rendered as text"),
+    ).not.toBeInTheDocument();
+    expect(within(firstCard).queryByText("Cel Shading")).not.toBeInTheDocument();
+    expect(within(firstCard).queryByText("Planning only")).not.toBeInTheDocument();
+    expect(within(firstCard).queryByText("Created")).not.toBeInTheDocument();
 
     expect(screen.getByRole("link", { name: "Open project Most recently updated" }))
       .toHaveAttribute("href", `/paintpilot/projects/${PROJECT_ID}`);
     expect(screen.getByRole("link", { name: "Open project Earlier project" }))
       .toHaveAttribute("href", `/paintpilot/projects/${SECOND_PROJECT_ID}`);
+    const main = screen.getByRole("main");
+    expect(
+      within(main).getByRole("link", { name: "Create project" }),
+    ).toHaveAttribute("href", "/paintpilot/projects/new");
+    expect(
+      within(main).queryByRole("link", { name: "Create your first project" }),
+    ).not.toBeInTheDocument();
   });
 
   it("opens a detail route whose data is fetched again through the API client", async () => {

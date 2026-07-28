@@ -160,6 +160,8 @@ export function ProjectsPage() {
     setOffset(nextOffset);
   };
 
+  const isEmpty = state.status === "loaded" && state.data.total === 0;
+
   return (
     <div className="page page--projects">
       <section className="workspace-hero" aria-labelledby="projects-page-title">
@@ -171,10 +173,12 @@ export function ProjectsPage() {
             an explicit human-control boundary.
           </p>
         </div>
-        <Link className="button button--primary button--hero" to="/paintpilot/projects/new">
-          <span aria-hidden="true">＋</span>
-          Create project
-        </Link>
+        {!isEmpty ? (
+          <Link className="button button--primary button--hero" to="/paintpilot/projects/new">
+            <span aria-hidden="true">＋</span>
+            Create project
+          </Link>
+        ) : null}
         <div className="workspace-hero__particles" aria-hidden="true">
           <span />
           <span />

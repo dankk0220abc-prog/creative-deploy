@@ -2,8 +2,9 @@ import { Link } from "react-router";
 
 import type { PaintProject } from "../api/paintProjects";
 import {
-  formatProjectTimestamp,
-  summarizeDescription,
+  formatProjectAccessibleTimestamp,
+  formatProjectRelativeTime,
+  toProjectISOString,
 } from "../utils/format";
 import { ProjectStatusBadge } from "./ProjectStatusBadge";
 
@@ -12,6 +13,9 @@ interface ProjectCardProps {
 }
 
 export function ProjectCard({ project }: ProjectCardProps) {
+  const exactUpdatedTime = formatProjectAccessibleTimestamp(project.updated_at);
+  const updatedDateTime = toProjectISOString(project.updated_at) ?? project.updated_at;
+
   return (
     <article className="project-card">
       <Link
@@ -39,10 +43,6 @@ export function ProjectCard({ project }: ProjectCardProps) {
             </span>
           </div>
 
-          <p className="project-card__description">
-            {summarizeDescription(project.description)}
-          </p>
-
           <div className="project-card__status-row">
             <ProjectStatusBadge status={project.status} />
             <span className="review-gate">
@@ -53,26 +53,13 @@ export function ProjectCard({ project }: ProjectCardProps) {
 
           <dl className="project-card__facts">
             <div>
-              <dt>Style</dt>
-              <dd>Cel Shading</dd>
-            </div>
-            <div>
-              <dt>Mode</dt>
-              <dd>Planning only</dd>
-            </div>
-            <div>
-              <dt>Created</dt>
-              <dd>
-                <time dateTime={project.created_at}>
-                  {formatProjectTimestamp(project.created_at)}
-                </time>
-              </dd>
-            </div>
-            <div>
               <dt>Updated</dt>
               <dd>
-                <time dateTime={project.updated_at}>
-                  {formatProjectTimestamp(project.updated_at)}
+                <time
+                  aria-label={`Updated ${exactUpdatedTime}`}
+                  dateTime={updatedDateTime}
+                >
+                  {formatProjectRelativeTime(project.updated_at)}
                 </time>
               </dd>
             </div>

@@ -19,6 +19,13 @@ const statusLabels: Record<WorkflowStatus, string> = {
   ABANDONED: "Abandoned",
 };
 
+const UNKNOWN_UPDATE_TIME = "Unknown update time";
+
+function parseTimestamp(value: string): number | null {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
 export function codePointLength(value: string): number {
   return Array.from(value).length;
 }
@@ -28,10 +35,68 @@ export function formatProjectStatus(status: WorkflowStatus): string {
 }
 
 export function formatProjectTimestamp(value: string): string {
+  const timestamp = parseTimestamp(value);
+  if (timestamp === null) {
+    return UNKNOWN_UPDATE_TIME;
+  }
+
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(new Date(value));
+  }).format(timestamp);
+}
+
+export function formatProjectAccessibleTimestamp(value: string): string {
+  const timestamp = parseTimestamp(value);
+  if (timestamp === null) {
+    return UNKNOWN_UPDATE_TIME;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "long",
+    timeStyle: "long",
+    timeZone: "UTC",
+  }).format(timestamp);
+}
+
+export function formatProjectRelativeTime(
+  value: string,
+  nowMilliseconds = Date.now(),
+): string {
+  const timestamp = parseTimestamp(value);
+  if (timestamp === null || !Number.isFinite(nowMilliseconds)) {
+    return UNKNOWN_UPDATE_TIME;
+  }
+
+  const secondsFromNow = (timestamp - nowMilliseconds) / 1_000;
+  const absoluteSeconds = Math.abs(secondsFromNow);
+
+  if (absoluteSeconds < 60) {
+    return secondsFromNow <= 0 ? "just now" : "in less than a minute";
+  }
+
+  let divisor: number;
+  let unit: Intl.RelativeTimeFormatUnit;
+  if (absoluteSeconds < 60 * 60) {
+    divisor = 60;
+    unit = "minute";
+  } else if (absoluteSeconds < 24 * 60 * 60) {
+    divisor = 60 * 60;
+    unit = "hour";
+  } else {
+    divisor = 24 * 60 * 60;
+    unit = "day";
+  }
+
+  return new Intl.RelativeTimeFormat("en", { numeric: "always" }).format(
+    Math.round(secondsFromNow / divisor),
+    unit,
+  );
+}
+
+export function toProjectISOString(value: string): string | null {
+  const timestamp = parseTimestamp(value);
+  return timestamp === null ? null : new Date(timestamp).toISOString();
 }
 
 export function summarizeDescription(
