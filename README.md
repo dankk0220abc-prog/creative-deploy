@@ -1,6 +1,6 @@
 # CreativeDeploy
 
-Project Status: Phase 1D `IN_PROGRESS` — Phase 1D-3 `CLOSED`
+Project Status: Phase 1D `COMPLETE` — Phase 1D-3 `CLOSED` — Phase 1D-4 `CLOSED`
 
 Implementation Status:
 
@@ -13,8 +13,10 @@ Implementation Status:
 - Phase 1D-3 governance reconciliation passed independent review and is sealed in
   `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`
 - Phase 1D-3 is `CLOSED`
-- Next formal phase: Phase 1D-4 — Integrated Product Review (`NOT_STARTED`)
-- Phase 1E-1 remains `NOT_STARTED`; do not enter the image-asset phase
+- Phase 1D-4 — Integrated Product Review is `CLOSED`
+- Phase 1D is `COMPLETE`
+- Next formal phase: Phase 1E-1 (`NEXT / NOT_STARTED`)
+- The image-asset phase is not implemented; AI integration is `NOT_AUTHORIZED`
 
 Phase 1D-2 Commit:
 
@@ -54,7 +56,7 @@ Phase 1D-3 Governance Reconciliation:
 
 Phase 1D:
 
-- `IN_PROGRESS`
+- `COMPLETE`
 
 Process Record:
 
@@ -73,14 +75,19 @@ review records; they do not become pre-Commit-10 evidence. The governance seal i
 
 Phase 1D-4:
 
-- `NOT_STARTED`
-- Remains **Integrated Product Review** and is the next formal phase
-- Has not formally passed
+- `CLOSED`
+- Original review verdict: `PHASE_1D_4_FAIL_REMEDIATION_REQUIRED`
+- Technical and product gates: `PASS`
+- The original single README phase-state blocker was independently remediated and sealed by
+  `707bdfa3c5931867125cc9c7dc11067a86f5f343`
+- Closure record:
+  `docs/progress/phase-1d-4-integrated-product-review-closure.md`
 
 Phase 1E-1:
 
-- `NOT_STARTED`
-- Do not enter the image-asset phase until Phase 1D-4 passes and Phase 1D final sealing is complete
+- `NEXT / NOT_STARTED`
+- The image-asset phase has not been implemented
+- AI integration remains `NOT_AUTHORIZED`
 
 CreativeDeploy 的主案例是 PaintPilot。Phase 0 已建立 Golden Case、MVP Product
 Contract、状态机、领域数据字典和 ADR。Phase 1B 提供最小、真实的本地健康检查链路；
@@ -112,9 +119,12 @@ PaintProject 后端持久化/API 闭环；Commit 10 已提交首个 PaintPilot �
 
 当前治理状态不倒填 Commit 10 创建前的批准，也不把后续复审伪装成提交前证据。治理
 reconciliation 已通过独立复审并由 `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`
-封存；Phase 1D-3 已由 `c8043b9a75aa9363a661fa245c7ac999961788fd` 正式关闭。当前仍
-没有公开认证、真实用户授权、图片上传、区域分析、Polygon Editor、AI Provider、RAG、
-Paint inventory、Agent 工作流、HumanApproval、CI 或生产部署能力。
+封存；Phase 1D-3 已由 `c8043b9a75aa9363a661fa245c7ac999961788fd` 正式关闭。Phase
+1D-4 原复审如实保留失败结论，其唯一 README 状态阻断项后来通过独立修复、独立复审并由
+`707bdfa3c5931867125cc9c7dc11067a86f5f343` 封存；结合两部分证据，Phase 1D-4 现已
+`CLOSED`，Phase 1D 现已 `COMPLETE`。当前仍没有公开认证、真实用户授权、图片上传、
+区域分析、Polygon Editor、AI Provider、RAG、Paint inventory、Agent 工作流、
+HumanApproval、CI 或生产部署能力。
 
 ## Prerequisites
 
@@ -267,7 +277,8 @@ make migration-check
   approval record；后续复审不构成倒填批准；
 - Phase 1D-3 技术 remediation 与 governance reconciliation 均已封存，Phase 1D-3 当前为
   `CLOSED`；Commit 10 的提交前批准并未被倒填；
-- Phase 1D-4 和 Phase 1E-1 均为 `NOT_STARTED`；
+- Phase 1D-4 当前为 `CLOSED`；Phase 1E-1 是下一正式阶段，仍为 `NEXT / NOT_STARTED`，
+  图片资产尚未实施且 AI 接入未授权；
 - Phase 1D-2 的 F-09-01、F-09-02、F-09-03、F-09-04 已在 Commit 9 前关闭；
 - 当前只有三个基础业务表和 create/list/detail API，没有 update、delete 或 Owner transfer；
 - 配置型单 Principal 不是公共认证、多人授权或真实用户系统，production 明确拒绝它；

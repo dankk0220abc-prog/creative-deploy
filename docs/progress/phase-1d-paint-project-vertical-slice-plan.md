@@ -1,17 +1,21 @@
 # Phase 1D — PaintProject Vertical Slice Implementation Plan
 
-- Phase Status: `IN_PROGRESS`
+- Phase Status: `COMPLETE`
 - Approval Date: `2026-07-24`
-- Implementation Status: Phase 1D-3 is `CLOSED`; its technical UX remediation and independently
-  reviewed governance reconciliation are sealed
+- Implementation Status: Phase 1D-3 and Phase 1D-4 are `CLOSED`; Phase 1D is `COMPLETE`
 - Migration Status: `APPROVED_AND_COMMITTED`
 - Contract Status: `APPROVED`
 - Commit Status: Commit 10, its UX remediation child, and the governance seal commit exist
 - Governance Status:
-  `PHASE_1D_3_CLOSED`
+  `PHASE_1D_COMPLETE`
 - Governance Seal Commit:
   `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`
-- Image-Asset Phase: `NOT_STARTED`
+- Phase 1D-4 Closure Record:
+  `docs/progress/phase-1d-4-integrated-product-review-closure.md`
+- README Remediation Seal Commit:
+  `707bdfa3c5931867125cc9c7dc11067a86f5f343`
+- Image-Asset Phase: Phase 1E-1 `NEXT / NOT_STARTED`
+- AI Integration: `NOT_AUTHORIZED`
 - Plan Status: `APPROVED`
 - Unblocked Date: `2026-07-26`
 - Product: `CreativeDeploy / PaintPilot`
@@ -33,8 +37,12 @@ approval evidence；后续追溯复审不能倒填批准。追溯复审要求的
 聚焦复审并作为 child commit `2f99aaf8e1726761c2d89ac444af8380a1cedb79` 封存。治理
 reconciliation 已通过独立复审，并由
 `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52` 封存；Phase 1D-3 当前为 `CLOSED`。
-Phase 1D 仍为 `IN_PROGRESS`；下一正式阶段 Phase 1D-4 与 Phase 1E-1 均为
-`NOT_STARTED`。
+Phase 1D-4 原复审结论为 `PHASE_1D_4_FAIL_REMEDIATION_REQUIRED`，唯一阻断项是 README
+Phase 状态矛盾；该阻断项后来通过独立修复、独立聚焦复审并由
+`707bdfa3c5931867125cc9c7dc11067a86f5f343` 封存。原失败结论不被改写，也不倒填
+Commit 10 批准。结合技术与产品门禁和阻断项封存证据，Phase 1D-4 当前为 `CLOSED`，
+Phase 1D 当前为 `COMPLETE`；下一正式阶段 Phase 1E-1 为 `NEXT / NOT_STARTED`，图片资产
+尚未实施，AI 接入仍为 `NOT_AUTHORIZED`。
 
 Evidence boundary: the commit hashes, parents, subjects, and committed file contents are
 `GIT_VERIFIED_FACT`; the no-prior-approval, retrospective-review, focused-review, and sealing
@@ -129,8 +137,19 @@ records are `OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`; the governance seal is a
 - Phase 1D-3 Database Verification: development database completed `head -> base -> head`; final
   Catalog is revision `a10d3d8dab38`, three business tables, 37 constraints and three explicit
   indexes; business rows and temporary database/role residuals are `0/0/0` and `0/0`.
-- Phase 1D-4 — Integrated Product Review: `NOT_STARTED`
-- Phase 1E-1: `NOT_STARTED`
+- Phase 1D-4 Original Review Verdict:
+  `PHASE_1D_4_FAIL_REMEDIATION_REQUIRED`
+- Phase 1D-4 Technical and Product Gates: `PASS`
+- Phase 1D-4 Original Single Blocker: README Phase-state contradiction
+- Phase 1D-4 Blocker Remediation Verdict:
+  `README_PHASE_STATE_REMEDIATION_PASS_READY_FOR_SEALING`
+- Phase 1D-4 Blocker Seal Commit:
+  `707bdfa3c5931867125cc9c7dc11067a86f5f343`
+- Phase 1D-4 — Integrated Product Review: `CLOSED`
+- Phase 1D: `COMPLETE`
+- Phase 1E-1: `NEXT / NOT_STARTED`
+- Image-Asset Implementation: `NOT_STARTED`
+- AI Integration: `NOT_AUTHORIZED`
 
 Phase 1D-1A establishes only shared empty SQLAlchemy Metadata and Migration tooling. It does not
 create an ORM entity, business Revision, database table, API or frontend page. Phase 1D-0C only
@@ -138,8 +157,10 @@ clarified contracts before implementation. Phase 1D-1B and Phase 1D-2 are approv
 Phase 1D-3 implementation and its UX remediation are committed history. They prove the local
 database-backed create/list/detail browser loop, failure recovery, restart persistence and
 responsive baseline. The governance reconciliation seal closes Phase 1D-3 without proving or
-backdating pre-Commit-10 approval. Integrated Product Review, production validation and real-user
-validation have not completed.
+backdating pre-Commit-10 approval. The Integrated Product Review's original README blocker was
+independently remediated and sealed; the combined evidence closes Phase 1D-4 and completes Phase
+1D. This does not claim production validation, real-user validation, image-asset implementation,
+or AI authorization.
 
 ## 1. Objective
 
@@ -834,7 +855,10 @@ Sequence status on 2026-07-29: steps 1–5 are complete in the approved Phase 1D
 the focused UX remediation child. The historical sequencing remains unchanged. The governance
 reconciliation passed independent review and was sealed by
 `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`, closing Phase 1D-3. Phase 1D-4 Integrated Product
-Review is the next formal phase and remains `NOT_STARTED`; Phase 1E-1 remains `NOT_STARTED`.
+Review retained its original failure verdict, then closed after its sole README state blocker was
+independently remediated, reviewed, and sealed by
+`707bdfa3c5931867125cc9c7dc11067a86f5f343`. Phase 1D is `COMPLETE`; Phase 1E-1 is the next
+formal phase at `NEXT / NOT_STARTED`.
 
 ## 18. Definition of Done
 
@@ -870,8 +894,10 @@ The backend subset is complete and committed, and the frontend/browser subset pl
 UX remediation are committed. Commit 10 entered history without a formal prior repository approval
 record; the later review does not backdate approval. The independently reviewed governance
 reconciliation is sealed, and Phase 1D-3 is `CLOSED`. Until Phase 1D-4 Integrated Product Review
-completes, the full Phase 1D vertical slice and portfolio claims remain `IN_PROGRESS`, not
-complete. Phase 1E-1 remains `NOT_STARTED`.
+completed, the full Phase 1D vertical slice and portfolio claims remained `IN_PROGRESS`. Phase
+1D-4 later closed after its only README state blocker was independently remediated, reviewed, and
+sealed; Phase 1D is now `COMPLETE`. Phase 1E-1 is `NEXT / NOT_STARTED`; image assets remain
+unimplemented and AI integration remains `NOT_AUTHORIZED`.
 
 ## 19. Planned Evidence
 

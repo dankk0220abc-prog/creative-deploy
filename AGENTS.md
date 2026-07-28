@@ -17,8 +17,8 @@ PaintProject persistence and API implementation.
 Phase 1D-3 — React Router and Projects Pages entered history as Commit 10
 `5965a8707a6ccb06d2f58d8655aabac9630e4abd`. Its source-code baseline is the UX remediation
 child `2f99aaf8e1726761c2d89ac444af8380a1cedb79`
-(`fix(web): align project home UX contract`). The current repository baseline is the deterministic
-Phase 1D-3 closure commit containing this guide; its parent and governance seal is
+(`fix(web): align project home UX contract`). The deterministic Phase 1D-3 closure commit is
+`c8043b9a75aa9363a661fa245c7ac999961788fd`; its parent and governance seal is
 `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`. The current source and verification evidence include:
 
 - monorepo foundation;
@@ -61,14 +61,22 @@ The commit hashes and relationships are `GIT_VERIFIED_FACT`. The no-prior-approv
 retrospective-review, focused-review, and sealing records are
 `OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`. The governance seal is a `GIT_VERIFIED_FACT`.
 
-## Phase 1D-3 Closed Governance Boundary
+## Phase 1D Closed Governance Boundary
 
 The reconciliation record at
 `docs/progress/phase-1d-3-governance-reconciliation-candidate.md` passed independent review with
 verdict `PHASE_1D_3_GOVERNANCE_RECONCILIATION_PASS_READY_FOR_SEALING` and was sealed by
-`ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`. Phase 1D-3 is `CLOSED`; Phase 1D remains
-`IN_PROGRESS`; Phase 1D-4 — Integrated Product Review is the next formal phase and remains
-`NOT_STARTED`; Phase 1E-1 remains `NOT_STARTED`.
+`ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`. Phase 1D-3 is `CLOSED`.
+
+Phase 1D-4 retained its original verdict `PHASE_1D_4_FAIL_REMEDIATION_REQUIRED`; the reviewer did
+not ignore the README phase-state contradiction. That sole blocker was later independently
+remediated, independently reviewed with verdict
+`README_PHASE_STATE_REMEDIATION_PASS_READY_FOR_SEALING`, and sealed by
+`707bdfa3c5931867125cc9c7dc11067a86f5f343`. The combined evidence closes Phase 1D-4 without
+rewriting the original failure. Phase 1D-4 is `CLOSED`, Phase 1D is `COMPLETE`, and Phase 1E-1 is
+the next formal phase at `NEXT / NOT_STARTED`. The image-asset phase remains unimplemented and AI
+integration is `NOT_AUTHORIZED`. See
+`docs/progress/phase-1d-4-integrated-product-review-closure.md`.
 
 For every subsequent Codex task:
 
@@ -76,14 +84,18 @@ For every subsequent Codex task:
 - do not claim or imply Commit 10 was approved before creation;
 - preserve the process exception and evidence-source classification;
 - preserve the governance seal commit and do not reopen Phase 1D-3;
-- treat Phase 1D-4 — Integrated Product Review as the only next formal phase;
-- keep Phase 1D-4 `NOT_STARTED` until a separately scoped Phase 1D-4 task begins;
-- do not begin Phase 1E-1;
-- do not enter the image-asset phase;
+- preserve the Phase 1D-4 original failure and later blocker-remediation evidence;
+- do not reopen or re-enter Phase 1D-3, Phase 1D-4, or Phase 1D;
+- treat Phase 1E-1 as the only next formal phase and keep it `NEXT / NOT_STARTED` until a
+  separately scoped Phase 1E-1 task begins;
+- do not claim the image-asset phase is implemented;
+- do not integrate AI;
+- do not select external object storage, public URLs, irreversible deletion, real authentication,
+  or major permission changes;
 - do not rewrite historical snapshots into fictional pre-commit approval.
 
-These Phase 1D-3 statements do not claim production validation, real-user validation, Phase 1D
-completion, or completion of Integrated Product Review.
+Phase 1D completion closes the specified PaintProject vertical slice. It does not claim production
+validation, real-user validation, image-asset implementation, or AI authorization.
 
 ## Not Implemented
 
@@ -243,5 +255,9 @@ under normal operating-system rules, unlike the standard Make targets.
 - Preserve the independently reviewed Phase 1D-3 governance reconciliation and its seal commit
   `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`; do not reopen Phase 1D-3 or backdate Commit 10
   approval.
-- Keep Phase 1D-4 and Phase 1E-1 `NOT_STARTED` until separately authorized tasks begin the
-  applicable phase; Phase 1D-4 is the only next formal phase.
+- Preserve the independently reviewed README remediation and its seal commit
+  `707bdfa3c5931867125cc9c7dc11067a86f5f343`; do not rewrite the original Phase 1D-4 failure.
+- Keep Phase 1D-3 and Phase 1D-4 `CLOSED` and Phase 1D `COMPLETE`; do not reopen Phase 1D.
+- Keep Phase 1E-1 `NEXT / NOT_STARTED` until a separately authorized task begins it. Do not
+  integrate AI or select external object storage, public URLs, irreversible deletion, real
+  authentication, or major permission changes.
