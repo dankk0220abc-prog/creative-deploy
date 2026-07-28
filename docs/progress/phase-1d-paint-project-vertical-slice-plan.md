@@ -2,10 +2,10 @@
 
 - Phase Status: `IN_PROGRESS`
 - Approval Date: `2026-07-24`
-- Implementation Status: `PHASE_1D_2_IMPLEMENTED_PENDING_REVIEW`
+- Implementation Status: Phase 1D-3 is implemented and awaiting final independent review
 - Migration Status: `APPROVED_AND_COMMITTED`
 - Contract Status: `APPROVED`
-- Commit Status: `COMMIT_8_CREATED — PHASE_1D_2_UNCOMMITTED`
+- Commit Status: Commit 9 is historical baseline; Commit 10 has not been created
 - Plan Status: `APPROVED`
 - Unblocked Date: `2026-07-26`
 - Product: `CreativeDeploy / PaintPilot`
@@ -19,8 +19,12 @@
 Migration 和数据库测试已经独立复审、批准并作为 Commit 8
 `2c76e5ef51e4fea726407d5cccfe409a2643d694` 提交；F-01 至 F-05 均已关闭。Phase
 1D-2 的 Principal Adapter、AsyncSession 边界、Repository、Service、创建幂等事务和
-create/list/detail API 已实现为未提交候选，等待聚焦只读复审。Phase 1D-3 的 React Router
-和页面仍未开始。本实施记录只陈述候选证据，不构成对 Phase 1D-2 的独立批准。
+create/list/detail API 已通过最终独立复审并作为 Commit 9
+`6d2c3d8001c3737e2e441ee1c0df4179660f0c57` 提交；F-09-01 至 F-09-04 均已关闭。
+Phase 1D-3 的 React Router、Projects/Create/Detail 页面和真实浏览器闭环现已实现为
+未提交候选；2026-07-27 最大安全修复批次已在允许文件内完成严格响应边界、路由级
+无障碍和真实浏览器键盘/409 三项 MAJOR 的技术修复，状态以本计划中的精确治理字段为准，
+仍等待聚焦只读复审。本实施记录只陈述候选证据，不构成对 Phase 1D-3 的独立批准或 Commit 10。
 
 ## Implementation Progress
 
@@ -54,31 +58,50 @@ create/list/detail API 已实现为未提交候选，等待聚焦只读复审。
   tables, 37 named contract constraints, three explicit indexes, 43 approved identifiers, maximum
   62 bytes, empty business tables and zero temporary databases/roles.
 - Phase 1D-1B Unblocked Date: `2026-07-26`
-- Phase 1D-2 — PaintProject Persistence and API: `IMPLEMENTED_PENDING_REVIEW`
-- Phase 1D-2 Approval: `NOT_APPROVED`
-- Phase 1D-2 Commit: `UNCOMMITTED — NO_NEW_COMMIT_CREATED`
+- Phase 1D-2 — PaintProject Persistence and API: `COMPLETE_AND_COMMITTED`
+- Phase 1D-2 Approval: `APPROVED_FOR_COMMIT_9`
+- Phase 1D-2 Commit:
+  `6d2c3d8001c3737e2e441ee1c0df4179660f0c57 — feat(api): add PaintProject persistence and API`
 - Phase 1D-2 F-09-01 Demo Principal fail-closed:
-  `REMEDIATED_AWAITING_INDEPENDENT_REVIEW`
+  `CLOSED`
 - Phase 1D-2 F-09-02 finite PostgreSQL wait policy:
-  `REMEDIATED_AWAITING_INDEPENDENT_REVIEW`
+  `CLOSED`
 - Phase 1D-2 F-09-03 SQLAlchemy error classification:
-  `REMEDIATED_AWAITING_INDEPENDENT_REVIEW`
+  `CLOSED`
 - Phase 1D-2 F-09-04 deterministic concurrency matrix:
-  `REMEDIATED_AWAITING_INDEPENDENT_REVIEW`
-- Phase 1D-2 Verification: 160 backend unit tests at 98% coverage, all 29 PostgreSQL integration
+  `CLOSED`
+- Phase 1D-2 Verification: 160 backend unit tests at 98% coverage, all 30 PostgreSQL integration
   tests, Ruff, format check, strict mypy, uv lock checks, all existing frontend checks and
   `make check` passed. The development database completed `head -> base -> head`; the sole Revision
   remains `a10d3d8dab38`, all business tables are empty, and no temporary database or role remains.
-- Phase 1D-3 — React Router and Projects Pages: `NOT_STARTED`
+- Phase 1D-3: `IMPLEMENTED_PENDING_REVIEW`
+- Phase 1D-3 Approval: `NOT_APPROVED`
+- Commit 10: `NOT_CREATED`
+- MAJOR-01: `REMEDIATED_AWAITING_FINAL_INDEPENDENT_REVIEW`
+- MAJOR-02: `REMEDIATED_AWAITING_FINAL_INDEPENDENT_REVIEW`
+- MAJOR-03: `REMEDIATED_AWAITING_FINAL_INDEPENDENT_REVIEW`
+- Phase 1D-3 Verification: 89 frontend tests across API client, route, list, create, detail and
+  accessibility behavior; ESLint, strict TypeScript, frozen pnpm install, Vite production build
+  and preview, uv locked verification, 160 backend unit tests at 98% coverage, all 30 PostgreSQL
+  integration tests and full repository `make check`.
+- Browser evidence: `IMPLEMENTED_AWAITING_FINAL_INDEPENDENT_REVIEW`
+- Phase 1D-3 Real Browser Verification: system-Chrome skip-link probe; mouse-free create journey;
+  five-Enter suppression; real 409 recovery; same-key confirmation-loss/transport/502/503/504
+  recovery; changed-payload new-key recovery; direct detail, reload and back/forward; invalid UUID,
+  project 404 and unknown route; 21-row pagination focus; and 1440, 768 and 390×844 responsive
+  checks. Critical success paths had zero console errors, warnings and unhandled page errors.
+- Phase 1D-3 Database Verification: development database completed `head -> base -> head`; final
+  Catalog is revision `a10d3d8dab38`, three business tables, 37 constraints and three explicit
+  indexes; business rows and temporary database/role residuals are `0/0/0` and `0/0`.
 - Phase 1D-4 — Integrated Product Review: `NOT_STARTED`
 
 Phase 1D-1A establishes only shared empty SQLAlchemy Metadata and Migration tooling. It does not
 create an ORM entity, business Revision, database table, API or frontend page. Phase 1D-0C only
-clarified contracts before implementation. Phase 1D-1B is approved and committed. Phase 1D-2 now
-contains the implemented, uncommitted backend persistence/API candidate; Phase 1D-3 frontend work
-remains `NOT_STARTED`. The backend candidate proves database-backed create/list/detail behavior,
-transactionality, owner isolation and idempotency, but it does not complete the UI loop, production
-validation or real-user validation.
+clarified contracts before implementation. Phase 1D-1B and Phase 1D-2 are approved and committed.
+Phase 1D-3 now contains the implemented, uncommitted frontend candidate. It proves the local
+database-backed create/list/detail browser loop, failure recovery, restart persistence and
+responsive baseline, but it does not constitute independent Phase 1D-3 approval, Commit 10,
+Integrated Product Review, production validation or real-user validation.
 
 ## 1. Objective
 
@@ -518,11 +541,11 @@ exceptions never enter the response.
 ## 11. Frontend Routing Plan
 
 Use package `react-router` v8 Declarative Mode. Do not add the `react-router-dom` package removed from
-v8. The current official stable version verification result is `8.2.0`, and the planned compatible
-range is `>=8.2.0,<9.0.0`. The exact resolved version will be locked by `pnpm-lock.yaml`.
-Immediately before dependency changes, query the official documentation again and recheck React 19,
-Vite 8 and Node 24 compatibility. This planning task does not modify `package.json` or
-`pnpm-lock.yaml`.
+v8. Phase 1D-3 rechecked the official release and compatibility information immediately before the
+dependency change, then locked direct range `~8.3.0` and resolved version `8.3.0`. The resolved
+package requires Node `>=22.22.0` and React/React DOM `>=19.2.7`; the repository's Node 24 and
+React/React DOM 19.2.8 satisfy those requirements. `package.json` and `pnpm-lock.yaml` now contain
+only this approved frontend dependency change and its required transitive resolution.
 
 Use React Router Declarative Mode for:
 
@@ -742,7 +765,10 @@ Browser smoke review remains required and must cover:
 9. desktop and 390 px mobile layouts;
 10. console free of unexpected JavaScript, React and Vite runtime errors.
 
-Playwright remains out of scope unless separately approved.
+Adding Playwright or another browser package to the repository remains out of scope. The
+2026-07-27 Phase 1D-3 remediation explicitly allowed the environment-provided browser automation
+runtime for an external audit; it added no dependency, package, lockfile entry or repository
+script.
 
 ## 17. Implementation Sequence
 
@@ -765,9 +791,10 @@ Playwright remains out of scope unless separately approved.
 Each step should remain reviewable. Do not combine schema, API, router and cinematic Product Entry
 work into one unbounded change.
 
-Sequence status on 2026-07-26: steps 1–5 are complete in the approved Phase 1D-1B Commit 8; steps
-6–9 are implemented as the uncommitted Phase 1D-2 candidate and await focused read-only review;
-steps 10–13 belong to Phase 1D-3 or later and remain deferred.
+Sequence status on 2026-07-27: steps 1–5 are complete in the approved Phase 1D-1B Commit 8; steps
+6–9 are complete in the approved Phase 1D-2 Commit 9; steps 10–13 are implemented in the
+uncommitted Phase 1D-3 candidate and await focused read-only review. Step 14 evidence is recorded
+in the Phase 1D-3 candidate report, but Phase 1D-4 Integrated Product Review remains deferred.
 
 ## 18. Definition of Done
 
@@ -799,8 +826,10 @@ Phase 1D is complete only when:
 - browser smoke evidence covers the real loop and failure recovery;
 - no unimplemented image, AI, RAG, Polygon or approval capability is presented as available.
 
-The backend subset is implemented but still in review. Until the remaining frontend and integrated
-checks pass, the full Phase 1D vertical slice and portfolio claims remain in progress, not complete.
+The backend subset is complete and committed, and the frontend/browser subset is implemented
+pending independent review. Until Phase 1D-3 receives independent approval and Phase 1D-4
+Integrated Product Review completes, the full Phase 1D vertical slice and portfolio claims remain
+in progress, not complete.
 
 ## 19. Planned Evidence
 
@@ -809,7 +838,9 @@ checks pass, the full Phase 1D vertical slice and portfolio claims remain in pro
 - frontend lint, typecheck, test and build results;
 - API request/response examples with secrets removed;
 - database row/count evidence for project, initial event and idempotency record;
-- browser screenshots for empty, create, detail, list/reopen and mobile states;
+- structured browser evidence for empty, create, detail, list/reopen and mobile states; no
+  screenshot or recording is required to be retained when the same facts are captured as compact
+  assertions;
 - restart persistence evidence;
 - final Git scope and Lockfile verification.
 

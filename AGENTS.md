@@ -8,20 +8,22 @@ model suggestions, and human-owned facts separate.
 
 ## Current Implemented Capability
 
-Phase 1B, Phase 1D-1A and Phase 1D-1B are complete and committed. Commit 8
+Phase 1B, Phase 1D-1A, Phase 1D-1B and Phase 1D-2 are complete and committed. Commit 8
 `2c76e5ef51e4fea726407d5cccfe409a2643d694` contains the approved three-model
-PaintProject persistence foundation and sole Alembic Revision `a10d3d8dab38`.
+PaintProject persistence foundation and sole Alembic Revision `a10d3d8dab38`. Commit 9
+`6d2c3d8001c3737e2e441ee1c0df4179660f0c57` contains the independently reviewed
+PaintProject persistence and API implementation.
 
-Phase 1D-2 — PaintProject Persistence and API is implemented as an uncommitted candidate pending
-focused independent review. The current source and local automated evidence include:
+Phase 1D-3 — React Router and Projects Pages is implemented as an uncommitted candidate pending
+focused independent review. The current source and local verification evidence include:
 
 - monorepo foundation;
 - FastAPI process liveness;
 - real PostgreSQL readiness using `SELECT 1`;
 - local PostgreSQL through Docker Compose;
-- React health dashboard through the Vite development proxy;
+- same-origin PaintProject API traffic through the Vite development proxy;
 - backend and frontend automated quality checks;
-- browser-based healthy, failure, and recovery validation;
+- browser-based product-loop, failure and recovery validation;
 - one shared SQLAlchemy Declarative Base with a runtime-immutable naming convention;
 - one reviewed business Revision with `PaintProject`, `StateTransitionEvent` and
   `CommandIdempotencyRecord`;
@@ -34,14 +36,20 @@ focused independent review. The current source and local automated evidence incl
 - owner-scoped create, list and detail APIs at `/api/v1/paint-projects`;
 - deterministic real-PostgreSQL regressions for replay, conflict, rollback, response-loss recovery,
   timeout, concurrency, owner isolation and process restart persistence.
+- React Router v8 Declarative Mode with redirects for `/` and `/paintpilot`, business routes for
+  Projects, Create and Detail, and a safe unknown-route page;
+- a shared CreativeDeploy/PaintPilot shell using the approved Phase 1C visual direction;
+- a contract-validating same-origin PaintProject API client with abort support and controlled
+  201/404/409/422/500/502/503/504 handling;
+- database-backed list, create and read-only detail pages with loading, empty, safe error and
+  explicit retry states;
+- page-lifetime UUID idempotency protection, same-payload retry, edit/conflict key reset and
+  duplicate-submit prevention without localStorage or visible keys;
+- real-browser create/list/detail/reopen, frontend restart, API restart, 404, database 503,
+  API-unavailable recovery, browser-history and 390 px responsive verification.
 
-The Phase 1D-2 statements are implementation evidence, not independent approval, a Git commit,
-production validation or completion of the PaintProject vertical slice.
-
-The foundation health page remains the only frontend and is not the final PaintPilot UI. Phase 1C
-design direction is approved; follow its specifications during the later Phase 1D-3 frontend task
-and discuss any proposed UX change with the project owner. Codex must not unilaterally apply a
-generic administration-dashboard template.
+The Phase 1D-3 statements are implementation evidence, not independent approval, Commit 10,
+production validation, real-user validation or completion of Integrated Product Review.
 
 ## Not Implemented
 
@@ -52,16 +60,17 @@ Do not claim or imply implementation or independent approval of:
 - AI providers, Agent workflows, RAG, inventory, citations, or Trace;
 - HumanApproval or workflow transitions beyond the transactional `null -> DRAFT` creation event;
 - PaintProject update/delete/owner transfer;
-- React Router or PaintPilot Projects/Create/Detail pages;
+- image-backed project cards, image upload controls or editable PaintProject fields;
 - Redis, workers, CI, production deployment or real-user validation.
 
 ## Directory Responsibilities
 
 - `apps/api`: the independent uv-managed FastAPI package, health and PaintProject schemas,
   configuration, async database engine/session, shared Metadata, Alembic, the approved three-model
-  persistence foundation, the uncommitted Phase 1D-2 Repository/Service/API candidate, and pytest
-  tests.
-- `apps/web`: the pnpm-managed React/Vite health dashboard and Vitest tests.
+  persistence foundation, the committed Phase 1D-2 Repository/Service/API implementation, and
+  pytest tests.
+- `apps/web`: the pnpm-managed React/Vite PaintPilot application shell, routes, API client,
+  Projects/Create/Detail pages and Vitest tests.
 - `docs/product`, `docs/architecture`, `docs/decisions`: approved Phase 0 baselines; do not
   edit them casually.
 - `docs/progress`: implementation evidence and phase status.
@@ -179,7 +188,8 @@ under normal operating-system rules, unlike the standard Make targets.
 - Do not rewrite a shared or applied historical Migration merely to silence a diff.
 - Preserve the sole historical business Revision `a10d3d8dab38`; do not rewrite it or create a
   second Revision without a separately approved schema task.
-- Preserve the three approved ORM Models and physical constants during Phase 1D-2 review.
+- Preserve the three approved ORM Models, physical constants and committed Phase 1D-2 API
+  contracts during Phase 1D-3 review.
 - Preserve safe 503 responses: never expose database URLs, passwords, stack traces, or raw
   infrastructure exceptions.
 - Keep Create Project database waits finite and transaction-local. Do not remove the positive,
@@ -191,4 +201,6 @@ under normal operating-system rules, unlike the standard Make targets.
 - Never introduce a default Demo Principal, allow HTTP fields to select it, or permit the current
   Demo Principal Adapter in production.
 - Preserve the frontend AbortController and request-generation guards so late health
-  responses cannot overwrite newer state.
+  or PaintProject responses cannot overwrite newer state.
+- Preserve same-payload idempotency-key reuse after uncertain transport/503 outcomes, reset the key
+  after field edits or conflict, and never persist the key to localStorage or expose it in the UI.

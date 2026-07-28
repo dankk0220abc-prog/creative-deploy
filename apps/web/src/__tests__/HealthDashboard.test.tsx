@@ -2,7 +2,6 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { App } from "../App";
 import {
   fetchReadiness,
   type ReadinessResponse,
@@ -265,17 +264,5 @@ describe("HealthDashboard", () => {
     });
     await vi.advanceTimersByTimeAsync(5_000);
     await expectedRejection;
-  });
-
-  it("states that PaintPilot product features are not implemented", () => {
-    fetchMock().mockReturnValue(new Promise<Response>(() => undefined));
-
-    render(<App />);
-
-    expect(
-      screen.getByText(
-        "Foundation connectivity check only. PaintPilot features are not implemented yet.",
-      ),
-    ).toBeInTheDocument();
   });
 });

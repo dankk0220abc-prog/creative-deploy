@@ -1,29 +1,60 @@
 # CreativeDeploy
 
-Project Status: Phase 1D-2 — PaintProject Persistence and API Candidate
+Project Status: Phase 1D-3 — React Router and Projects Pages Candidate
 
 Implementation Status:
 
 - Foundation implemented
 - Database metadata and Alembic foundation complete
-- Phase 1D-1B persistence schema `COMPLETE_AND_COMMITTED`
-- Phase 1D-2 backend candidate `IMPLEMENTED_PENDING_REVIEW`
-- Frontend product routes and pages `NOT_STARTED`
-- Next action: focused read-only Phase 1D-2 review; no Commit 9 has been created
+- Phase 1D-1B persistence schema is committed history
+- Phase 1D-2 persistence and API are committed history
+- Phase 1D-3 frontend candidate remains under final independent review
+- Next action: focused read-only Phase 1D-3 documentation gate; no Commit 10 has been created
 
-Phase 1D-1B Commit:
+Phase 1D-2 Commit:
 
-- Hash: `2c76e5ef51e4fea726407d5cccfe409a2643d694`
-- Subject: `feat(api): add PaintProject persistence foundation`
+- Hash: `6d2c3d8001c3737e2e441ee1c0df4179660f0c57`
+- Subject: `feat(api): add PaintProject persistence and API`
 - Revision: `a10d3d8dab38`
-- Independent review: `APPROVED_FOR_COMMIT_8`
+- Independent review: Commit 9 was authorized as historical baseline
 
-Foundation Browser Review: `PASSED`
+Phase 1D-3:
+
+- `IMPLEMENTED_PENDING_REVIEW`
+
+Phase 1D-3 Approval:
+
+- `NOT_APPROVED`
+
+Commit 10:
+
+- `NOT_CREATED`
+
+MAJOR-01:
+
+- `REMEDIATED_AWAITING_FINAL_INDEPENDENT_REVIEW`
+
+MAJOR-02:
+
+- `REMEDIATED_AWAITING_FINAL_INDEPENDENT_REVIEW`
+
+MAJOR-03:
+
+- `REMEDIATED_AWAITING_FINAL_INDEPENDENT_REVIEW`
+
+Browser evidence:
+
+- `IMPLEMENTED_AWAITING_FINAL_INDEPENDENT_REVIEW`
+
+Phase 1D-4:
+
+- `NOT_STARTED`
 
 CreativeDeploy 的主案例是 PaintPilot。Phase 0 已建立 Golden Case、MVP Product
 Contract、状态机、领域数据字典和 ADR。Phase 1B 提供最小、真实的本地健康检查链路；
-Phase 1D-1B 已提交三个 ORM Model 和唯一业务 Migration；当前未提交的 Phase 1D-2
-candidate 增加首个真实 PaintProject 后端持久化闭环：
+Phase 1D-1B 已提交三个 ORM Model 和唯一业务 Migration；Phase 1D-2 已提交真实
+PaintProject 后端持久化/API 闭环；当前未提交的 Phase 1D-3 candidate 增加首个
+PaintPilot 前端产品闭环：
 
 - React 开发页面；
 - FastAPI liveness 和 PostgreSQL readiness API；
@@ -38,10 +69,18 @@ candidate 增加首个真实 PaintProject 后端持久化闭环：
 - 同 key/same payload replay、different payload conflict 和数据库唯一约束并发仲裁；
 - transaction-local PostgreSQL lock/statement timeout 与精确数据库错误分类；
 - owner-scoped create、list 和 detail API。
+- React Router v8 Declarative Mode 与 `/paintpilot/projects`、
+  `/paintpilot/projects/new`、`/paintpilot/projects/:projectId`；
+- 共享 CreativeDeploy/PaintPilot 应用 shell；
+- 只使用同源 `/api` 的合同校验 API client；
+- 数据库支持的项目列表、创建和只读详情页；
+- loading、empty、安全 error、503/API unavailable 与显式 retry；
+- 页面生命周期内的 UUID 幂等 key、同 payload 安全重试和双重提交保护；
+- 真实浏览器 create/list/detail/reopen、前端/API 重启、故障恢复和 390 px 响应式验证。
 
-该后端 candidate 已通过本地自动化验证，但尚未独立批准、stage 或 commit。当前仍没有
-公开认证、真实用户授权、PaintPilot 前端业务页、图片上传、区域分析、Polygon Editor、
-AI Provider、RAG、Paint inventory、Agent 工作流、HumanApproval、CI 或生产部署能力。
+该前端 candidate 已通过本地自动化和浏览器验证，但尚未独立批准、stage 或 commit。
+当前仍没有公开认证、真实用户授权、图片上传、区域分析、Polygon Editor、AI Provider、
+RAG、Paint inventory、Agent 工作流、HumanApproval、CI 或生产部署能力。
 
 ## Prerequisites
 
@@ -95,7 +134,7 @@ make web
 - PostgreSQL 不可用时，readiness 返回 HTTP 503 和稳定的 `DATABASE_UNAVAILABLE`，不返回连接地址或内部异常；
 - OpenAPI：`http://127.0.0.1:8000/openapi.json`。
 
-## PaintProject API Candidate
+## PaintProject API
 
 - `POST /api/v1/paint-projects`：只接受 Title、可选 Description 和 UUID
   `Idempotency-Key`；Owner、风格、planning mode、状态、ID 和时间由服务端拥有；
@@ -190,12 +229,13 @@ make migration-check
 ## Known Limitations
 
 - 仅支持本机开发，不包含 API/Web Dockerfile、CI 或生产部署；
-- Phase 1D-2 仍是待独立复审的 uncommitted candidate；
-- F-09-01、F-09-02、F-09-03、F-09-04 均为
-  `REMEDIATED_AWAITING_INDEPENDENT_REVIEW`，Phase 1D-2 仍未获批准；
+- Phase 1D-3 仍是待独立复审的 uncommitted candidate，Commit 10 尚未创建；
+- Phase 1D-2 的 F-09-01、F-09-02、F-09-03、F-09-04 已在 Commit 9 前关闭；
 - 当前只有三个基础业务表和 create/list/detail API，没有 update、delete 或 Owner transfer；
 - 配置型单 Principal 不是公共认证、多人授权或真实用户系统，production 明确拒绝它；
-- 前端仍只展示基础设施状态，不是 PaintPilot 产品页面；
+- Create 幂等 key 仅在当前页面生命周期内保留；浏览器刷新不会恢复尚未确认请求的 key，
+  且本阶段不自行引入 localStorage 持久化协议；
+- 前端项目详情只读，卡片没有真实图片或 review-gate 数据；
 - 未配置 CORS，开发访问依赖 Vite Proxy；
 - 未实现图片、AI、RAG、完整 Trace、HumanApproval、后台任务或 Redis。
 
