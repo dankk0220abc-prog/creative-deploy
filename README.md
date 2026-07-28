@@ -25,7 +25,8 @@ Phase 1D-2 Commit:
 
 Phase 1D-3 Closure Baseline:
 
-- Current HEAD: the deterministic Phase 1D-3 closure commit containing this document
+- Current HEAD / Phase 1D-3 closure commit:
+  `c8043b9a75aa9363a661fa245c7ac999961788fd`
 - Parent / Governance seal:
   `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`
 - Source-code baseline / UX remediation:
@@ -74,10 +75,12 @@ Phase 1D-4:
 
 - `NOT_STARTED`
 - Remains **Integrated Product Review** and is the next formal phase
+- Has not formally passed
 
 Phase 1E-1:
 
 - `NOT_STARTED`
+- Do not enter the image-asset phase until Phase 1D-4 passes and Phase 1D final sealing is complete
 
 CreativeDeploy 的主案例是 PaintPilot。Phase 0 已建立 Golden Case、MVP Product
 Contract、状态机、领域数据字典和 ADR。Phase 1B 提供最小、真实的本地健康检查链路；
@@ -107,10 +110,11 @@ PaintProject 后端持久化/API 闭环；Commit 10 已提交首个 PaintPilot �
 - 页面生命周期内的 UUID 幂等 key、同 payload 安全重试和双重提交保护；
 - 真实浏览器 create/list/detail/reopen、前端/API 重启、故障恢复和 390 px 响应式验证。
 
-当前治理工作只修复状态漂移：它不倒填 Commit 10 创建前的批准，也不把后续复审伪装成
-提交前证据。治理 reconciliation 本身尚未独立复审或 Git sealing，Phase 1D-3 因此尚未
-正式关闭。当前仍没有公开认证、真实用户授权、图片上传、区域分析、Polygon Editor、
-AI Provider、RAG、Paint inventory、Agent 工作流、HumanApproval、CI 或生产部署能力。
+当前治理状态不倒填 Commit 10 创建前的批准，也不把后续复审伪装成提交前证据。治理
+reconciliation 已通过独立复审并由 `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`
+封存；Phase 1D-3 已由 `c8043b9a75aa9363a661fa245c7ac999961788fd` 正式关闭。当前仍
+没有公开认证、真实用户授权、图片上传、区域分析、Polygon Editor、AI Provider、RAG、
+Paint inventory、Agent 工作流、HumanApproval、CI 或生产部署能力。
 
 ## Prerequisites
 
