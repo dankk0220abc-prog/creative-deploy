@@ -14,8 +14,10 @@ PaintProject persistence foundation and sole Alembic Revision `a10d3d8dab38`. Co
 `6d2c3d8001c3737e2e441ee1c0df4179660f0c57` contains the independently reviewed
 PaintProject persistence and API implementation.
 
-Phase 1D-3 — React Router and Projects Pages is implemented as an uncommitted candidate pending
-focused independent review. The current source and local verification evidence include:
+Phase 1D-3 — React Router and Projects Pages entered history as Commit 10
+`5965a8707a6ccb06d2f58d8655aabac9630e4abd`. The current code baseline is its UX remediation
+child `2f99aaf8e1726761c2d89ac444af8380a1cedb79`
+(`fix(web): align project home UX contract`). The current source and verification evidence include:
 
 - monorepo foundation;
 - FastAPI process liveness;
@@ -48,8 +50,38 @@ focused independent review. The current source and local verification evidence i
 - real-browser create/list/detail/reopen, frontend restart, API restart, 404, database 503,
   API-unavailable recovery, browser-history and 390 px responsive verification.
 
-The Phase 1D-3 statements are implementation evidence, not independent approval, Commit 10,
-production validation, real-user validation or completion of Integrated Product Review.
+The Phase 1D-3 F-01/F-02 technical remediation was independently reviewed and sealed. This does
+not cure or erase the governance exception: Commit 10 entered Git history without a formal prior
+repository approval record, and no prior repository approval evidence was found. The later review
+does not backdate approval.
+
+The commit hashes and relationships are `GIT_VERIFIED_FACT`. The no-prior-approval,
+retrospective-review, focused-review, and sealing records are
+`OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`. Pending closure and next-phase restrictions are
+`CURRENT_GOVERNANCE_INFERENCE`.
+
+## Phase 1D-3 Governance Boundary
+
+The current reconciliation record is
+`docs/progress/phase-1d-3-governance-reconciliation-candidate.md` with status
+`GOVERNANCE_RECONCILIATION_CANDIDATE_PENDING_INDEPENDENT_REVIEW`. The governance reconciliation
+itself remains an unapproved candidate, and Phase 1D remains `IN_PROGRESS`.
+
+For every subsequent Codex task:
+
+- do not claim Commit 10 is uncreated;
+- do not claim or imply Commit 10 was approved before creation;
+- preserve the process exception and evidence-source classification;
+- do not treat the technical remediation sealing as governance reconciliation approval;
+- require a new independent read-only governance review before any governance sealing;
+- do not mark Phase 1D-3 formally closed before that review and sealing complete;
+- do not begin Phase 1D-4, which remains the unstarted Integrated Product Review, before that
+  governance closure is independently reviewed and sealed;
+- do not begin Phase 1E-1;
+- do not rewrite historical snapshots into fictional pre-commit approval.
+
+These Phase 1D-3 statements do not claim production validation, real-user validation, Phase 1D
+completion, or completion of Integrated Product Review.
 
 ## Not Implemented
 
@@ -204,3 +236,9 @@ under normal operating-system rules, unlike the standard Make targets.
   or PaintProject responses cannot overwrite newer state.
 - Preserve same-payload idempotency-key reuse after uncertain transport/503 outcomes, reset the key
   after field edits or conflict, and never persist the key to localStorage or expose it in the UI.
+- Preserve Commit 10 `5965a8707a6ccb06d2f58d8655aabac9630e4abd` and the current code baseline
+  `2f99aaf8e1726761c2d89ac444af8380a1cedb79` as immutable Git history; never backdate approval.
+- Keep the Phase 1D-3 governance reconciliation unapproved until a separate independent read-only
+  review and separate Git sealing complete.
+- Keep Phase 1D-4 and Phase 1E-1 unstarted until the recorded remaining governance gates permit
+  them.

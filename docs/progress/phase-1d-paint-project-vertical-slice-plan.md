@@ -2,10 +2,14 @@
 
 - Phase Status: `IN_PROGRESS`
 - Approval Date: `2026-07-24`
-- Implementation Status: Phase 1D-3 is implemented and awaiting final independent review
+- Implementation Status: Phase 1D-3 technical UX remediation is sealed; governance reconciliation
+  is pending independent review
 - Migration Status: `APPROVED_AND_COMMITTED`
 - Contract Status: `APPROVED`
-- Commit Status: Commit 9 is historical baseline; Commit 10 has not been created
+- Commit Status: Commit 10 and its UX remediation child exist; the current governance candidate is
+  uncommitted
+- Governance Status:
+  `GOVERNANCE_RECONCILIATION_CANDIDATE_PENDING_INDEPENDENT_REVIEW`
 - Plan Status: `APPROVED`
 - Unblocked Date: `2026-07-26`
 - Product: `CreativeDeploy / PaintPilot`
@@ -21,10 +25,18 @@ Migration 和数据库测试已经独立复审、批准并作为 Commit 8
 1D-2 的 Principal Adapter、AsyncSession 边界、Repository、Service、创建幂等事务和
 create/list/detail API 已通过最终独立复审并作为 Commit 9
 `6d2c3d8001c3737e2e441ee1c0df4179660f0c57` 提交；F-09-01 至 F-09-04 均已关闭。
-Phase 1D-3 的 React Router、Projects/Create/Detail 页面和真实浏览器闭环现已实现为
-未提交候选；2026-07-27 最大安全修复批次已在允许文件内完成严格响应边界、路由级
-无障碍和真实浏览器键盘/409 三项 MAJOR 的技术修复，状态以本计划中的精确治理字段为准，
-仍等待聚焦只读复审。本实施记录只陈述候选证据，不构成对 Phase 1D-3 的独立批准或 Commit 10。
+Phase 1D-3 的 React Router、Projects/Create/Detail 页面和真实浏览器闭环已进入
+Commit 10 `5965a8707a6ccb06d2f58d8655aabac9630e4abd`。Commit 10 创建前没有找到正式仓库
+approval evidence；后续追溯复审不能倒填批准。追溯复审要求的 F-01/F-02 UX 修复已通过
+聚焦复审并作为 child commit `2f99aaf8e1726761c2d89ac444af8380a1cedb79` 封存。当前只
+建立治理 reconciliation candidate；它仍未独立批准或 Git sealing，因此 Phase 1D-3 尚未
+正式关闭，Phase 1D-4 和 Phase 1E-1 均不得开始。
+
+Evidence boundary: the commit hashes, parents, subjects, and committed file contents are
+`GIT_VERIFIED_FACT`; the no-prior-approval, retrospective-review, focused-review, and sealing
+records are `OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`; the pending closure and next-phase
+restrictions are `CURRENT_GOVERNANCE_INFERENCE`. See
+`docs/progress/phase-1d-3-governance-reconciliation-candidate.md`.
 
 ## Implementation Progress
 
@@ -74,17 +86,36 @@ Phase 1D-3 的 React Router、Projects/Create/Detail 页面和真实浏览器闭
   tests, Ruff, format check, strict mypy, uv lock checks, all existing frontend checks and
   `make check` passed. The development database completed `head -> base -> head`; the sole Revision
   remains `a10d3d8dab38`, all business tables are empty, and no temporary database or role remains.
-- Phase 1D-3: `IMPLEMENTED_PENDING_REVIEW`
-- Phase 1D-3 Approval: `NOT_APPROVED`
-- Commit 10: `NOT_CREATED`
-- MAJOR-01: `REMEDIATED_AWAITING_FINAL_INDEPENDENT_REVIEW`
-- MAJOR-02: `REMEDIATED_AWAITING_FINAL_INDEPENDENT_REVIEW`
-- MAJOR-03: `REMEDIATED_AWAITING_FINAL_INDEPENDENT_REVIEW`
-- Phase 1D-3 Verification: 89 frontend tests across API client, route, list, create, detail and
-  accessibility behavior; ESLint, strict TypeScript, frozen pnpm install, Vite production build
-  and preview, uv locked verification, 160 backend unit tests at 98% coverage, all 30 PostgreSQL
-  integration tests and full repository `make check`.
-- Browser evidence: `IMPLEMENTED_AWAITING_FINAL_INDEPENDENT_REVIEW`
+- Phase 1D-3 Technical Implementation: `COMMITTED_AS_COMMIT_10`
+- Commit 10:
+  `5965a8707a6ccb06d2f58d8655aabac9630e4abd — feat(web): add PaintProject routes and project pages`
+- Phase 1D-3 Pre-Commit Approval Evidence (`OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`):
+  `NO_PRIOR_REPOSITORY_APPROVAL_EVIDENCE_FOUND`
+- Phase 1D-3 Retrospective Review (`OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`):
+  `PHASE_1D_3_REMEDIATION_REQUIRED`
+- Phase 1D-3 Retrospective F-01 (`OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`):
+  `REMEDIATED_AND_SEALED`
+- Phase 1D-3 Retrospective F-02 (`OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`):
+  `REMEDIATED_AND_SEALED`
+- Current HEAD / Phase 1D-3 UX Remediation (`GIT_VERIFIED_FACT`):
+  `2f99aaf8e1726761c2d89ac444af8380a1cedb79 — fix(web): align project home UX contract`
+- Phase 1D-3 UX Remediation Status (`OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`):
+  `PHASE_1D_3_UX_REMEDIATION_SEALED`
+- Phase 1D-3 Governance Reconciliation:
+  `GOVERNANCE_RECONCILIATION_CANDIDATE_PENDING_INDEPENDENT_REVIEW`
+- Phase 1D-3 Governance Approval: `NOT_INDEPENDENTLY_APPROVED`
+- Phase 1D-3 Governance Closure: `NOT_CLOSED`
+- Historical Commit 10 Verification Evidence (`OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`): 89
+  frontend tests across 6 test files covering API client, route, list, create, detail and
+  accessibility behavior. This is the candidate evidence recorded when Commit 10 was created; it
+  is not the current post-remediation frontend test total.
+- Current Post-Remediation Verification Evidence
+  (`FACT — CURRENT_GIT_AND_COMMAND_EVIDENCE`): at current remediation HEAD
+  `2f99aaf8e1726761c2d89ac444af8380a1cedb79`, the 2026-07-29 canonical `make check`
+  rerun passed 97 frontend tests across 8 test files, 160 backend unit tests at 98% coverage, and
+  all 30 PostgreSQL integration tests, together with API/Web lint, API format check, strict
+  API/Web typecheck, and the Vite production build.
+- Browser evidence: `RECORDED_IN_COMMIT_10_CANDIDATE_SNAPSHOT`
 - Phase 1D-3 Real Browser Verification: system-Chrome skip-link probe; mouse-free create journey;
   five-Enter suppression; real 409 recovery; same-key confirmation-loss/transport/502/503/504
   recovery; changed-payload new-key recovery; direct detail, reload and back/forward; invalid UUID,
@@ -94,14 +125,16 @@ Phase 1D-3 的 React Router、Projects/Create/Detail 页面和真实浏览器闭
   Catalog is revision `a10d3d8dab38`, three business tables, 37 constraints and three explicit
   indexes; business rows and temporary database/role residuals are `0/0/0` and `0/0`.
 - Phase 1D-4 — Integrated Product Review: `NOT_STARTED`
+- Phase 1E-1: `NOT_STARTED`
 
 Phase 1D-1A establishes only shared empty SQLAlchemy Metadata and Migration tooling. It does not
 create an ORM entity, business Revision, database table, API or frontend page. Phase 1D-0C only
 clarified contracts before implementation. Phase 1D-1B and Phase 1D-2 are approved and committed.
-Phase 1D-3 now contains the implemented, uncommitted frontend candidate. It proves the local
+Phase 1D-3 implementation and its UX remediation are committed history. They prove the local
 database-backed create/list/detail browser loop, failure recovery, restart persistence and
-responsive baseline, but it does not constitute independent Phase 1D-3 approval, Commit 10,
-Integrated Product Review, production validation or real-user validation.
+responsive baseline. They do not prove that Commit 10 had prior approval, that the current
+governance reconciliation is approved, that Phase 1D-3 is formally closed, or that Integrated
+Product Review, production validation or real-user validation has completed.
 
 ## 1. Objective
 
@@ -791,10 +824,12 @@ script.
 Each step should remain reviewable. Do not combine schema, API, router and cinematic Product Entry
 work into one unbounded change.
 
-Sequence status on 2026-07-27: steps 1–5 are complete in the approved Phase 1D-1B Commit 8; steps
-6–9 are complete in the approved Phase 1D-2 Commit 9; steps 10–13 are implemented in the
-uncommitted Phase 1D-3 candidate and await focused read-only review. Step 14 evidence is recorded
-in the Phase 1D-3 candidate report, but Phase 1D-4 Integrated Product Review remains deferred.
+Sequence status on 2026-07-29: steps 1–5 are complete in the approved Phase 1D-1B Commit 8; steps
+6–9 are complete in the approved Phase 1D-2 Commit 9; steps 10–14 entered Git through Commit 10 and
+the focused UX remediation child. The historical sequencing remains unchanged. The current
+remaining gates are an independent read-only review of the governance reconciliation, separate Git
+sealing after a pass, and a post-sealing current-status verification. Phase 1D-4 Integrated Product
+Review and Phase 1E-1 remain deferred.
 
 ## 18. Definition of Done
 
@@ -826,10 +861,12 @@ Phase 1D is complete only when:
 - browser smoke evidence covers the real loop and failure recovery;
 - no unimplemented image, AI, RAG, Polygon or approval capability is presented as available.
 
-The backend subset is complete and committed, and the frontend/browser subset is implemented
-pending independent review. Until Phase 1D-3 receives independent approval and Phase 1D-4
-Integrated Product Review completes, the full Phase 1D vertical slice and portfolio claims remain
-in progress, not complete.
+The backend subset is complete and committed, and the frontend/browser subset plus its F-01/F-02
+UX remediation are committed. Commit 10 entered history without a formal prior repository approval
+record; the later review does not backdate approval. Until the Phase 1D-3 governance reconciliation
+is independently reviewed and sealed, Phase 1D-3 remains not formally closed. Until that closure
+and Phase 1D-4 Integrated Product Review complete, the full Phase 1D vertical slice and portfolio
+claims remain in progress, not complete. Phase 1E-1 remains unstarted.
 
 ## 19. Planned Evidence
 

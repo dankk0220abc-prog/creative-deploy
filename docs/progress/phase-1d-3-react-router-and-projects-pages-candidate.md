@@ -1,5 +1,45 @@
 # Phase 1D-3 — React Router and Projects Pages Candidate
 
+## Current Governance Status — 2026-07-29
+
+- Current code baseline / remediation commit:
+  `2f99aaf8e1726761c2d89ac444af8380a1cedb79`
+- Commit 10:
+  `5965a8707a6ccb06d2f58d8655aabac9630e4abd`
+- Commit 10 status: `EXISTS_IN_GIT_HISTORY`
+- Technical remediation status: `PHASE_1D_3_UX_REMEDIATION_SEALED`
+- Governance reconciliation:
+  `GOVERNANCE_RECONCILIATION_CANDIDATE_PENDING_INDEPENDENT_REVIEW`
+- Governance reconciliation approval: `NOT_INDEPENDENTLY_APPROVED`
+- Phase 1D-3 governance closure: `NOT_CLOSED`
+- Phase 1D: `IN_PROGRESS`
+- Phase 1D-4 — Integrated Product Review: `NOT_STARTED`
+- Phase 1E-1: `NOT_STARTED`
+
+Evidence boundary: the two commit hashes and their relationship are `GIT_VERIFIED_FACT`; the
+no-prior-approval, retrospective-review, focused-review, and sealing records are
+`OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`; the pending closure and next-phase restrictions are
+`CURRENT_GOVERNANCE_INFERENCE`.
+
+Commit 10 entered Git history without a formal prior repository approval record. No prior
+repository approval evidence was found. The later review does not backdate approval. A
+retrospective independent review later required F-01/F-02 remediation; the remediation was
+independently reviewed and sealed in
+`2f99aaf8e1726761c2d89ac444af8380a1cedb79`.
+
+The governance reconciliation itself remains an unapproved candidate. Its full evidence
+classification, process-exception record, and remaining gates are in
+`docs/progress/phase-1d-3-governance-reconciliation-candidate.md`. Phase 1D-3 cannot be marked
+formally closed, and Phase 1D-4 or Phase 1E-1 cannot begin, until the reconciliation receives a new
+independent read-only review and separate Git sealing.
+
+## Historical Candidate Snapshot — 2026-07-27 (Preserved)
+
+Everything below this heading is the Phase 1D-3 candidate snapshot that entered Git with Commit
+10. Its `NOT_APPROVED` and `NOT_CREATED` statements are preserved as historical evidence of the
+process exception. They are not current repository facts and must not be used to claim that Commit
+10 is still uncreated.
+
 - Phase 1D-3: `IMPLEMENTED_PENDING_REVIEW`
 - Contract Status: governing contract frozen for this candidate
 - Phase 1D-3 Approval: `NOT_APPROVED`

@@ -1,6 +1,6 @@
 # CreativeDeploy
 
-Project Status: Phase 1D-3 — React Router and Projects Pages Candidate
+Project Status: Phase 1D-3 — Governance Reconciliation Candidate
 
 Implementation Status:
 
@@ -8,8 +8,11 @@ Implementation Status:
 - Database metadata and Alembic foundation complete
 - Phase 1D-1B persistence schema is committed history
 - Phase 1D-2 persistence and API are committed history
-- Phase 1D-3 frontend candidate remains under final independent review
-- Next action: focused read-only Phase 1D-3 documentation gate; no Commit 10 has been created
+- Phase 1D-3 frontend implementation exists in Commit 10
+- F-01/F-02 UX remediation is committed as the current code baseline
+- Phase 1D-3 governance reconciliation remains an unapproved candidate
+- Next action: independent read-only governance review; do not commit this candidate or begin the
+  next phase
 
 Phase 1D-2 Commit:
 
@@ -18,43 +21,62 @@ Phase 1D-2 Commit:
 - Revision: `a10d3d8dab38`
 - Independent review: Commit 9 was authorized as historical baseline
 
-Phase 1D-3:
+Current Git Baseline:
 
-- `IMPLEMENTED_PENDING_REVIEW`
-
-Phase 1D-3 Approval:
-
-- `NOT_APPROVED`
+- HEAD: `2f99aaf8e1726761c2d89ac444af8380a1cedb79`
+- Subject: `fix(web): align project home UX contract`
+- Parent / Commit 10: `5965a8707a6ccb06d2f58d8655aabac9630e4abd`
 
 Commit 10:
 
-- `NOT_CREATED`
+- Hash: `5965a8707a6ccb06d2f58d8655aabac9630e4abd`
+- Subject: `feat(web): add PaintProject routes and project pages`
+- Status: `EXISTS_IN_GIT_HISTORY`
 
-MAJOR-01:
+Phase 1D-3 Technical Remediation:
 
-- `REMEDIATED_AWAITING_FINAL_INDEPENDENT_REVIEW`
+- `PHASE_1D_3_UX_REMEDIATION_SEALED`
 
-MAJOR-02:
+Phase 1D-3 Governance Reconciliation:
 
-- `REMEDIATED_AWAITING_FINAL_INDEPENDENT_REVIEW`
+- `GOVERNANCE_RECONCILIATION_CANDIDATE_PENDING_INDEPENDENT_REVIEW`
+- Approval: `NOT_INDEPENDENTLY_APPROVED`
+- Closure: `NOT_CLOSED`
 
-MAJOR-03:
+Phase 1D:
 
-- `REMEDIATED_AWAITING_FINAL_INDEPENDENT_REVIEW`
+- `IN_PROGRESS`
 
-Browser evidence:
+Process Record:
 
-- `IMPLEMENTED_AWAITING_FINAL_INDEPENDENT_REVIEW`
+- Commit 10 entered Git history without a formal prior repository approval record.
+- No prior repository approval evidence was found.
+- The later review does not backdate approval.
+- The remediation was independently reviewed and sealed.
+- The governance reconciliation itself remains an unapproved candidate.
+- Full classification and remaining gates:
+  `docs/progress/phase-1d-3-governance-reconciliation-candidate.md`
+
+The commit hashes and relationships above are Git-verified facts. The no-prior-approval,
+retrospective-review, focused-review, and sealing records are owner-supplied external review
+records being incorporated now; they do not become pre-Commit-10 evidence. The pending closure and
+next-phase restrictions are current governance inferences.
 
 Phase 1D-4:
+
+- `NOT_STARTED`
+- Remains **Integrated Product Review** and may begin only after Phase 1D-3 governance closure is
+  independently reviewed and sealed
+
+Phase 1E-1:
 
 - `NOT_STARTED`
 
 CreativeDeploy 的主案例是 PaintPilot。Phase 0 已建立 Golden Case、MVP Product
 Contract、状态机、领域数据字典和 ADR。Phase 1B 提供最小、真实的本地健康检查链路；
 Phase 1D-1B 已提交三个 ORM Model 和唯一业务 Migration；Phase 1D-2 已提交真实
-PaintProject 后端持久化/API 闭环；当前未提交的 Phase 1D-3 candidate 增加首个
-PaintPilot 前端产品闭环：
+PaintProject 后端持久化/API 闭环；Commit 10 已提交首个 PaintPilot 前端产品闭环，
+其 F-01/F-02 UX 修复已在当前 HEAD 封存：
 
 - React 开发页面；
 - FastAPI liveness 和 PostgreSQL readiness API；
@@ -78,9 +100,10 @@ PaintPilot 前端产品闭环：
 - 页面生命周期内的 UUID 幂等 key、同 payload 安全重试和双重提交保护；
 - 真实浏览器 create/list/detail/reopen、前端/API 重启、故障恢复和 390 px 响应式验证。
 
-该前端 candidate 已通过本地自动化和浏览器验证，但尚未独立批准、stage 或 commit。
-当前仍没有公开认证、真实用户授权、图片上传、区域分析、Polygon Editor、AI Provider、
-RAG、Paint inventory、Agent 工作流、HumanApproval、CI 或生产部署能力。
+当前治理工作只修复状态漂移：它不倒填 Commit 10 创建前的批准，也不把后续复审伪装成
+提交前证据。治理 reconciliation 本身尚未独立复审或 Git sealing，Phase 1D-3 因此尚未
+正式关闭。当前仍没有公开认证、真实用户授权、图片上传、区域分析、Polygon Editor、
+AI Provider、RAG、Paint inventory、Agent 工作流、HumanApproval、CI 或生产部署能力。
 
 ## Prerequisites
 
@@ -229,7 +252,11 @@ make migration-check
 ## Known Limitations
 
 - 仅支持本机开发，不包含 API/Web Dockerfile、CI 或生产部署；
-- Phase 1D-3 仍是待独立复审的 uncommitted candidate，Commit 10 尚未创建；
+- Commit 10 和 UX remediation commit 已存在，但 Commit 10 创建前没有可用的正式仓库
+  approval record；后续复审不构成倒填批准；
+- Phase 1D-3 技术 remediation 已封存，但 governance reconciliation 仍是
+  `NOT_INDEPENDENTLY_APPROVED` candidate，Phase 1D-3 尚未正式关闭；
+- Phase 1D-4 和 Phase 1E-1 均为 `NOT_STARTED`；
 - Phase 1D-2 的 F-09-01、F-09-02、F-09-03、F-09-04 已在 Commit 9 前关闭；
 - 当前只有三个基础业务表和 create/list/detail API，没有 update、delete 或 Owner transfer；
 - 配置型单 Principal 不是公共认证、多人授权或真实用户系统，production 明确拒绝它；
