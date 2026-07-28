@@ -10,11 +10,12 @@ phase: Phase 1D-3 — React Router and Projects Pages
 
 # Phase 1D-3 Governance Reconciliation Candidate
 
-Current status:
+Candidate status at the Commit A sealing input:
 `GOVERNANCE_RECONCILIATION_CANDIDATE_PENDING_INDEPENDENT_REVIEW`
 
-This is a present-day candidate record. It is not an approval, closure, Git-sealing record, or
-replacement for an independent read-only governance review.
+The candidate-status fields and sections below are the history sealed by Commit A. They are not a
+claim of the post-sealing current state. The superseding current state is recorded in
+**Final Closure** below.
 
 ## 1. Purpose
 
@@ -83,7 +84,7 @@ The historical worktree statement is not reconstructible from the current reposi
 `GIT_VERIFIED_FACT`. It is not used to prove pre-Commit-10 approval, and it does not affect direct
 verification of the current Candidate Scope or current Git status.
 
-### CURRENT_GOVERNANCE_INFERENCE
+### CURRENT_GOVERNANCE_INFERENCE at Candidate Sealing Input
 
 Based on the Git facts and the owner-supplied external records:
 
@@ -137,7 +138,7 @@ The Git-verified six-file remediation scope is:
 5. `apps/web/src/pages/ProjectsPage.tsx`;
 6. `apps/web/src/utils/format.ts`.
 
-## 6. Current Truth
+## 6. Candidate Truth at Sealing Input
 
 - Commit 10 exists at `5965a8707a6ccb06d2f58d8655aabac9630e4abd`.
 - The former current-state statement “Commit 10 was not created” is disproved by Git.
@@ -150,7 +151,7 @@ The Git-verified six-file remediation scope is:
   partially executed.
 - Phase 1E-1 has not started.
 
-## 7. Required Remaining Gates
+## 7. Candidate Required Remaining Gates at Sealing Input
 
 1. A new independent Codex conversation must perform a focused, read-only review of this exact
    governance candidate.
@@ -161,7 +162,7 @@ The Git-verified six-file remediation scope is:
 5. After Phase 1D-3 governance closure is independently reviewed and sealed, Phase 1D-4 may begin.
 6. Phase 1E-1 remains blocked by the Phase 1D Definition of Done and Phase 1D-4.
 
-## 8. Explicit Non-Claims
+## 8. Explicit Candidate Non-Claims at Sealing Input
 
 This record does not claim:
 
@@ -176,7 +177,7 @@ This record does not claim:
 - image upload, image analysis, AI providers, RAG, Agent workflows, inventory, Polygon editing, or
   HumanApproval capability exists.
 
-## 9. Approval Boundary
+## 9. Candidate Approval Boundary at Sealing Input
 
 Current status:
 `GOVERNANCE_RECONCILIATION_CANDIDATE_PENDING_INDEPENDENT_REVIEW`
@@ -211,6 +212,34 @@ Line references below identify the pre-reconciliation state at base HEAD
 | Remediation commit and its parent/six-file scope | `GIT_VERIFIED_FACT` | Git object `2f99aaf8e1726761c2d89ac444af8380a1cedb79` | yes | identify sealed technical scope |
 | Focused review and sealing verdicts | `OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD` | owner-supplied task; review trailer text is also present in Git | partially | establish later remediation outcome only |
 | Phase 1D-3 awaits governance closure | `CURRENT_GOVERNANCE_INFERENCE` | combined classified evidence | no | control present next steps |
+
+## Final Closure — 2026-07-29
+
+This section supersedes the candidate-status fields for current-state reporting while preserving
+the candidate history, Process Exception, evidence classification, and Manifest Protocol.
+
+- independent review verdict:
+  `PHASE_1D_3_GOVERNANCE_RECONCILIATION_PASS_READY_FOR_SEALING`;
+- governance seal commit:
+  `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`;
+- closure effective at the governance seal commit;
+- Phase 1D-3: `CLOSED`;
+- Phase 1D: `IN_PROGRESS`;
+- next formal phase: Phase 1D-4 — Integrated Product Review;
+- Phase 1D-4: `NOT_STARTED`;
+- Phase 1E-1: `NOT_STARTED`;
+- image-asset work has not started and must not begin in this closure task.
+
+Commit 10 exists at `5965a8707a6ccb06d2f58d8655aabac9630e4abd`. No formal repository approval
+evidence was found from before its creation, and neither the later remediation review nor this
+governance closure backdates approval. F-01/F-02 were remediated by
+`2f99aaf8e1726761c2d89ac444af8380a1cedb79`. The governance reconciliation was independently
+reviewed and sealed by the commit recorded above; that seal closes Phase 1D-3 without erasing the
+process exception.
+
+The Manifest Protocol below remains the exact reproducibility record for the five-file candidate
+sealed by Commit A. It is preserved as history and is not redefined for the post-sealing closure
+diff.
 
 ## Appendix A — Governance Candidate Manifest Protocol v1
 

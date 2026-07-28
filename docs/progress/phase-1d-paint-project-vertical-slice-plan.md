@@ -2,14 +2,16 @@
 
 - Phase Status: `IN_PROGRESS`
 - Approval Date: `2026-07-24`
-- Implementation Status: Phase 1D-3 technical UX remediation is sealed; governance reconciliation
-  is pending independent review
+- Implementation Status: Phase 1D-3 is `CLOSED`; its technical UX remediation and independently
+  reviewed governance reconciliation are sealed
 - Migration Status: `APPROVED_AND_COMMITTED`
 - Contract Status: `APPROVED`
-- Commit Status: Commit 10 and its UX remediation child exist; the current governance candidate is
-  uncommitted
+- Commit Status: Commit 10, its UX remediation child, and the governance seal commit exist
 - Governance Status:
-  `GOVERNANCE_RECONCILIATION_CANDIDATE_PENDING_INDEPENDENT_REVIEW`
+  `PHASE_1D_3_CLOSED`
+- Governance Seal Commit:
+  `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`
+- Image-Asset Phase: `NOT_STARTED`
 - Plan Status: `APPROVED`
 - Unblocked Date: `2026-07-26`
 - Product: `CreativeDeploy / PaintPilot`
@@ -28,14 +30,16 @@ create/list/detail API 已通过最终独立复审并作为 Commit 9
 Phase 1D-3 的 React Router、Projects/Create/Detail 页面和真实浏览器闭环已进入
 Commit 10 `5965a8707a6ccb06d2f58d8655aabac9630e4abd`。Commit 10 创建前没有找到正式仓库
 approval evidence；后续追溯复审不能倒填批准。追溯复审要求的 F-01/F-02 UX 修复已通过
-聚焦复审并作为 child commit `2f99aaf8e1726761c2d89ac444af8380a1cedb79` 封存。当前只
-建立治理 reconciliation candidate；它仍未独立批准或 Git sealing，因此 Phase 1D-3 尚未
-正式关闭，Phase 1D-4 和 Phase 1E-1 均不得开始。
+聚焦复审并作为 child commit `2f99aaf8e1726761c2d89ac444af8380a1cedb79` 封存。治理
+reconciliation 已通过独立复审，并由
+`ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52` 封存；Phase 1D-3 当前为 `CLOSED`。
+Phase 1D 仍为 `IN_PROGRESS`；下一正式阶段 Phase 1D-4 与 Phase 1E-1 均为
+`NOT_STARTED`。
 
 Evidence boundary: the commit hashes, parents, subjects, and committed file contents are
 `GIT_VERIFIED_FACT`; the no-prior-approval, retrospective-review, focused-review, and sealing
-records are `OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`; the pending closure and next-phase
-restrictions are `CURRENT_GOVERNANCE_INFERENCE`. See
+records are `OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`; the governance seal is a
+`GIT_VERIFIED_FACT`. See
 `docs/progress/phase-1d-3-governance-reconciliation-candidate.md`.
 
 ## Implementation Progress
@@ -101,10 +105,11 @@ restrictions are `CURRENT_GOVERNANCE_INFERENCE`. See
   `2f99aaf8e1726761c2d89ac444af8380a1cedb79 — fix(web): align project home UX contract`
 - Phase 1D-3 UX Remediation Status (`OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`):
   `PHASE_1D_3_UX_REMEDIATION_SEALED`
-- Phase 1D-3 Governance Reconciliation:
-  `GOVERNANCE_RECONCILIATION_CANDIDATE_PENDING_INDEPENDENT_REVIEW`
-- Phase 1D-3 Governance Approval: `NOT_INDEPENDENTLY_APPROVED`
-- Phase 1D-3 Governance Closure: `NOT_CLOSED`
+- Phase 1D-3 Governance Reconciliation Independent Review:
+  `PHASE_1D_3_GOVERNANCE_RECONCILIATION_PASS_READY_FOR_SEALING`
+- Phase 1D-3 Governance Seal Commit:
+  `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`
+- Phase 1D-3 Governance Closure: `CLOSED`
 - Historical Commit 10 Verification Evidence (`OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`): 89
   frontend tests across 6 test files covering API client, route, list, create, detail and
   accessibility behavior. This is the candidate evidence recorded when Commit 10 was created; it
@@ -132,9 +137,9 @@ create an ORM entity, business Revision, database table, API or frontend page. P
 clarified contracts before implementation. Phase 1D-1B and Phase 1D-2 are approved and committed.
 Phase 1D-3 implementation and its UX remediation are committed history. They prove the local
 database-backed create/list/detail browser loop, failure recovery, restart persistence and
-responsive baseline. They do not prove that Commit 10 had prior approval, that the current
-governance reconciliation is approved, that Phase 1D-3 is formally closed, or that Integrated
-Product Review, production validation or real-user validation has completed.
+responsive baseline. The governance reconciliation seal closes Phase 1D-3 without proving or
+backdating pre-Commit-10 approval. Integrated Product Review, production validation and real-user
+validation have not completed.
 
 ## 1. Objective
 
@@ -826,10 +831,10 @@ work into one unbounded change.
 
 Sequence status on 2026-07-29: steps 1–5 are complete in the approved Phase 1D-1B Commit 8; steps
 6–9 are complete in the approved Phase 1D-2 Commit 9; steps 10–14 entered Git through Commit 10 and
-the focused UX remediation child. The historical sequencing remains unchanged. The current
-remaining gates are an independent read-only review of the governance reconciliation, separate Git
-sealing after a pass, and a post-sealing current-status verification. Phase 1D-4 Integrated Product
-Review and Phase 1E-1 remain deferred.
+the focused UX remediation child. The historical sequencing remains unchanged. The governance
+reconciliation passed independent review and was sealed by
+`ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`, closing Phase 1D-3. Phase 1D-4 Integrated Product
+Review is the next formal phase and remains `NOT_STARTED`; Phase 1E-1 remains `NOT_STARTED`.
 
 ## 18. Definition of Done
 
@@ -863,10 +868,10 @@ Phase 1D is complete only when:
 
 The backend subset is complete and committed, and the frontend/browser subset plus its F-01/F-02
 UX remediation are committed. Commit 10 entered history without a formal prior repository approval
-record; the later review does not backdate approval. Until the Phase 1D-3 governance reconciliation
-is independently reviewed and sealed, Phase 1D-3 remains not formally closed. Until that closure
-and Phase 1D-4 Integrated Product Review complete, the full Phase 1D vertical slice and portfolio
-claims remain in progress, not complete. Phase 1E-1 remains unstarted.
+record; the later review does not backdate approval. The independently reviewed governance
+reconciliation is sealed, and Phase 1D-3 is `CLOSED`. Until Phase 1D-4 Integrated Product Review
+completes, the full Phase 1D vertical slice and portfolio claims remain `IN_PROGRESS`, not
+complete. Phase 1E-1 remains `NOT_STARTED`.
 
 ## 19. Planned Evidence
 

@@ -8,18 +8,19 @@
   `5965a8707a6ccb06d2f58d8655aabac9630e4abd`
 - Commit 10 status: `EXISTS_IN_GIT_HISTORY`
 - Technical remediation status: `PHASE_1D_3_UX_REMEDIATION_SEALED`
-- Governance reconciliation:
-  `GOVERNANCE_RECONCILIATION_CANDIDATE_PENDING_INDEPENDENT_REVIEW`
-- Governance reconciliation approval: `NOT_INDEPENDENTLY_APPROVED`
-- Phase 1D-3 governance closure: `NOT_CLOSED`
+- Governance reconciliation independent review:
+  `PHASE_1D_3_GOVERNANCE_RECONCILIATION_PASS_READY_FOR_SEALING`
+- Governance seal commit:
+  `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`
+- Phase 1D-3 governance closure: `CLOSED`
 - Phase 1D: `IN_PROGRESS`
 - Phase 1D-4 — Integrated Product Review: `NOT_STARTED`
 - Phase 1E-1: `NOT_STARTED`
+- Image-asset phase: `NOT_STARTED`
 
 Evidence boundary: the two commit hashes and their relationship are `GIT_VERIFIED_FACT`; the
-no-prior-approval, retrospective-review, focused-review, and sealing records are
-`OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`; the pending closure and next-phase restrictions are
-`CURRENT_GOVERNANCE_INFERENCE`.
+no-prior-approval, retrospective-review, focused-review, and independent-review records are
+`OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`; the governance seal is a `GIT_VERIFIED_FACT`.
 
 Commit 10 entered Git history without a formal prior repository approval record. No prior
 repository approval evidence was found. The later review does not backdate approval. A
@@ -27,11 +28,12 @@ retrospective independent review later required F-01/F-02 remediation; the remed
 independently reviewed and sealed in
 `2f99aaf8e1726761c2d89ac444af8380a1cedb79`.
 
-The governance reconciliation itself remains an unapproved candidate. Its full evidence
-classification, process-exception record, and remaining gates are in
-`docs/progress/phase-1d-3-governance-reconciliation-candidate.md`. Phase 1D-3 cannot be marked
-formally closed, and Phase 1D-4 or Phase 1E-1 cannot begin, until the reconciliation receives a new
-independent read-only review and separate Git sealing.
+The governance reconciliation passed independent review and was sealed by
+`ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`. Its full evidence classification, process-exception
+record, sealed candidate, and final closure record are in
+`docs/progress/phase-1d-3-governance-reconciliation-candidate.md`. Phase 1D-3 is closed without
+backdating Commit 10 approval. Phase 1D-4 is the next formal phase and remains `NOT_STARTED`;
+Phase 1E-1 remains `NOT_STARTED`.
 
 ## Historical Candidate Snapshot — 2026-07-27 (Preserved)
 

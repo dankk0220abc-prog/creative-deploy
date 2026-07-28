@@ -1,6 +1,6 @@
 # CreativeDeploy
 
-Project Status: Phase 1D-3 — Governance Reconciliation Candidate
+Project Status: Phase 1D `IN_PROGRESS` — Phase 1D-3 `CLOSED`
 
 Implementation Status:
 
@@ -9,10 +9,12 @@ Implementation Status:
 - Phase 1D-1B persistence schema is committed history
 - Phase 1D-2 persistence and API are committed history
 - Phase 1D-3 frontend implementation exists in Commit 10
-- F-01/F-02 UX remediation is committed as the current code baseline
-- Phase 1D-3 governance reconciliation remains an unapproved candidate
-- Next action: independent read-only governance review; do not commit this candidate or begin the
-  next phase
+- F-01/F-02 UX remediation is committed as the source-code baseline
+- Phase 1D-3 governance reconciliation passed independent review and is sealed in
+  `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`
+- Phase 1D-3 is `CLOSED`
+- Next formal phase: Phase 1D-4 — Integrated Product Review (`NOT_STARTED`)
+- Phase 1E-1 remains `NOT_STARTED`; do not enter the image-asset phase
 
 Phase 1D-2 Commit:
 
@@ -21,11 +23,15 @@ Phase 1D-2 Commit:
 - Revision: `a10d3d8dab38`
 - Independent review: Commit 9 was authorized as historical baseline
 
-Current Git Baseline:
+Phase 1D-3 Closure Baseline:
 
-- HEAD: `2f99aaf8e1726761c2d89ac444af8380a1cedb79`
-- Subject: `fix(web): align project home UX contract`
-- Parent / Commit 10: `5965a8707a6ccb06d2f58d8655aabac9630e4abd`
+- Current HEAD: the deterministic Phase 1D-3 closure commit containing this document
+- Parent / Governance seal:
+  `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`
+- Source-code baseline / UX remediation:
+  `2f99aaf8e1726761c2d89ac444af8380a1cedb79`
+- Remediation parent / Commit 10:
+  `5965a8707a6ccb06d2f58d8655aabac9630e4abd`
 
 Commit 10:
 
@@ -39,9 +45,11 @@ Phase 1D-3 Technical Remediation:
 
 Phase 1D-3 Governance Reconciliation:
 
-- `GOVERNANCE_RECONCILIATION_CANDIDATE_PENDING_INDEPENDENT_REVIEW`
-- Approval: `NOT_INDEPENDENTLY_APPROVED`
-- Closure: `NOT_CLOSED`
+- Independent review:
+  `PHASE_1D_3_GOVERNANCE_RECONCILIATION_PASS_READY_FOR_SEALING`
+- Governance seal commit:
+  `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`
+- Closure: `CLOSED`
 
 Phase 1D:
 
@@ -53,20 +61,19 @@ Process Record:
 - No prior repository approval evidence was found.
 - The later review does not backdate approval.
 - The remediation was independently reviewed and sealed.
-- The governance reconciliation itself remains an unapproved candidate.
-- Full classification and remaining gates:
+- The governance reconciliation passed independent review and was sealed without changing the
+  historical process exception.
+- Full classification, sealed candidate, and closure record:
   `docs/progress/phase-1d-3-governance-reconciliation-candidate.md`
 
 The commit hashes and relationships above are Git-verified facts. The no-prior-approval,
-retrospective-review, focused-review, and sealing records are owner-supplied external review
-records being incorporated now; they do not become pre-Commit-10 evidence. The pending closure and
-next-phase restrictions are current governance inferences.
+retrospective-review, focused-review, and independent-review records are owner-supplied external
+review records; they do not become pre-Commit-10 evidence. The governance seal is Git-verified.
 
 Phase 1D-4:
 
 - `NOT_STARTED`
-- Remains **Integrated Product Review** and may begin only after Phase 1D-3 governance closure is
-  independently reviewed and sealed
+- Remains **Integrated Product Review** and is the next formal phase
 
 Phase 1E-1:
 
@@ -254,8 +261,8 @@ make migration-check
 - 仅支持本机开发，不包含 API/Web Dockerfile、CI 或生产部署；
 - Commit 10 和 UX remediation commit 已存在，但 Commit 10 创建前没有可用的正式仓库
   approval record；后续复审不构成倒填批准；
-- Phase 1D-3 技术 remediation 已封存，但 governance reconciliation 仍是
-  `NOT_INDEPENDENTLY_APPROVED` candidate，Phase 1D-3 尚未正式关闭；
+- Phase 1D-3 技术 remediation 与 governance reconciliation 均已封存，Phase 1D-3 当前为
+  `CLOSED`；Commit 10 的提交前批准并未被倒填；
 - Phase 1D-4 和 Phase 1E-1 均为 `NOT_STARTED`；
 - Phase 1D-2 的 F-09-01、F-09-02、F-09-03、F-09-04 已在 Commit 9 前关闭；
 - 当前只有三个基础业务表和 create/list/detail API，没有 update、delete 或 Owner transfer；

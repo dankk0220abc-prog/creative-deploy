@@ -15,9 +15,11 @@ PaintProject persistence foundation and sole Alembic Revision `a10d3d8dab38`. Co
 PaintProject persistence and API implementation.
 
 Phase 1D-3 — React Router and Projects Pages entered history as Commit 10
-`5965a8707a6ccb06d2f58d8655aabac9630e4abd`. The current code baseline is its UX remediation
+`5965a8707a6ccb06d2f58d8655aabac9630e4abd`. Its source-code baseline is the UX remediation
 child `2f99aaf8e1726761c2d89ac444af8380a1cedb79`
-(`fix(web): align project home UX contract`). The current source and verification evidence include:
+(`fix(web): align project home UX contract`). The current repository baseline is the deterministic
+Phase 1D-3 closure commit containing this guide; its parent and governance seal is
+`ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`. The current source and verification evidence include:
 
 - monorepo foundation;
 - FastAPI process liveness;
@@ -57,27 +59,27 @@ does not backdate approval.
 
 The commit hashes and relationships are `GIT_VERIFIED_FACT`. The no-prior-approval,
 retrospective-review, focused-review, and sealing records are
-`OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`. Pending closure and next-phase restrictions are
-`CURRENT_GOVERNANCE_INFERENCE`.
+`OWNER_SUPPLIED_EXTERNAL_REVIEW_RECORD`. The governance seal is a `GIT_VERIFIED_FACT`.
 
-## Phase 1D-3 Governance Boundary
+## Phase 1D-3 Closed Governance Boundary
 
-The current reconciliation record is
-`docs/progress/phase-1d-3-governance-reconciliation-candidate.md` with status
-`GOVERNANCE_RECONCILIATION_CANDIDATE_PENDING_INDEPENDENT_REVIEW`. The governance reconciliation
-itself remains an unapproved candidate, and Phase 1D remains `IN_PROGRESS`.
+The reconciliation record at
+`docs/progress/phase-1d-3-governance-reconciliation-candidate.md` passed independent review with
+verdict `PHASE_1D_3_GOVERNANCE_RECONCILIATION_PASS_READY_FOR_SEALING` and was sealed by
+`ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`. Phase 1D-3 is `CLOSED`; Phase 1D remains
+`IN_PROGRESS`; Phase 1D-4 — Integrated Product Review is the next formal phase and remains
+`NOT_STARTED`; Phase 1E-1 remains `NOT_STARTED`.
 
 For every subsequent Codex task:
 
 - do not claim Commit 10 is uncreated;
 - do not claim or imply Commit 10 was approved before creation;
 - preserve the process exception and evidence-source classification;
-- do not treat the technical remediation sealing as governance reconciliation approval;
-- require a new independent read-only governance review before any governance sealing;
-- do not mark Phase 1D-3 formally closed before that review and sealing complete;
-- do not begin Phase 1D-4, which remains the unstarted Integrated Product Review, before that
-  governance closure is independently reviewed and sealed;
+- preserve the governance seal commit and do not reopen Phase 1D-3;
+- treat Phase 1D-4 — Integrated Product Review as the only next formal phase;
+- keep Phase 1D-4 `NOT_STARTED` until a separately scoped Phase 1D-4 task begins;
 - do not begin Phase 1E-1;
+- do not enter the image-asset phase;
 - do not rewrite historical snapshots into fictional pre-commit approval.
 
 These Phase 1D-3 statements do not claim production validation, real-user validation, Phase 1D
@@ -238,7 +240,8 @@ under normal operating-system rules, unlike the standard Make targets.
   after field edits or conflict, and never persist the key to localStorage or expose it in the UI.
 - Preserve Commit 10 `5965a8707a6ccb06d2f58d8655aabac9630e4abd` and the current code baseline
   `2f99aaf8e1726761c2d89ac444af8380a1cedb79` as immutable Git history; never backdate approval.
-- Keep the Phase 1D-3 governance reconciliation unapproved until a separate independent read-only
-  review and separate Git sealing complete.
-- Keep Phase 1D-4 and Phase 1E-1 unstarted until the recorded remaining governance gates permit
-  them.
+- Preserve the independently reviewed Phase 1D-3 governance reconciliation and its seal commit
+  `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`; do not reopen Phase 1D-3 or backdate Commit 10
+  approval.
+- Keep Phase 1D-4 and Phase 1E-1 `NOT_STARTED` until separately authorized tasks begin the
+  applicable phase; Phase 1D-4 is the only next formal phase.
