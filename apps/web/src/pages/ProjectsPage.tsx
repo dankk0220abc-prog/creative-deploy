@@ -269,9 +269,10 @@ export function ProjectsPage() {
           <div>
             <strong>Current release boundary</strong>
             <p>
-              This workspace creates and reads PaintProject records only. Image upload,
-              analysis, Polygon editing, inventory, knowledge retrieval, and paint-plan
-              generation are not implemented in this phase.
+              Project cards remain metadata-only. Open a project detail to manage its
+              private immutable primary image. Image quality assessment, analysis, Polygon
+              editing, inventory, knowledge retrieval, and paint-plan generation are not
+              implemented in this phase.
             </p>
           </div>
         </aside>

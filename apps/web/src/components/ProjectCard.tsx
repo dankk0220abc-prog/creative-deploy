@@ -12,6 +12,22 @@ interface ProjectCardProps {
   project: PaintProject;
 }
 
+function imageSlotLabel(project: PaintProject): string {
+  return project.current_image_asset_id === null
+    ? "Primary image not added"
+    : "Primary image stored";
+}
+
+function reviewGateLabel(project: PaintProject): string {
+  if (project.status === "IMAGE_REVIEW_REQUIRED") {
+    return "Image review required";
+  }
+  if (project.status === "IMAGE_VALIDATION_FAILED") {
+    return "Image validation failed";
+  }
+  return "No active review gate";
+}
+
 export function ProjectCard({ project }: ProjectCardProps) {
   const exactUpdatedTime = formatProjectAccessibleTimestamp(project.updated_at);
   const updatedDateTime = toProjectISOString(project.updated_at) ?? project.updated_at;
@@ -29,7 +45,9 @@ export function ProjectCard({ project }: ProjectCardProps) {
           <span className="project-card__monogram">
             {Array.from(project.title)[0]?.toLocaleUpperCase() ?? "P"}
           </span>
-          <span className="project-card__visual-label">Image not added</span>
+          <span className="project-card__visual-label">
+            {imageSlotLabel(project)}
+          </span>
         </div>
 
         <div className="project-card__body">
@@ -47,7 +65,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
             <ProjectStatusBadge status={project.status} />
             <span className="review-gate">
               <span aria-hidden="true" />
-              No active review gate
+              {reviewGateLabel(project)}
             </span>
           </div>
 

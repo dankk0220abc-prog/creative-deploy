@@ -3,7 +3,15 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Index, String, text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKeyConstraint,
+    Index,
+    String,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.elements import conv
@@ -67,6 +75,22 @@ class PaintProject(Base):
             "updated_at >= created_at",
             name=conv("ck_paint_projects_updated_at_not_before_created_at"),
         ),
+        UniqueConstraint(
+            "id",
+            "owner_principal_id",
+            name="uq_paint_projects_id_owner_principal_id",
+        ),
+        ForeignKeyConstraint(
+            ["id", "owner_principal_id", "current_image_asset_id"],
+            [
+                "image_assets.paint_project_id",
+                "image_assets.owner_principal_id",
+                "image_assets.id",
+            ],
+            name="fk_paint_projects_current_image_asset_same_owner_project",
+            ondelete="RESTRICT",
+            use_alter=True,
+        ),
         Index(
             "ix_paint_projects_owner_updated_at_id",
             "owner_principal_id",
@@ -100,6 +124,10 @@ class PaintProject(Base):
         nullable=False,
         default="DRAFT",
         server_default=text("'DRAFT'"),
+    )
+    current_image_asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

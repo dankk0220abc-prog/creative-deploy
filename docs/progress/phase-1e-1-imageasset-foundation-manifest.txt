@@ -1,0 +1,62 @@
+Phase 1E-1 ImageAsset Foundation Security Remediation Round 1 candidate manifest
+Generated: 2026-07-29
+Baseline HEAD: 881a2735aeb47ae8edbbd4810eb19f52e46232ff
+Entry count: 52
+Exclusion: this manifest file only
+Line format: STATUS  SHA-256  byte-size  repository-relative-path
+Tracked patch SHA-256: af28a449095c35de35710d68f41308c5cf26b502a74a9f58b5cba665e17f6abf
+Scope-lines SHA-256: 3f397ef365b4a82f83794ef2e0b7fbc306a60194ec2d2a6b9c585a2e93a86462
+Porcelain-v2-z SHA-256: d9b700d040e8ea4a948c3e12aae85055908627d6451aad14166b2b4eaa07477e
+
+M  97e060bfcefc13cff5bdace2d1f916a927efdc6717ccd8e7a5fce3ae21d2b5ac  1208  .env.example
+M  2b039619019c0bef4f96216f30d9563c82f3840f53bd320d4d30635acb088794  223  .gitignore
+M  731e60f739d836d2d8d1cddd648ecb8d145579618ba55bab7daa0bf870c4396d  16690  AGENTS.md
+M  cf62a9d7fedb353711034559f9e5503d9c48399fa01ad89194596fb625c069e4  3286  Makefile
+M  bea735165c3f98a032c92c0a2577f8586b7cc84f1a37f58824b9af47be932d72  16749  README.md
+??  40148f650be5f85e9b831b8a6db788d2920f9b661f5eeac69d6ee8eae9d4d309  11243  apps/api/migrations/versions/5ed9906e7d33_add_imageasset_foundation.py
+M  253f027a4e1148102849c1e7e7c62c533b9665c655e0d940f5e55a47015b82cd  1289  apps/api/pyproject.toml
+M  80813f361dad70488d729b1d18a88a619376ba6e90265567fc2ec79c21c5642e  2899  apps/api/src/creativedeploy_api/api/dependencies.py
+M  57c6c1de0d9e423ab4b471786de1faa2087f16126b723885e22e2739052ee75a  495  apps/api/src/creativedeploy_api/api/router.py
+??  abe770a5a6de1d0784d80ad6c70e74f1fd8f2e920848c38837f592ae6007ee40  7349  apps/api/src/creativedeploy_api/api/routes/image_assets.py
+M  e7c7ae62b928b8eb26f9f284a8662a2644e494c76b28eb7b54f3d5d0560742cb  1757  apps/api/src/creativedeploy_api/app_factory.py
+M  1206e19ec4440d056f5e924882996f13cdc7d8c0df25208b5f7122a1b8a167a4  4631  apps/api/src/creativedeploy_api/core/config.py
+M  bd6ffe754b5fb843f6022983752219e04f5f72cf8eb28424abf3d71688799bff  468  apps/api/src/creativedeploy_api/db/__init__.py
+M  d018331df844ff5eb2248f8987ae5b835aeb329c80d82c9732fd303d1d0c6141  747  apps/api/src/creativedeploy_api/db/models/__init__.py
+??  cc3643a15a6304940364b5865d001e912d40006d443e9756a66839e6a1f30914  10870  apps/api/src/creativedeploy_api/db/models/image_asset.py
+M  c295994db81ffbc081824beaf4fcacc0253cf5bbbfd4dfa015245e9e52b3591e  4678  apps/api/src/creativedeploy_api/db/models/paint_project.py
+??  22d94c02db0c8d43ddf793bfd0ef5e8eee24cdc4ecb5ab44eda899480d6c74b2  8111  apps/api/src/creativedeploy_api/repositories/image_assets.py
+??  70ed40e0d848fdb6ad7e21e02eca3817869974edc9cb7799b3943b953dd3164b  3278  apps/api/src/creativedeploy_api/schemas/image_assets.py
+M  349ccbb85b281a4fa29aeb13afa1e16da65b0fae71e6244ad3962e1ae8a68902  3348  apps/api/src/creativedeploy_api/schemas/paint_projects.py
+??  bebc7bff4a957adc39602596c8d49a3e94098ad954be69614b54a979c6bd7b00  29154  apps/api/src/creativedeploy_api/services/image_assets.py
+??  b4cddac30b2bf3c97c11f28834264885d2c55790035f33a457b2221eb05c5d56  6709  apps/api/src/creativedeploy_api/services/image_validation.py
+M  1255e5d2923418a5e6aa42f1fdb3ca5c07cc97ae887099215aba0d0cbaf81914  14370  apps/api/src/creativedeploy_api/services/paint_projects.py
+??  478e270a1c99d9ff4f8f32035d35f0ea35c0783e07c416c9a370ed77193f5527  297  apps/api/src/creativedeploy_api/storage/__init__.py
+??  0de63967d37ae6413d3cea40200d86c19b6f3261418d46357b45d39af4dc4ab1  15179  apps/api/src/creativedeploy_api/storage/images.py
+M  45276bf27dbcd800567cedd41c4d8125404614ffe8219af4f962da9be151c92d  1217  apps/api/tests/conftest.py
+??  a6731b19456d62417236f36697a3ed203422179ce73bb02a00ba1f632f7bf502  27192  apps/api/tests/integration/test_image_asset_api.py
+M  237ccd6b31d9121c3ac63e37612806e9a33bc4566eb2f3f5b654e131460c3f3f  97713  apps/api/tests/integration/test_initial_paint_project_migration.py
+M  e36a5c069611dad2a57406dfad90a5b91eeba47f944c994074eaf0f13f4cbeea  14606  apps/api/tests/unit/test_database_metadata.py
+??  e83b8ab4c7d882497ac186ad75225ef4e7227b37dc75d89e1793bcf6c4be81a7  14808  apps/api/tests/unit/test_image_storage_and_validation.py
+M  888951e52d63fa9873eb8363f581b9172a7c433e57082b951d85a26fb792cb34  33488  apps/api/tests/unit/test_paint_project_models.py
+M  ca1daef588749f5ca0203f2e2bbfd10ca2894bcbaf4869286e4392f642fe8aa8  10593  apps/api/tests/unit/test_paint_project_principal_and_schemas.py
+M  6661fab94e3b043fdfa9d399e8fb99b2441981f3f2942bbf97037cba2a1de226  101900  apps/api/uv.lock
+M  a68df0c010e1ce2d5f999e3e0a78485b813259937c1408ffb21d2694e5237a71  13006  apps/web/src/__tests__/AppRoutes.test.tsx
+M  b55e889f19fac7d623a292754735637252a0feb3aec64c01706a8df877929e80  15117  apps/web/src/__tests__/CreateProjectPage.test.tsx
+??  5421df64c114c017c3b8a6a9ceb37c8a7c4d0421d0168d59a8a01790dd170179  10878  apps/web/src/__tests__/ImageAssetManager.test.tsx
+M  f1510092ab1877e5238a1fb10224331594b8eeb6804ad29b85ec08c06fbed8d2  2594  apps/web/src/__tests__/ProjectCard.test.tsx
+M  9f958956415ed373e78292b70f6d8536eaaf3204984fd37232a4c0fa11df5d9d  7111  apps/web/src/__tests__/ProjectDetailPage.test.tsx
+M  daa7183ad8d1a6092e96bae6de6584245eefca82d60fef286ec2ff9271961037  8862  apps/web/src/__tests__/ProjectsPage.test.tsx
+??  916ab9aa18d13932613148f50fa92a66849d9f0f9bdd27fb4e309dfd4b9ab179  3886  apps/web/src/__tests__/imageAssetsApi.test.ts
+M  0fbd6502a66275af397f9ff78bc190da182590490f87c9d0b24b0dfb515501ca  13454  apps/web/src/__tests__/paintProjectsApi.test.ts
+??  d37f50c8b298d241f9f798c48096a2ec20721a770c6a30c6d7fd0a4c4eb51c20  12521  apps/web/src/api/imageAssets.ts
+M  d5fb271c91cf3a0686cb890122e4cc6311c9e5a889b66e9674f49fa60c76db7f  13021  apps/web/src/api/paintProjects.ts
+??  2c95ca451b00160645c88e314d5d81f70e8d87b0aa16f6c6524409ff6e1d14af  17445  apps/web/src/components/ImageAssetManager.tsx
+M  25e9bf7c2e609e14b4259e24c9965296097bdcb8d34c06f2399b3c0cbd351e8b  2817  apps/web/src/components/ProjectCard.tsx
+M  a179e69ca57d65c6462f815bb5f098c66b42d1b7d217b21b48a219858d09bbc0  41877  apps/web/src/index.css
+M  d488f6284cad3784d6b7c5ee7c076f16a9b319ee55932469b7bf4e51bb3f8f8b  10606  apps/web/src/pages/ProjectDetailPage.tsx
+M  5b3ec211543e508bc117e516d8bfedc9a9f0c5e43e812e3317a57bd42b9dc073  8765  apps/web/src/pages/ProjectsPage.tsx
+M  ef67eab050718dfb79bdab02c054ac991ef458f6bb4099aff84d7fe010e2bffa  3209  apps/web/src/test/paintProjectFixtures.ts
+??  83e609a37088066f4cf9ab0b561f38e1c353fec66a2a4a4ffb2eef35e9c57f2d  6892  docs/architecture/paintpilot-imageasset-physical-data-dictionary-v0.1.md
+??  7478bb54b0f29dd03939fb898c296603a00c42d9e091d287874af927e781a984  9034  docs/decisions/ADR-0004-imageasset-physical-storage-and-version-boundary.md
+??  91bb0447964733a15c9010fff43357737f40558d43bf03acb77039db41fd39b6  26482  docs/progress/phase-1e-1-imageasset-foundation-candidate.md
+??  aee5dd205fd33fd07a755bf14e7397ec1ad3636c6018c414386627ab35dd2a4b  9194  docs/progress/phase-1e-1-imageasset-foundation-plan.md

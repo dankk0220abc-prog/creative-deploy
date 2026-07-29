@@ -63,6 +63,7 @@ class PaintProjectRead(BaseModel):
     requested_target_style: Literal["cel_shading"]
     planning_mode: Literal["planning_only_demo"]
     status: WorkflowStatus
+    current_image_asset_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
 

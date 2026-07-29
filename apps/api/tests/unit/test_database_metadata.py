@@ -39,6 +39,7 @@ APPROVED_NAMING_CONVENTION = {
 }
 APPROVED_BUSINESS_TABLES = {
     "command_idempotency_records",
+    "image_assets",
     "paint_projects",
     "state_transition_events",
 }
@@ -366,6 +367,7 @@ assert set(Base.metadata.tables) == {
     "paint_projects",
     "state_transition_events",
     "command_idempotency_records",
+    "image_assets",
 }
 """
     result = subprocess.run(

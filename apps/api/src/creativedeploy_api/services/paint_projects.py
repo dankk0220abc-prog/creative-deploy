@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from types import MappingProxyType
-from typing import ClassVar, Protocol
+from typing import Protocol
 
 from pydantic import ValidationError
 from sqlalchemy.exc import DBAPIError
@@ -61,7 +61,7 @@ class PaintProjectApplicationError(Exception):
     retryable: bool = False
     current_state: str | None = None
     allowed_actions: tuple[str, ...] = ()
-    safe_details: ClassVar[Mapping[str, object]] = MappingProxyType({})
+    safe_details: Mapping[str, object] = MappingProxyType({})
 
 
 class IdempotencyKeyReusedError(PaintProjectApplicationError):

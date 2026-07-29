@@ -35,6 +35,7 @@ ALEMBIC_COMMAND = (
 )
 BUSINESS_TABLES = {
     "command_idempotency_records",
+    "image_assets",
     "paint_projects",
     "state_transition_events",
 }
@@ -49,6 +50,7 @@ EXPECTED_COLUMNS = {
         "status",
         "created_at",
         "updated_at",
+        "current_image_asset_id",
     ),
     "state_transition_events": (
         "id",
@@ -78,6 +80,41 @@ EXPECTED_COLUMNS = {
         "response_snapshot",
         "created_at",
         "expires_at",
+    ),
+    "image_assets": (
+        "id",
+        "paint_project_id",
+        "owner_principal_id",
+        "role",
+        "version",
+        "supersedes_image_asset_id",
+        "is_current",
+        "lifecycle_status",
+        "storage_provider",
+        "storage_key",
+        "original_filename",
+        "declared_content_type",
+        "detected_format",
+        "byte_size",
+        "width",
+        "height",
+        "pixel_count",
+        "color_mode",
+        "has_alpha",
+        "exif_orientation",
+        "sha256",
+        "upload_validation_result",
+        "upload_validation_details",
+        "source_type",
+        "rights_attestation_status",
+        "rights_attestation_version",
+        "intended_usage",
+        "rights_attested_by_principal_id",
+        "rights_attested_at",
+        "created_by_actor_type",
+        "created_by_actor_id",
+        "created_by_actor_display_name_snapshot",
+        "created_at",
     ),
 }
 EXPECTED_WORKFLOW_STATES = (
@@ -2522,6 +2559,195 @@ def _assert_idempotency_constraints(
         )
 
 
+IMAGE_ASSET_INSERT = """
+    INSERT INTO image_assets (
+        id, paint_project_id, owner_principal_id, role, version,
+        supersedes_image_asset_id, is_current, lifecycle_status,
+        storage_provider, storage_key, original_filename,
+        declared_content_type, detected_format, byte_size, width, height,
+        pixel_count, color_mode, has_alpha, exif_orientation, sha256,
+        upload_validation_result, upload_validation_details, source_type,
+        rights_attestation_status, rights_attestation_version, intended_usage,
+        rights_attested_by_principal_id, rights_attested_at,
+        created_by_actor_type, created_by_actor_id,
+        created_by_actor_display_name_snapshot, created_at
+    )
+    VALUES (
+        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+    )
+"""
+
+
+def _image_asset_parameters(
+    project_id: uuid.UUID,
+    owner_principal_id: str,
+    **overrides: object,
+) -> tuple[object, ...]:
+    created_at = datetime.now(UTC)
+    identifier = uuid.uuid4()
+    values: dict[str, object] = {
+        "id": identifier,
+        "paint_project_id": project_id,
+        "owner_principal_id": owner_principal_id,
+        "role": "primary_mvp_input",
+        "version": 1,
+        "supersedes_image_asset_id": None,
+        "is_current": True,
+        "lifecycle_status": "current",
+        "storage_provider": "local_filesystem",
+        "storage_key": f"objects/{identifier.hex[:2]}/{identifier.hex}.jpg",
+        "original_filename": "primary.jpg",
+        "declared_content_type": "image/jpeg",
+        "detected_format": "jpeg",
+        "byte_size": 1024,
+        "width": 768,
+        "height": 768,
+        "pixel_count": 768 * 768,
+        "color_mode": "RGB",
+        "has_alpha": False,
+        "exif_orientation": 1,
+        "sha256": "a" * 64,
+        "upload_validation_result": "accepted",
+        "upload_validation_details": Jsonb({"decoder_verified": True}),
+        "source_type": "user_photographed",
+        "rights_attestation_status": "confirmed",
+        "rights_attestation_version": 1,
+        "intended_usage": Jsonb(["private_project"]),
+        "rights_attested_by_principal_id": owner_principal_id,
+        "rights_attested_at": created_at,
+        "created_by_actor_type": "user",
+        "created_by_actor_id": owner_principal_id,
+        "created_by_actor_display_name_snapshot": "Owner",
+        "created_at": created_at,
+    }
+    values.update(overrides)
+    return tuple(values[key] for key in values)
+
+
+def _assert_image_asset_constraints(
+    connection: psycopg.Connection[tuple[Any, ...]],
+    project_id: uuid.UUID,
+) -> None:
+    owner = "o" * 128
+    first_parameters = _image_asset_parameters(project_id, owner)
+    first_asset_id = first_parameters[0]
+    with connection.transaction():
+        connection.execute(IMAGE_ASSET_INSERT, first_parameters)
+        connection.execute(
+            "UPDATE paint_projects SET current_image_asset_id = %s WHERE id = %s",
+            (first_asset_id, project_id),
+        )
+
+    _expect_rejection(
+        connection,
+        IMAGE_ASSET_INSERT,
+        _image_asset_parameters(
+            project_id,
+            "other-owner",
+            version=2,
+            is_current=False,
+            lifecycle_status="superseded",
+            storage_key=f"objects/dd/{uuid.uuid4().hex}.jpg",
+        ),
+        case_label="image owner does not match project owner",
+        expected_sqlstate="23503",
+        expected_constraint_name="fk_image_assets_project_owner_paint_projects",
+    )
+    _expect_rejection(
+        connection,
+        IMAGE_ASSET_INSERT,
+        _image_asset_parameters(
+            project_id,
+            owner,
+            version=2,
+            storage_key=f"objects/bb/{'b' * 32}.jpg",
+        ),
+        case_label="two current assets for one project role",
+        expected_sqlstate="23505",
+        expected_constraint_name="uq_image_assets_project_role_current",
+    )
+    for case_label, overrides, expected_constraint in (
+        (
+            "unsupported role",
+            {"role": "reference_back"},
+            "ck_image_assets_role_allowed",
+        ),
+        (
+            "unsafe storage key",
+            {"storage_key": "../private.jpg"},
+            "ck_image_assets_storage_key_format",
+        ),
+        (
+            "invalid sha",
+            {"sha256": "A" * 64},
+            "ck_image_assets_sha256_format",
+        ),
+        (
+            "pixel count mismatch",
+            {"pixel_count": 1},
+            "ck_image_assets_pixel_count_allowed",
+        ),
+        (
+            "quality details array",
+            {"upload_validation_details": Jsonb([])},
+            "ck_image_assets_upload_validation_details_is_object",
+        ),
+        (
+            "unknown intended usage",
+            {"intended_usage": Jsonb(["unknown"])},
+            "ck_image_assets_intended_usage_allowed",
+        ),
+    ):
+        candidate_overrides = {
+            "version": 2,
+            "is_current": False,
+            "lifecycle_status": "superseded",
+            "storage_key": f"objects/cc/{uuid.uuid4().hex}.jpg",
+        }
+        candidate_overrides.update(overrides)
+        _expect_rejection(
+            connection,
+            IMAGE_ASSET_INSERT,
+            _image_asset_parameters(
+                project_id,
+                owner,
+                **candidate_overrides,
+            ),
+            case_label=case_label,
+            expected_sqlstate="23514",
+            expected_constraint_name=expected_constraint,
+        )
+
+    second_project_id = _insert_project(connection, owner=owner)
+    _expect_rejection(
+        connection,
+        IMAGE_ASSET_INSERT,
+        _image_asset_parameters(
+            second_project_id,
+            owner,
+            supersedes_image_asset_id=first_asset_id,
+        ),
+        case_label="supersedes cannot cross projects",
+        expected_sqlstate="23503",
+        expected_constraint_name="fk_image_assets_supersedes_same_owner_project_role",
+    )
+    try:
+        with connection.transaction():
+            connection.execute(
+                "UPDATE paint_projects SET current_image_asset_id = %s WHERE id = %s",
+                (first_asset_id, second_project_id),
+            )
+    except psycopg.Error as error:
+        assert error.sqlstate == "23503"
+        assert (
+            error.diag.constraint_name == "fk_paint_projects_current_image_asset_same_owner_project"
+        )
+    else:
+        pytest.fail("A cross-project current image reference was accepted.")
+
+
 def test_initial_paint_project_migration_round_trip_and_constraints(
     temporary_database: TemporaryDatabase,
 ) -> None:
@@ -2530,7 +2756,7 @@ def test_initial_paint_project_migration_round_trip_and_constraints(
 
     _run_alembic(temporary_database_url, "upgrade", "head")
     current_result = _run_alembic(temporary_database_url, "current")
-    assert "a10d3d8dab38 (head)" in current_result.stdout
+    assert "5ed9906e7d33 (head)" in current_result.stdout
     check_result = _run_alembic(temporary_database_url, "check")
     assert "No new upgrade operations detected." in check_result.stdout
 
@@ -2541,6 +2767,7 @@ def test_initial_paint_project_migration_round_trip_and_constraints(
         project_id = _assert_paint_project_constraints(connection)
         _assert_event_constraints(connection, project_id)
         _assert_idempotency_constraints(connection)
+        _assert_image_asset_constraints(connection, project_id)
 
     _run_alembic(temporary_database_url, "downgrade", "base")
     with psycopg.connect(

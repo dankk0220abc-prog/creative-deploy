@@ -9,7 +9,10 @@ TEST_DEMO_PRINCIPAL_DISPLAY_NAME = "Test Demo Owner"
 
 
 @pytest.fixture(autouse=True)
-def explicit_test_runtime_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def explicit_test_runtime_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: object,
+) -> None:
     """Supply per-test trusted config without changing or bypassing production validation."""
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.setenv("PAINTPILOT_DEMO_PRINCIPAL_ID", TEST_DEMO_PRINCIPAL_ID)
@@ -17,6 +20,7 @@ def explicit_test_runtime_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "PAINTPILOT_DEMO_PRINCIPAL_DISPLAY_NAME",
         TEST_DEMO_PRINCIPAL_DISPLAY_NAME,
     )
+    monkeypatch.setenv("IMAGE_STORAGE_ROOT", str(tmp_path))
 
 
 @pytest.fixture

@@ -19,6 +19,7 @@ from creativedeploy_api.db import Base
 from creativedeploy_api.db.models import (
     REGISTERED_MODELS,
     CommandIdempotencyRecord,
+    ImageAsset,
     PaintProject,
     StateTransitionEvent,
 )
@@ -38,6 +39,7 @@ from creativedeploy_api.db.models.constants import (
 EXPECTED_TABLES = frozenset(
     {
         "command_idempotency_records",
+        "image_assets",
         "paint_projects",
         "state_transition_events",
     }
@@ -55,6 +57,30 @@ EXPECTED_CONSTRAINT_NAMES = frozenset(
         "ck_command_idempotency_records_response_snapshot_is_object",
         "ck_command_idempotency_records_result_matches_execution_status",
         "ck_command_idempotency_records_scope_key_normalized",
+        "ck_image_assets_byte_size_allowed",
+        "ck_image_assets_created_by_actor_id_normalized",
+        "ck_image_assets_created_by_actor_type_allowed",
+        "ck_image_assets_created_by_display_normalized",
+        "ck_image_assets_current_lifecycle_consistent",
+        "ck_image_assets_declared_type_matches_format",
+        "ck_image_assets_detected_format_allowed",
+        "ck_image_assets_dimensions_allowed",
+        "ck_image_assets_exif_orientation_allowed",
+        "ck_image_assets_intended_usage_allowed",
+        "ck_image_assets_lifecycle_status_allowed",
+        "ck_image_assets_original_filename_safe",
+        "ck_image_assets_pixel_count_allowed",
+        "ck_image_assets_rights_actor_required",
+        "ck_image_assets_rights_status_allowed",
+        "ck_image_assets_rights_version_positive",
+        "ck_image_assets_role_allowed",
+        "ck_image_assets_sha256_format",
+        "ck_image_assets_source_type_allowed",
+        "ck_image_assets_storage_key_format",
+        "ck_image_assets_storage_provider_allowed",
+        "ck_image_assets_upload_validation_details_is_object",
+        "ck_image_assets_upload_validation_result_allowed",
+        "ck_image_assets_version_positive",
         "ck_paint_projects_description_normalized",
         "ck_paint_projects_owner_principal_id_normalized",
         "ck_paint_projects_planning_mode_allowed",
@@ -77,17 +103,28 @@ EXPECTED_CONSTRAINT_NAMES = frozenset(
         "ck_state_transition_events_to_state_allowed",
         "ck_state_transition_events_user_display_name_required",
         "fk_state_transition_events_project_id_paint_projects",
+        "fk_image_assets_project_owner_paint_projects",
+        "fk_image_assets_supersedes_same_owner_project_role",
+        "fk_paint_projects_current_image_asset_same_owner_project",
         "pk_command_idempotency_records",
+        "pk_image_assets",
         "pk_paint_projects",
         "pk_state_transition_events",
         "uq_command_idempotency_records_scope_key_idempotency_key",
+        "uq_image_assets_id_project_owner_role",
+        "uq_image_assets_project_owner_id",
+        "uq_image_assets_project_role_version",
+        "uq_image_assets_storage_key",
+        "uq_paint_projects_id_owner_principal_id",
     }
 )
 EXPECTED_INDEX_NAMES = frozenset(
     {
         "ix_command_idempotency_records_expires_at",
+        "ix_image_assets_owner_project_created_at",
         "ix_paint_projects_owner_updated_at_id",
         "ix_state_transition_events_project_created_at_id",
+        "uq_image_assets_project_role_current",
     }
 )
 EXPECTED_DATABASE_IDENTIFIERS = EXPECTED_TABLES | EXPECTED_CONSTRAINT_NAMES | EXPECTED_INDEX_NAMES
@@ -168,8 +205,9 @@ EXPECTED_POSTGRESQL_MACHINE_TOKEN_CONSTRAINTS = MappingProxyType(
 POSTGRESQL_IDENTIFIER_LIMIT = 63
 POSTGRESQL_IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9_]+$")
 API_ROOT = Path(__file__).resolve().parents[2]
-MIGRATION_PATH = (
-    API_ROOT / "migrations" / "versions" / "a10d3d8dab38_create_paintproject_persistence_.py"
+MIGRATION_PATHS = (
+    API_ROOT / "migrations" / "versions" / "a10d3d8dab38_create_paintproject_persistence_.py",
+    API_ROOT / "migrations" / "versions" / "5ed9906e7d33_add_imageasset_foundation.py",
 )
 
 
@@ -255,34 +293,39 @@ def _migration_identifier_categories() -> tuple[
     frozenset[str],
     frozenset[str],
 ]:
-    module = ast.parse(MIGRATION_PATH.read_text(encoding="utf-8"))
     table_names: set[str] = set()
     constraint_names: set[str] = set()
     index_names: set[str] = set()
-    for node in ast.walk(module):
-        if not isinstance(node, ast.Call):
-            continue
-        if (
-            isinstance(node.func, ast.Attribute)
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "op"
-            and node.args
-            and isinstance(node.args[0], ast.Constant)
-            and isinstance(node.args[0].value, str)
-        ):
-            if node.func.attr == "create_table":
-                table_names.add(node.args[0].value)
-            elif node.func.attr == "create_index":
-                index_names.add(node.args[0].value)
-            elif node.func.attr == "f":
-                constraint_names.add(node.args[0].value)
-        for keyword in node.keywords:
+    for migration_path in MIGRATION_PATHS:
+        module = ast.parse(migration_path.read_text(encoding="utf-8"))
+        for node in ast.walk(module):
+            if not isinstance(node, ast.Call):
+                continue
             if (
-                keyword.arg == "name"
-                and isinstance(keyword.value, ast.Constant)
-                and isinstance(keyword.value.value, str)
+                isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "op"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
             ):
-                constraint_names.add(keyword.value.value)
+                if node.func.attr == "create_table":
+                    table_names.add(node.args[0].value)
+                elif node.func.attr == "create_index":
+                    index_names.add(node.args[0].value)
+                elif node.func.attr in {
+                    "create_foreign_key",
+                    "create_unique_constraint",
+                    "f",
+                }:
+                    constraint_names.add(node.args[0].value)
+            for keyword in node.keywords:
+                if (
+                    keyword.arg == "name"
+                    and isinstance(keyword.value, ast.Constant)
+                    and isinstance(keyword.value.value, str)
+                ):
+                    constraint_names.add(keyword.value.value)
     return (
         frozenset(table_names),
         frozenset(constraint_names),
@@ -296,30 +339,32 @@ def _migration_identifiers() -> frozenset[str]:
 
 
 def _migration_check_constraint_sql() -> dict[str, str]:
-    module = ast.parse(MIGRATION_PATH.read_text(encoding="utf-8"))
     checks: dict[str, str] = {}
-    for node in ast.walk(module):
-        if (
-            not isinstance(node, ast.Call)
-            or not isinstance(node.func, ast.Attribute)
-            or node.func.attr != "CheckConstraint"
-            or not node.args
-        ):
-            continue
-        sql_text = ast.literal_eval(node.args[0])
-        assert isinstance(sql_text, str)
-        name_keyword = next(keyword for keyword in node.keywords if keyword.arg == "name")
-        constraint_name = _op_formatted_identifier(name_keyword.value)
-        assert constraint_name is not None
-        checks[constraint_name] = " ".join(sql_text.split())
+    for migration_path in MIGRATION_PATHS:
+        module = ast.parse(migration_path.read_text(encoding="utf-8"))
+        for node in ast.walk(module):
+            if (
+                not isinstance(node, ast.Call)
+                or not isinstance(node.func, ast.Attribute)
+                or node.func.attr != "CheckConstraint"
+                or not node.args
+            ):
+                continue
+            sql_text = ast.literal_eval(node.args[0])
+            assert isinstance(sql_text, str)
+            name_keyword = next(keyword for keyword in node.keywords if keyword.arg == "name")
+            constraint_name = _op_formatted_identifier(name_keyword.value)
+            assert constraint_name is not None
+            checks[constraint_name] = " ".join(sql_text.split())
     return checks
 
 
-def test_registered_models_and_metadata_contain_exactly_three_business_tables() -> None:
+def test_registered_models_and_metadata_contain_exactly_phase_1e_1_business_tables() -> None:
     assert (
         PaintProject,
         StateTransitionEvent,
         CommandIdempotencyRecord,
+        ImageAsset,
     ) == REGISTERED_MODELS
     assert set(Base.metadata.tables) == EXPECTED_TABLES
     assert {model.__table__.name for model in REGISTERED_MODELS} == EXPECTED_TABLES
@@ -377,7 +422,7 @@ def test_all_database_identifiers_fit_postgresql_limit() -> None:
     identifiers = _metadata_identifiers()
 
     assert identifiers == EXPECTED_DATABASE_IDENTIFIERS
-    assert len(identifiers) == 43
+    assert len(identifiers) == 79
     assert all(
         len(identifier.encode("utf-8")) <= POSTGRESQL_IDENTIFIER_LIMIT for identifier in identifiers
     )
@@ -430,6 +475,7 @@ def test_model_column_sets_are_exact() -> None:
         "requested_target_style",
         "planning_mode",
         "status",
+        "current_image_asset_id",
         "created_at",
         "updated_at",
     )
@@ -462,12 +508,46 @@ def test_model_column_sets_are_exact() -> None:
         "created_at",
         "expires_at",
     )
+    assert tuple(ImageAsset.__table__.c.keys()) == (
+        "id",
+        "paint_project_id",
+        "owner_principal_id",
+        "role",
+        "version",
+        "supersedes_image_asset_id",
+        "is_current",
+        "lifecycle_status",
+        "storage_provider",
+        "storage_key",
+        "original_filename",
+        "declared_content_type",
+        "detected_format",
+        "byte_size",
+        "width",
+        "height",
+        "pixel_count",
+        "color_mode",
+        "has_alpha",
+        "exif_orientation",
+        "sha256",
+        "upload_validation_result",
+        "upload_validation_details",
+        "source_type",
+        "rights_attestation_status",
+        "rights_attestation_version",
+        "intended_usage",
+        "rights_attested_by_principal_id",
+        "rights_attested_at",
+        "created_by_actor_type",
+        "created_by_actor_id",
+        "created_by_actor_display_name_snapshot",
+        "created_at",
+    )
     all_columns = {
         column.name for table in Base.metadata.tables.values() for column in table.columns
     }
     assert (
         not {
-            "current_image_asset_id",
             "current_region_version_id",
             "current_plan_id",
             "agent_run_id",
@@ -805,7 +885,7 @@ def fail(*args, **kwargs):
 
 sqlalchemy.ext.asyncio.create_async_engine = fail
 from creativedeploy_api.db.models import REGISTERED_MODELS
-assert len(REGISTERED_MODELS) == 3
+assert len(REGISTERED_MODELS) == 4
 """
     result = subprocess.run(
         [sys.executable, "-c", source],

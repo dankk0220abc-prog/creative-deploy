@@ -9,10 +9,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_ENV_FILE = REPOSITORY_ROOT / ".env"
+DEFAULT_IMAGE_STORAGE_ROOT = REPOSITORY_ROOT / ".local" / "private-image-storage"
 DEFAULT_DATABASE_LOCK_TIMEOUT_MS = 2_000
 DEFAULT_DATABASE_STATEMENT_TIMEOUT_MS = 5_000
 MAX_DATABASE_TRANSACTION_TIMEOUT_MS = 60_000
+DEFAULT_IMAGE_MAX_BYTES = 20 * 1024 * 1024
+DEFAULT_IMAGE_MIN_SIDE_PX = 768
+DEFAULT_IMAGE_MAX_SIDE_PX = 8_192
+DEFAULT_IMAGE_MAX_PIXELS = 40_000_000
 AppEnvironment = Literal["development", "test", "production"]
+ImageStorageProvider = Literal["local_filesystem"]
 PrincipalIdSetting = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=128),
@@ -50,6 +56,28 @@ class Settings(BaseSettings):
     )
     paintpilot_demo_principal_id: PrincipalIdSetting | None = None
     paintpilot_demo_principal_display_name: PrincipalDisplayNameSetting | None = None
+    image_storage_provider: ImageStorageProvider = "local_filesystem"
+    image_storage_root: Path = DEFAULT_IMAGE_STORAGE_ROOT
+    image_upload_max_bytes: int = Field(
+        default=DEFAULT_IMAGE_MAX_BYTES,
+        gt=0,
+        le=DEFAULT_IMAGE_MAX_BYTES,
+    )
+    image_min_side_px: int = Field(
+        default=DEFAULT_IMAGE_MIN_SIDE_PX,
+        ge=DEFAULT_IMAGE_MIN_SIDE_PX,
+        le=DEFAULT_IMAGE_MAX_SIDE_PX,
+    )
+    image_max_side_px: int = Field(
+        default=DEFAULT_IMAGE_MAX_SIDE_PX,
+        ge=DEFAULT_IMAGE_MIN_SIDE_PX,
+        le=DEFAULT_IMAGE_MAX_SIDE_PX,
+    )
+    image_max_pixels: int = Field(
+        default=DEFAULT_IMAGE_MAX_PIXELS,
+        gt=0,
+        le=DEFAULT_IMAGE_MAX_PIXELS,
+    )
 
     def require_configured_demo_principal(self) -> tuple[str, str]:
         """Return an explicitly configured non-production demo identity or fail closed."""
@@ -67,6 +95,20 @@ class Settings(BaseSettings):
             self.paintpilot_demo_principal_id,
             self.paintpilot_demo_principal_display_name,
         )
+
+    def require_local_image_storage(self) -> Path:
+        """Return the private local root only in explicitly non-production runtimes."""
+        if self.app_env is None:
+            raise ValueError("APP_ENV must be explicitly configured.")
+        if self.app_env == "production":
+            raise ValueError(
+                "LocalFilesystemImageStorageAdapter is NOT_FOR_PRODUCTION_OBJECT_STORAGE."
+            )
+        if self.image_storage_provider != "local_filesystem":
+            raise ValueError("No approved production image storage provider is configured.")
+        if self.image_min_side_px > self.image_max_side_px:
+            raise ValueError("IMAGE_MIN_SIDE_PX must not exceed IMAGE_MAX_SIDE_PX.")
+        return self.image_storage_root.expanduser().resolve(strict=False)
 
 
 @lru_cache(maxsize=1)

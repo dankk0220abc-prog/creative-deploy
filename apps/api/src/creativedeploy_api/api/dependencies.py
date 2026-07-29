@@ -12,7 +12,9 @@ from creativedeploy_api.core.principal import (
     ConfiguredDemoPrincipalAdapter,
     PrincipalContext,
 )
+from creativedeploy_api.services.image_assets import ImageAssetService
 from creativedeploy_api.services.paint_projects import PaintProjectService
+from creativedeploy_api.storage.images import ImageStoragePort
 
 
 def get_request_id(request: Request) -> uuid.UUID:
@@ -65,4 +67,20 @@ def get_paint_project_service(
 PaintProjectServiceDependency = Annotated[
     PaintProjectService,
     Depends(get_paint_project_service),
+]
+
+
+def get_image_asset_service(
+    request: Request,
+    session: DatabaseSessionDependency,
+) -> ImageAssetService:
+    """Build the request-scoped ImageAsset service with the private storage port."""
+    settings = cast(Settings, request.app.state.settings)
+    storage = cast(ImageStoragePort, request.app.state.image_storage)
+    return ImageAssetService(session, storage, settings)
+
+
+ImageAssetServiceDependency = Annotated[
+    ImageAssetService,
+    Depends(get_image_asset_service),
 ]

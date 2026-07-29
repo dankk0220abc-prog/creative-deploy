@@ -68,7 +68,7 @@ describe("Projects workspace", () => {
     expect(createLinks).toHaveLength(1);
     expect(createLinks[0]).toHaveAttribute("href", "/paintpilot/projects/new");
     expect(screen.queryByText("Demo project")).not.toBeInTheDocument();
-    expect(screen.queryByText("Image not added")).not.toBeInTheDocument();
+    expect(screen.queryByText("Primary image not added")).not.toBeInTheDocument();
   });
 
   it("preserves backend order and renders only the approved first-release card fields", async () => {
@@ -145,7 +145,8 @@ describe("Projects workspace", () => {
       .mockResolvedValueOnce(
         jsonResponse({ items: [project], total: 1, limit: 20, offset: 0 }),
       )
-      .mockResolvedValueOnce(jsonResponse(project));
+      .mockResolvedValueOnce(jsonResponse(project))
+      .mockResolvedValueOnce(jsonResponse({ items: [] }));
 
     renderProjects();
 
@@ -158,9 +159,12 @@ describe("Projects workspace", () => {
     expect(
       await screen.findByRole("heading", { name: project.title, level: 1 }),
     ).toBeInTheDocument();
-    expect(fetchMock()).toHaveBeenCalledTimes(2);
+    expect(fetchMock()).toHaveBeenCalledTimes(3);
     expect(fetchMock().mock.calls[1]?.[0]).toBe(
       `/api/v1/paint-projects/${project.id}`,
+    );
+    expect(fetchMock().mock.calls[2]?.[0]).toBe(
+      `/api/v1/paint-projects/${project.id}/images`,
     );
   });
 

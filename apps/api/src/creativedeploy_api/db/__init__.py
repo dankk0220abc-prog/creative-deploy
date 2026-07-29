@@ -4,6 +4,7 @@ from creativedeploy_api.db.base import NAMING_CONVENTION, Base
 from creativedeploy_api.db.models import (
     REGISTERED_MODELS,
     CommandIdempotencyRecord,
+    ImageAsset,
     PaintProject,
     StateTransitionEvent,
 )
@@ -13,6 +14,7 @@ __all__ = [
     "REGISTERED_MODELS",
     "Base",
     "CommandIdempotencyRecord",
+    "ImageAsset",
     "PaintProject",
     "StateTransitionEvent",
 ]

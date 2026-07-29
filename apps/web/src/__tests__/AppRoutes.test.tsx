@@ -127,7 +127,9 @@ describe("PaintPilot route tree", () => {
   });
 
   it("directly loads a valid detail route from the API", async () => {
-    fetchMock().mockResolvedValue(jsonResponse(projectFixture()));
+    fetchMock()
+      .mockResolvedValueOnce(jsonResponse(projectFixture()))
+      .mockResolvedValueOnce(jsonResponse({ items: [] }));
 
     renderRoute(`/paintpilot/projects/${PROJECT_ID}`);
 
@@ -143,7 +145,10 @@ describe("PaintPilot route tree", () => {
     );
     expect(navigationLink("Create project")).not.toHaveAttribute("aria-current");
     expect(document.title).toBe("Project Details — PaintPilot");
-    expect(fetchMock()).toHaveBeenCalledTimes(1);
+    expect(fetchMock()).toHaveBeenCalledTimes(2);
+    expect(fetchMock().mock.calls[1]?.[0]).toBe(
+      `/api/v1/paint-projects/${PROJECT_ID}/images`,
+    );
   });
 
   it("rejects an invalid detail ID without issuing a request", () => {

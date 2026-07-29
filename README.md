@@ -1,6 +1,7 @@
 # CreativeDeploy
 
-Project Status: Phase 1D `COMPLETE` — Phase 1D-3 `CLOSED` — Phase 1D-4 `CLOSED`
+Project Status: Phase 1D `COMPLETE` — Phase 1E-1
+`PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
 
 Implementation Status:
 
@@ -15,8 +16,12 @@ Implementation Status:
 - Phase 1D-3 is `CLOSED`
 - Phase 1D-4 — Integrated Product Review is `CLOSED`
 - Phase 1D is `COMPLETE`
-- Next formal phase: Phase 1E-1 (`NEXT / NOT_STARTED`)
-- The image-asset phase is not implemented; AI integration is `NOT_AUTHORIZED`
+- Phase 1E-1 ImageAsset Foundation is an uncommitted candidate:
+  `PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
+- Atomic no-overwrite publication, receipt-bound compensation, Project-scoped upload
+  idempotency, canonical automated gates, and a new program-generated JPEG/PNG/WebP
+  real-browser run pass; a fresh independent read-only security and product review is next
+- Image quality assessment and AI integration remain `NOT_AUTHORIZED`
 
 Phase 1D-2 Commit:
 
@@ -85,8 +90,21 @@ Phase 1D-4:
 
 Phase 1E-1:
 
-- `NEXT / NOT_STARTED`
-- The image-asset phase has not been implemented
+- `PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
+- Commit/staging status: `NOT_CREATED / NOT_STAGED`
+- One private immutable `primary_mvp_input` slot, replacement history, rights attestation,
+  deterministic upload acceptance, and owner-scoped preview are implemented as a candidate
+- The original private-photo browser attempt remains `INVALID_ATTEMPT`; its rows and object were
+  precisely cleaned. A later program-generated JPEG/PNG/WebP browser continuation passed upload,
+  safe retry, retained replacements, rejection, restart persistence, three viewports, and cleanup
+- Independent review F-01 proved that the former `os.replace` publication could overwrite an
+  immutable object. Remediation now uses atomic no-replace publication and a verified publish
+  receipt before any uncommitted-object compensation.
+- Upload `Idempotency-Key` is formally Project-scoped: the same key is replay/conflict protected
+  within one Principal and Project, while different Projects or Principals are independent.
+- Local filesystem storage is `NOT_FOR_PRODUCTION_OBJECT_STORAGE`; production fails closed
+- Candidate evidence:
+  `docs/progress/phase-1e-1-imageasset-foundation-candidate.md`
 - AI integration remains `NOT_AUTHORIZED`
 
 CreativeDeploy 的主案例是 PaintPilot。Phase 0 已建立 Golden Case、MVP Product
@@ -116,15 +134,28 @@ PaintProject 后端持久化/API 闭环；Commit 10 已提交首个 PaintPilot �
 - loading、empty、安全 error、503/API unavailable 与显式 retry；
 - 页面生命周期内的 UUID 幂等 key、同 payload 安全重试和双重提交保护；
 - 真实浏览器 create/list/detail/reopen、前端/API 重启、故障恢复和 390 px 响应式验证。
+- ImageAsset 物理字段、版本链、同 owner/project Foreign Key 与 current partial unique；
+- provider-neutral storage port 和仅 development/test 可用的私有本地文件适配器；
+- 基于同文件系统 `link` 的原子 no-replace publish、类型化碰撞失败、publish receipt
+  身份校验与数据库引用保护的补偿删除；
+- JPEG/PNG/WebP 文件头、MIME、完整解码、尺寸、像素、动画、SHA-256 与 20 MiB 限制；
+- owner-scoped upload/list/detail/private-content API、upload 幂等 replay/conflict、
+  数据库失败补偿与 orphan detection；
+- 单一主图槽位、用户权利 attestation、私有预览、不可变历史和受状态机保护的替换 UI。
 
 当前治理状态不倒填 Commit 10 创建前的批准，也不把后续复审伪装成提交前证据。治理
 reconciliation 已通过独立复审并由 `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`
 封存；Phase 1D-3 已由 `c8043b9a75aa9363a661fa245c7ac999961788fd` 正式关闭。Phase
 1D-4 原复审如实保留失败结论，其唯一 README 状态阻断项后来通过独立修复、独立复审并由
 `707bdfa3c5931867125cc9c7dc11067a86f5f343` 封存；结合两部分证据，Phase 1D-4 现已
-`CLOSED`，Phase 1D 现已 `COMPLETE`。当前仍没有公开认证、真实用户授权、图片上传、
-区域分析、Polygon Editor、AI Provider、RAG、Paint inventory、Agent 工作流、
-HumanApproval、CI 或生产部署能力。
+`CLOSED`，Phase 1D 现已 `COMPLETE`。Phase 1E-1 ImageAsset Foundation 的代码候选、
+自动化门禁与程序生成 JPEG/PNG/WebP 浏览器续跑均已通过，首次私人图片浏览器尝试仍如实
+保留为 `INVALID_ATTEMPT` 且已精确清理；当前正式状态为
+`PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`，下一步仅为全新只读安全与产品
+独立复审，尚未批准、封存或授权 Git sealing。当前仍没有公开
+认证、真实用户授权、正式
+图片质量评估、区域分析、Polygon Editor、AI Provider、RAG、Paint inventory、Agent
+工作流、HumanApproval、CI、生产对象存储或生产部署能力。
 
 ## Prerequisites
 
@@ -198,6 +229,23 @@ make web
   未预期 Integrity、Programming、Data 或其他 SQLAlchemy 错误返回安全、
   `retryable=false` 的 500，不伪装成基础设施故障。
 
+## Private ImageAsset API
+
+- `POST /api/v1/paint-projects/{project_id}/images`：只接受一个
+  `primary_mvp_input` JPEG/PNG/WebP、UUID `Idempotency-Key`、来源、预期用途与明确的
+  rights attestation；成功进入 `IMAGE_UPLOADED`；
+- 首次上传只允许 `DRAFT`；替换只允许 `IMAGE_REVIEW_REQUIRED` 或
+  `IMAGE_VALIDATION_FAILED`，旧版本和旧文件都保留；
+- `GET /api/v1/paint-projects/{project_id}/images` 和
+  `GET /api/v1/paint-projects/{project_id}/images/{image_asset_id}` 返回 owner-scoped
+  元数据，不返回 storage key、路径、owner/actor ID；
+- `GET .../{image_asset_id}/content` 先授权再读取私有对象，返回
+  `private, no-store` / `nosniff` 响应，不支持 Range；
+- 本阶段的 `upload_validation_result=accepted` 只表示确定性文件接收检查通过，不是
+  ImageQualityAssessment、AI 结论、颜色准确声明或法律权利验证；
+- development/test 使用 `.local/private-image-storage`（可配置）并跨进程重启保留；
+  production 明确拒绝该本地适配器。
+
 ## Quality and Tests
 
 PostgreSQL 运行时执行完整检查：
@@ -230,9 +278,10 @@ make db-down
 
 ## Database Migration
 
-Alembic async 环境复用应用的仓库根目录 Settings 和数据库 Engine 创建边界。当前
-只有一个已批准并提交的业务 Revision `a10d3d8dab38`，创建
-`paint_projects`、`state_transition_events` 和 `command_idempotency_records`。
+Alembic async 环境复用应用的仓库根目录 Settings 和数据库 Engine 创建边界。历史
+Revision `a10d3d8dab38` 仍保持不变；Phase 1E-1 候选增加第二份未提交 Revision
+`5ed9906e7d33`，创建 `image_assets` 并同时引入受复合 Foreign Key 保护的
+`paint_projects.current_image_asset_id`。
 
 Migration 必须由开发者明确运行；应用启动不会自动执行 Migration。以下只读或差异
 检查命令从仓库根目录运行：
@@ -249,8 +298,8 @@ make migration-check
 名称以及是否误删或误改对象。`alembic check` 只检查 ORM Metadata 与现有 Revision
 的差异，不能替代人工审查。
 
-应用启动不会自动 Migration；不要重写该历史 Revision，也不要在未批准的任务中创建
-第二个 Revision。
+应用启动不会自动 Migration；不要重写历史 Revision。当前第二份 Revision 属于
+`PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW` candidate，不等于已批准或可提交。
 
 ## Repository Structure
 
@@ -277,16 +326,19 @@ make migration-check
   approval record；后续复审不构成倒填批准；
 - Phase 1D-3 技术 remediation 与 governance reconciliation 均已封存，Phase 1D-3 当前为
   `CLOSED`；Commit 10 的提交前批准并未被倒填；
-- Phase 1D-4 当前为 `CLOSED`；Phase 1E-1 是下一正式阶段，仍为 `NEXT / NOT_STARTED`，
-  图片资产尚未实施且 AI 接入未授权；
+- Phase 1D-4 当前为 `CLOSED`；Phase 1E-1 是
+  `PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW` 的未提交候选，下一 Gate 是全新
+  只读安全与产品独立复审，AI 接入未授权；
 - Phase 1D-2 的 F-09-01、F-09-02、F-09-03、F-09-04 已在 Commit 9 前关闭；
-- 当前只有三个基础业务表和 create/list/detail API，没有 update、delete 或 Owner transfer；
+- 当前候选有四个基础业务表；PaintProject 仍没有 update、delete 或 Owner transfer，
+  ImageAsset 也没有 update/delete；
 - 配置型单 Principal 不是公共认证、多人授权或真实用户系统，production 明确拒绝它；
 - Create 幂等 key 仅在当前页面生命周期内保留；浏览器刷新不会恢复尚未确认请求的 key，
   且本阶段不自行引入 localStorage 持久化协议；
-- 前端项目详情只读，卡片没有真实图片或 review-gate 数据；
+- 项目详情中的项目字段仍只读；主图控件只处理原图、attestation、私有预览和版本历史，
+  不包含 review decision 或质量评估；
 - 未配置 CORS，开发访问依赖 Vite Proxy；
-- 未实现图片、AI、RAG、完整 Trace、HumanApproval、后台任务或 Redis。
+- 未实现图片质量评估、AI、RAG、完整 Trace、HumanApproval、后台任务或 Redis。
 
 ## 素材使用边界
 

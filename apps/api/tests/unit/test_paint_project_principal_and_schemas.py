@@ -252,7 +252,7 @@ def _read_payload() -> dict[str, object]:
     }
 
 
-def test_read_schema_accepts_the_exact_nine_field_contract() -> None:
+def test_read_schema_accepts_the_phase_1e_1_current_image_contract() -> None:
     payload = _read_payload()
 
     project = PaintProjectRead.model_validate(payload)
@@ -265,11 +265,11 @@ def test_read_schema_accepts_the_exact_nine_field_contract() -> None:
         "requested_target_style",
         "planning_mode",
         "status",
+        "current_image_asset_id",
         "created_at",
         "updated_at",
     }
     assert not {
-        "current_image_asset_id",
         "current_region_version_id",
         "current_plan_id",
     } & set(project.model_dump())

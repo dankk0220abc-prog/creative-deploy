@@ -8,6 +8,7 @@ import {
   type PaintProject,
 } from "../api/paintProjects";
 import { FeedbackPanel } from "../components/FeedbackPanel";
+import { ImageAssetManager } from "../components/ImageAssetManager";
 import { ProjectStatusBadge } from "../components/ProjectStatusBadge";
 import { formatProjectTimestamp } from "../utils/format";
 
@@ -298,6 +299,11 @@ export function ProjectDetailPage() {
             </dl>
           </section>
 
+          <ImageAssetManager
+            onProjectChanged={() => setReloadToken((current) => current + 1)}
+            project={currentState.project}
+          />
+
           <aside className="next-boundary" aria-labelledby="next-boundary-heading">
             <div aria-hidden="true" className="next-boundary__visual">
               <span />
@@ -305,12 +311,14 @@ export function ProjectDetailPage() {
               <span />
             </div>
             <div>
-              <p className="eyebrow">Current capability boundary</p>
-              <h2 id="next-boundary-heading">Image upload is not implemented yet</h2>
+              <p className="eyebrow">Next governed boundary</p>
+              <h2 id="next-boundary-heading">
+                Image quality assessment is not implemented yet
+              </h2>
               <p>
-                This phase stops at a persisted Draft project. No image, region
-                analysis, AI result, inventory match, approval, or paint plan has been
-                created.
+                This phase stores and previews an immutable original only. No formal
+                quality decision, region analysis, AI result, inventory match,
+                approval, or paint plan has been created.
               </p>
             </div>
           </aside>

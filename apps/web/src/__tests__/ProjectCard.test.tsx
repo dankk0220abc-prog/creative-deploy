@@ -29,7 +29,7 @@ describe("ProjectCard", () => {
     expect(
       within(card).getByRole("heading", { name: "Courtyard figure repaint" }),
     ).toBeInTheDocument();
-    expect(within(card).getByText("Image not added")).toBeInTheDocument();
+    expect(within(card).getByText("Primary image not added")).toBeInTheDocument();
     expect(within(card).getByLabelText("Workflow status: Draft")).toBeInTheDocument();
     expect(within(card).getByText("No active review gate")).toBeInTheDocument();
     expect(within(card).getByText("just now")).toBeInTheDocument();
@@ -49,5 +49,24 @@ describe("ProjectCard", () => {
     expect(within(card).queryByText("Cel Shading")).not.toBeInTheDocument();
     expect(within(card).queryByText("Planning only")).not.toBeInTheDocument();
     expect(within(card).queryByText("Created")).not.toBeInTheDocument();
+  });
+
+  it("reflects persisted primary-image and formal review-gate facts", () => {
+    render(
+      <MemoryRouter>
+        <ProjectCard
+          project={projectFixture({
+            current_image_asset_id: "33333333-3333-4333-8333-333333333333",
+            status: "IMAGE_REVIEW_REQUIRED",
+          })}
+        />
+      </MemoryRouter>,
+    );
+
+    const card = screen.getByRole("article");
+    expect(within(card).getByText("Primary image stored")).toBeInTheDocument();
+    expect(card.querySelector(".review-gate")).toHaveTextContent(
+      "Image review required",
+    );
   });
 });

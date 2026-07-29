@@ -11,11 +11,16 @@ from creativedeploy_api.core.config import Settings, get_settings
 from creativedeploy_api.core.principal import ConfiguredDemoPrincipalAdapter
 from creativedeploy_api.db.engine import create_database_engine
 from creativedeploy_api.db.session import create_database_session_factory
+from creativedeploy_api.storage.images import LocalFilesystemImageStorageAdapter
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Create a FastAPI application with explicitly injectable settings."""
     resolved_settings = settings or get_settings()
+    principal_adapter = ConfiguredDemoPrincipalAdapter.from_settings(resolved_settings)
+    image_storage = LocalFilesystemImageStorageAdapter(
+        resolved_settings.require_local_image_storage()
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -33,7 +38,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = resolved_settings
-    app.state.principal_adapter = ConfiguredDemoPrincipalAdapter.from_settings(resolved_settings)
+    app.state.image_storage = image_storage
+    app.state.principal_adapter = principal_adapter
     register_error_handlers(app)
     app.include_router(api_router)
     return app

@@ -182,6 +182,7 @@ describe("PaintProject API client", () => {
     "requested_target_style",
     "planning_mode",
     "status",
+    "current_image_asset_id",
     "created_at",
     "updated_at",
   ])("rejects a Project response missing %s", async (field) => {

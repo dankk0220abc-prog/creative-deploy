@@ -24,6 +24,12 @@ function renderDetail() {
   );
 }
 
+function projectAndEmptyImages(project = projectFixture()) {
+  fetchMock()
+    .mockResolvedValueOnce(jsonResponse(project))
+    .mockResolvedValueOnce(jsonResponse({ items: [] }));
+}
+
 describe("PaintProject detail", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
@@ -56,7 +62,7 @@ describe("PaintProject detail", () => {
       owner_principal_id: "PRIVATE-owner-principal",
       status: "IMAGE_REVIEW_REQUIRED",
     });
-    fetchMock().mockResolvedValue(jsonResponse(project));
+    projectAndEmptyImages(project);
     const view = renderDetail();
 
     expect(
@@ -77,16 +83,19 @@ describe("PaintProject detail", () => {
     ).toHaveLength(2);
     expect(
       screen.getByRole("heading", {
-        name: "Image upload is not implemented yet",
+        name: "Primary planning image",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", {
+        name: "Image quality assessment is not implemented yet",
       }),
     ).toBeInTheDocument();
     expect(screen.queryByText("PRIVATE-owner-principal")).not.toBeInTheDocument();
   });
 
   it("states when the optional description is absent", async () => {
-    fetchMock().mockResolvedValue(
-      jsonResponse(projectFixture({ description: null })),
-    );
+    projectAndEmptyImages(projectFixture({ description: null }));
     renderDetail();
 
     expect(await screen.findByText("No description provided.")).toBeInTheDocument();
@@ -132,6 +141,7 @@ describe("PaintProject detail", () => {
         ),
       )
       .mockResolvedValueOnce(jsonResponse(project));
+    fetchMock().mockResolvedValueOnce(jsonResponse({ items: [] }));
     renderDetail();
 
     expect(
@@ -148,7 +158,7 @@ describe("PaintProject detail", () => {
     expect(
       await screen.findByRole("heading", { name: project.title, level: 1 }),
     ).toBeInTheDocument();
-    expect(fetchMock()).toHaveBeenCalledTimes(2);
+    expect(fetchMock()).toHaveBeenCalledTimes(3);
   });
 
   it("distinguishes an unreachable API from a database response", async () => {

@@ -29,6 +29,7 @@ export interface PaintProject {
   requested_target_style: "cel_shading";
   planning_mode: "planning_only_demo";
   status: WorkflowStatus;
+  current_image_asset_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -127,6 +128,7 @@ const paintProjectKeys = Object.freeze([
   "requested_target_style",
   "planning_mode",
   "status",
+  "current_image_asset_id",
   "created_at",
   "updated_at",
 ] satisfies ReadonlyArray<keyof PaintProject>);
@@ -210,6 +212,9 @@ function isPaintProject(value: unknown): value is PaintProject {
     value.planning_mode === "planning_only_demo" &&
     typeof value.status === "string" &&
     workflowStatusSet.has(value.status) &&
+    (value.current_image_asset_id === null ||
+      (typeof value.current_image_asset_id === "string" &&
+        isPaintProjectId(value.current_image_asset_id))) &&
     isTimestamp(value.created_at) &&
     isTimestamp(value.updated_at) &&
     Date.parse(value.updated_at) >= Date.parse(value.created_at)
