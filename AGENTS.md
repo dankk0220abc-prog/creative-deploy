@@ -21,9 +21,9 @@ child `2f99aaf8e1726761c2d89ac444af8380a1cedb79`
 `c8043b9a75aa9363a661fa245c7ac999961788fd`; its parent and governance seal is
 `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`.
 
-Phase 1E-1 — ImageAsset Foundation has begun as an uncommitted
-`PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW` candidate at baseline
-`881a2735aeb47ae8edbbd4810eb19f52e46232ff`. It adds one private immutable
+Phase 1E-1 — ImageAsset Foundation is `CLOSED`. Its independently reviewed implementation was
+sealed by `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d` with verdict
+`PHASE_1E_1_PASS_READY_FOR_SEALING` and Revision `5ed9906e7d33`. It adds one private immutable
 `primary_mvp_input` slot, deterministic file acceptance, user rights attestation, owner-scoped
 metadata/content, retained replacement history, and a provider-neutral storage boundary with a
 development/test-only local adapter. It does not add image quality assessment or AI.
@@ -36,7 +36,16 @@ private-photo fixture and remains `INVALID_ATTEMPT`; that dedicated test project
 precisely cleaned. A later real-browser continuation used only program-generated JPEG, PNG, WebP,
 and invalid fixtures and passed upload, safe retry, retained replacement, private preview,
 restarts, responsive checks, and exact cleanup. A new post-remediation synthetic run repeated the
-complete journey. A fresh independent read-only security and product review is next.
+complete journey. The first independent review returned
+`PHASE_1E_1_FAIL_REMEDIATION_REQUIRED`; Security Remediation Round 1 added no-replace publication
+and receipt compensation, and the second independent review authorized sealing.
+
+The overall project checkpoint is approximately 60% (`approximately_60_percent`). AI is
+`NOT_AUTHORIZED`; external object storage is `NOT_SELECTED`; public/signed URLs are
+`NOT_AUTHORIZED`; deletion and real authentication are `NOT_IMPLEMENTED`; local storage is
+development/test only; production storage is `NOT_READY`. No later formal phase is defined, so the
+next state is
+`NEXT_PHASE_REQUIRES_60_PERCENT_CHECKPOINT_CONFIRMATION`.
 
 The current source and verification evidence include:
 
@@ -70,7 +79,7 @@ The current source and verification evidence include:
   duplicate-submit prevention without localStorage or visible keys;
 - real-browser create/list/detail/reopen, frontend restart, API restart, 404, database 503,
   API-unavailable recovery, browser-history and 390 px responsive verification.
-- one uncommitted ImageAsset candidate model and Revision `5ed9906e7d33`, preserving historical
+- one sealed ImageAsset model and Revision `5ed9906e7d33`, preserving historical
   Revision `a10d3d8dab38`;
 - composite owner/project/current/lineage constraints and one-current partial uniqueness;
 - streamed private storage with SHA-256, atomic no-replace publication, typed collision failure,
@@ -106,12 +115,9 @@ remediated, independently reviewed with verdict
 `README_PHASE_STATE_REMEDIATION_PASS_READY_FOR_SEALING`, and sealed by
 `707bdfa3c5931867125cc9c7dc11067a86f5f343`. The combined evidence closes Phase 1D-4 without
 rewriting the original failure. Phase 1D-4 is `CLOSED`, Phase 1D is `COMPLETE`, and Phase 1E-1 is
-the active formal phase at
-`PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`. It is not
-independently approved, staged, committed, sealed, or production-authorized. Send it only to a
-fresh read-only security and product reviewer; Git sealing requires a later strict independent
-PASS. Image quality assessment and AI integration remain `NOT_AUTHORIZED`. See
-`docs/progress/phase-1d-4-integrated-product-review-closure.md`.
+`CLOSED`. Its implementation seal is `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d`; this does not
+authorize production storage, image quality assessment, AI integration, or a later product phase.
+See `docs/progress/phase-1e-1-imageasset-foundation-closure.md`.
 
 For every subsequent Codex task:
 
@@ -121,14 +127,15 @@ For every subsequent Codex task:
 - preserve the governance seal commit and do not reopen Phase 1D-3;
 - preserve the Phase 1D-4 original failure and later blocker-remediation evidence;
 - do not reopen or re-enter Phase 1D-3, Phase 1D-4, or Phase 1D;
-- treat Phase 1E-1 as implemented and ready only for a fresh independent read-only review;
-- do not claim the Phase 1E-1 candidate is approved, commit-ready, or production-ready;
+- keep Phase 1E-1 `CLOSED` and preserve its implementation seal and complete review history;
+- do not claim the sealed Phase 1E-1 implementation is production-ready;
 - do not integrate AI;
 - do not select external object storage, public URLs, irreversible deletion, real authentication,
   or major permission changes;
+- do not begin or name a later product phase until the 60% checkpoint direction is confirmed;
 - do not rewrite historical snapshots into fictional pre-commit approval.
 
-Phase 1D completion closes the specified PaintProject vertical slice. Phase 1E-1 candidate work
+Phase 1D completion closes the specified PaintProject vertical slice. The closed Phase 1E-1 work
 does not claim production validation, real-user validation, image-quality implementation, or AI
 authorization.
 
@@ -149,8 +156,8 @@ Do not claim or imply implementation or independent approval of:
 
 - `apps/api`: the independent uv-managed FastAPI package, health, PaintProject, and ImageAsset schemas,
   configuration, async database engine/session, shared Metadata, Alembic, the approved three-model
-  Phase 1D persistence foundation, the committed Phase 1D-2 Repository/Service/API, the uncommitted
-  Phase 1E-1 ImageAsset candidate, and pytest tests.
+  Phase 1D persistence foundation, the committed Phase 1D-2 Repository/Service/API, the sealed
+  Phase 1E-1 ImageAsset foundation, and pytest tests.
 - `apps/web`: the pnpm-managed React/Vite PaintPilot application shell, routes, API client,
   Projects/Create/Detail pages and Vitest tests.
 - `docs/product`, `docs/architecture`, `docs/decisions`: approved Phase 0 baselines; do not
@@ -203,8 +210,8 @@ make migration-check
 ```
 
 These commands never generate or upgrade a revision. The repository preserves historical
-Revision `a10d3d8dab38`; the uncommitted Phase 1E-1 candidate adds Revision `5ed9906e7d33` and a
-fourth business table. Candidate presence does not imply independent approval.
+Revision `a10d3d8dab38`; the Phase 1E-1 implementation seal adds Revision `5ed9906e7d33` and a
+fourth business table. This does not imply production storage readiness.
 
 Backend:
 
@@ -270,7 +277,7 @@ under normal operating-system rules, unlike the standard Make targets.
 - Never create empty revisions.
 - Do not rewrite a shared or applied historical Migration merely to silence a diff.
 - Preserve historical business Revision `a10d3d8dab38`; never rewrite it.
-- Preserve the Phase 1E-1 candidate Revision `5ed9906e7d33`, ImageAsset physical constraints,
+- Preserve the sealed Phase 1E-1 Revision `5ed9906e7d33`, ImageAsset physical constraints,
   private-storage boundary, and committed Phase 1D-2 API contracts during focused review.
 - Preserve safe 503 responses: never expose database URLs, passwords, stack traces, or raw
   infrastructure exceptions.
@@ -299,8 +306,7 @@ under normal operating-system rules, unlike the standard Make targets.
 - Preserve the independently reviewed README remediation and its seal commit
   `707bdfa3c5931867125cc9c7dc11067a86f5f343`; do not rewrite the original Phase 1D-4 failure.
 - Keep Phase 1D-3 and Phase 1D-4 `CLOSED` and Phase 1D `COMPLETE`; do not reopen Phase 1D.
-- Keep Phase 1E-1
-  `PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW` until a strict fresh independent review
-  produces a later authorized state. Do not integrate AI or image quality assessment, select
+- Keep Phase 1E-1 `CLOSED`; do not reopen it or begin a later phase without 60% checkpoint
+  confirmation. Do not integrate AI or image quality assessment, select
   external object storage, add public URLs, irreversible deletion, real authentication, or major
   permission changes.

@@ -1,16 +1,27 @@
 # Phase 1E-1 — ImageAsset Foundation Implementation Plan
 
-- Phase Status: `PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
+- Phase Status: `CLOSED`
+- Phase 1D Status: `COMPLETE`
 - Date: `2026-07-29`
 - Baseline HEAD: `881a2735aeb47ae8edbbd4810eb19f52e46232ff`
-- Commit Status: `NOT_CREATED`
+- Implementation Seal Commit: `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d`
+- Commit Status: `SEALED`
 - Git Staging Status: `NOT_STAGED`
+- Independent Review Verdict: `PHASE_1E_1_PASS_READY_FOR_SEALING`
+- Migration Revision: `5ed9906e7d33`
+- Overall Project Checkpoint: `approximately_60_percent`
 - AI Integration: `NOT_AUTHORIZED`
-- Production Storage: `NOT_SELECTED`
-- Independent Approval: `NOT_PERFORMED`
-- Next Gate: fresh independent read-only security and product review
+- External Object Storage: `NOT_SELECTED`
+- Public / Signed URLs: `NOT_AUTHORIZED`
+- Deletion: `NOT_IMPLEMENTED`
+- Real Authentication: `NOT_IMPLEMENTED`
+- Local Storage: development/test only
+- Production Storage: `NOT_READY`
+- Next Phase: `NEXT_PHASE_REQUIRES_60_PERCENT_CHECKPOINT_CONFIRMATION`
 - Candidate Evidence:
   `docs/progress/phase-1e-1-imageasset-foundation-candidate.md`
+- Closure Record:
+  `docs/progress/phase-1e-1-imageasset-foundation-closure.md`
 
 ## Goal
 
@@ -126,8 +137,11 @@ contract remain Project-scoped.
   probes are mandatory regressions.
 
 After the remediation, focused suites, the complete canonical gate, migration lifecycle, and a
-new complete synthetic browser journey passed and all probe state was precisely cleaned. The
-formal result is
-`PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`. This means implemented and
-ready for a fresh independent read-only review only; it does not mean approved, commit-ready,
-production-ready, sealed, closed, or authorized for a later AI/image-quality phase.
+new complete synthetic browser journey passed and all probe state was precisely cleaned. At that
+historical point the formal result was
+`PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`; it did not yet mean approved,
+commit-ready, production-ready, sealed, closed, or authorized for a later AI/image-quality phase.
+A second independent review later returned `PHASE_1E_1_PASS_READY_FOR_SEALING`, and the exact
+53-file implementation was sealed by `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d`.
+Phase 1E-1 is now `CLOSED` at the approximately 60% project checkpoint. No later formal phase was
+defined, so the next state is `NEXT_PHASE_REQUIRES_60_PERCENT_CHECKPOINT_CONFIRMATION`.

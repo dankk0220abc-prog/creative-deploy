@@ -1,14 +1,28 @@
 # Phase 1E-1 — ImageAsset Foundation Candidate Evidence
 
-- Candidate Status: `PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
+- Phase Status: `CLOSED`
+- Phase 1D Status: `COMPLETE`
+- Historical Candidate Status: `PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
 - Date: `2026-07-29`
 - Baseline HEAD: `881a2735aeb47ae8edbbd4810eb19f52e46232ff`
 - Baseline Subject: `docs(progress): close phase 1d vertical slice`
 - Branch: `main`
-- Commit Created: `NO`
-- Staged: `NO`
+- Implementation Seal Commit: `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d`
+- Commit Created: `YES`
+- Current Staged: `NO`
 - Pushed / tagged: `NO`
-- Independent Review: previous security review `FAIL`; remediation rereview `NOT_PERFORMED`
+- Independent Review: first review `PHASE_1E_1_FAIL_REMEDIATION_REQUIRED`; remediation rereview
+  `PHASE_1E_1_PASS_READY_FOR_SEALING`
+- Migration Revision: `5ed9906e7d33`
+- Overall Project Checkpoint: `approximately_60_percent`
+- AI Integration: `NOT_AUTHORIZED`
+- External Object Storage: `NOT_SELECTED`
+- Public / Signed URLs: `NOT_AUTHORIZED`
+- Deletion: `NOT_IMPLEMENTED`
+- Real Authentication: `NOT_IMPLEMENTED`
+- Local Storage: development/test only
+- Production Storage: `NOT_READY`
+- Next Phase: `NEXT_PHASE_REQUIRES_60_PERCENT_CHECKPOINT_CONFIRMATION`
 
 ## Candidate boundary
 
@@ -387,14 +401,17 @@ entries and scope-content hash. The final whole-worktree porcelain-v2 `-z` hash 
 externally in the handoff because embedding it in a tracked candidate file would change the
 hash being reported.
 
-## Ready handoff
+## Sealing and closure handoff
 
 Security Remediation Round 1 and its new synthetic browser gate passed without a second Migration,
-external provider, deletion, authentication, AI, or VisualEngineer operation. This candidate is
-`PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`, not approved, commit-ready,
-sealed, production-ready, or closed. Open a fresh read-only security and product review focused on
-F-01 no-overwrite publication, receipt-bound compensation, concurrent collision behavior,
-Project-scoped idempotency, and the complete browser/cleanup evidence. The reviewer must not modify
-the candidate. Only a strict independent PASS may authorize a later, separate Git sealing task.
-Image quality assessment, AI, external storage, public URLs, deletion, and real authentication
-remain unauthorized.
+external provider, deletion, authentication, AI, or VisualEngineer operation. At that historical
+handoff the candidate was
+`PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`, not yet approved, commit-ready,
+sealed, production-ready, or closed. A later strict independent security and product rereview
+returned `PHASE_1E_1_PASS_READY_FOR_SEALING`. The exact 53-file candidate was then sealed by
+`9b3b23ac3e1f056a73e3934d3da51b24aa7f671d`, after which Phase 1E-1 became `CLOSED`.
+
+This closure does not authorize image quality assessment, AI, external object storage,
+public/signed URLs, deletion, real authentication, or production storage. Local storage remains
+development/test only. The project is at approximately 60%, and no later formal phase is defined:
+`NEXT_PHASE_REQUIRES_60_PERCENT_CHECKPOINT_CONFIRMATION`.

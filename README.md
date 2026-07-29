@@ -1,7 +1,6 @@
 # CreativeDeploy
 
-Project Status: Phase 1D `COMPLETE` — Phase 1E-1
-`PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
+Project Status: Phase 1D `COMPLETE` — Phase 1E-1 `CLOSED` — approximately 60% checkpoint
 
 Implementation Status:
 
@@ -16,12 +15,16 @@ Implementation Status:
 - Phase 1D-3 is `CLOSED`
 - Phase 1D-4 — Integrated Product Review is `CLOSED`
 - Phase 1D is `COMPLETE`
-- Phase 1E-1 ImageAsset Foundation is an uncommitted candidate:
-  `PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
+- Phase 1E-1 ImageAsset Foundation is `CLOSED`; its independently reviewed implementation is
+  sealed by `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d`
+- The final independent review verdict is `PHASE_1E_1_PASS_READY_FOR_SEALING`
 - Atomic no-overwrite publication, receipt-bound compensation, Project-scoped upload
-  idempotency, canonical automated gates, and a new program-generated JPEG/PNG/WebP
-  real-browser run pass; a fresh independent read-only security and product review is next
-- Image quality assessment and AI integration remain `NOT_AUTHORIZED`
+  idempotency, canonical automated gates, and the program-generated JPEG/PNG/WebP real-browser
+  run are preserved as sealed evidence
+- Overall project progress is approximately 60%; the next phase requires checkpoint confirmation
+- AI is `NOT_AUTHORIZED`; external object storage is `NOT_SELECTED`; public/signed URLs are
+  `NOT_AUTHORIZED`; deletion and real authentication are `NOT_IMPLEMENTED`
+- Local storage is development/test only and production storage is `NOT_READY`
 
 Phase 1D-2 Commit:
 
@@ -32,7 +35,7 @@ Phase 1D-2 Commit:
 
 Phase 1D-3 Closure Baseline:
 
-- Current HEAD / Phase 1D-3 closure commit:
+- Phase 1D-3 closure commit:
   `c8043b9a75aa9363a661fa245c7ac999961788fd`
 - Parent / Governance seal:
   `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`
@@ -90,10 +93,13 @@ Phase 1D-4:
 
 Phase 1E-1:
 
-- `PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
-- Commit/staging status: `NOT_CREATED / NOT_STAGED`
+- Status: `CLOSED`
+- Implementation seal commit: `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d`
+- Independent review verdict: `PHASE_1E_1_PASS_READY_FOR_SEALING`
+- Migration Revision: `5ed9906e7d33`
+- Closure record: `docs/progress/phase-1e-1-imageasset-foundation-closure.md`
 - One private immutable `primary_mvp_input` slot, replacement history, rights attestation,
-  deterministic upload acceptance, and owner-scoped preview are implemented as a candidate
+  deterministic upload acceptance, and owner-scoped preview are sealed
 - The original private-photo browser attempt remains `INVALID_ATTEMPT`; its rows and object were
   precisely cleaned. A later program-generated JPEG/PNG/WebP browser continuation passed upload,
   safe retry, retained replacements, rejection, restart persistence, three viewports, and cleanup
@@ -105,13 +111,21 @@ Phase 1E-1:
 - Local filesystem storage is `NOT_FOR_PRODUCTION_OBJECT_STORAGE`; production fails closed
 - Candidate evidence:
   `docs/progress/phase-1e-1-imageasset-foundation-candidate.md`
-- AI integration remains `NOT_AUTHORIZED`
+- Overall project checkpoint: `approximately_60_percent`
+- AI: `NOT_AUTHORIZED`
+- External object storage: `NOT_SELECTED`
+- Public/signed URLs: `NOT_AUTHORIZED`
+- Deletion: `NOT_IMPLEMENTED`
+- Real authentication: `NOT_IMPLEMENTED`
+- Local storage: development/test only
+- Production storage: `NOT_READY`
+- Next phase: `NEXT_PHASE_REQUIRES_60_PERCENT_CHECKPOINT_CONFIRMATION`
 
 CreativeDeploy 的主案例是 PaintPilot。Phase 0 已建立 Golden Case、MVP Product
 Contract、状态机、领域数据字典和 ADR。Phase 1B 提供最小、真实的本地健康检查链路；
 Phase 1D-1B 已提交三个 ORM Model 和唯一业务 Migration；Phase 1D-2 已提交真实
 PaintProject 后端持久化/API 闭环；Commit 10 已提交首个 PaintPilot 前端产品闭环，
-其 F-01/F-02 UX 修复已在当前 HEAD 封存：
+其 F-01/F-02 UX 修复已在 Git 历史中封存：
 
 - React 开发页面；
 - FastAPI liveness 和 PostgreSQL readiness API；
@@ -150,10 +164,12 @@ reconciliation 已通过独立复审并由 `ac8630ae393cb6ca5bf3a2d1db5070531d6f
 `707bdfa3c5931867125cc9c7dc11067a86f5f343` 封存；结合两部分证据，Phase 1D-4 现已
 `CLOSED`，Phase 1D 现已 `COMPLETE`。Phase 1E-1 ImageAsset Foundation 的代码候选、
 自动化门禁与程序生成 JPEG/PNG/WebP 浏览器续跑均已通过，首次私人图片浏览器尝试仍如实
-保留为 `INVALID_ATTEMPT` 且已精确清理；当前正式状态为
-`PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`，下一步仅为全新只读安全与产品
-独立复审，尚未批准、封存或授权 Git sealing。当前仍没有公开
-认证、真实用户授权、正式
+保留为 `INVALID_ATTEMPT` 且已精确清理；第一次独立复审发现 storage key overwrite 并返回
+`PHASE_1E_1_FAIL_REMEDIATION_REQUIRED`，Security Remediation Round 1 完成 no-replace publish
+与 receipt compensation 后，第二次独立复审给出
+`PHASE_1E_1_PASS_READY_FOR_SEALING`。实现已由
+`9b3b23ac3e1f056a73e3934d3da51b24aa7f671d` 封存，Phase 1E-1 当前为 `CLOSED`，项目达到
+约 60% 检查点；下一阶段需要项目方向确认。当前仍没有公开认证、真实用户授权、正式
 图片质量评估、区域分析、Polygon Editor、AI Provider、RAG、Paint inventory、Agent
 工作流、HumanApproval、CI、生产对象存储或生产部署能力。
 
@@ -279,7 +295,7 @@ make db-down
 ## Database Migration
 
 Alembic async 环境复用应用的仓库根目录 Settings 和数据库 Engine 创建边界。历史
-Revision `a10d3d8dab38` 仍保持不变；Phase 1E-1 候选增加第二份未提交 Revision
+Revision `a10d3d8dab38` 仍保持不变；Phase 1E-1 implementation seal 包含第二份 Revision
 `5ed9906e7d33`，创建 `image_assets` 并同时引入受复合 Foreign Key 保护的
 `paint_projects.current_image_asset_id`。
 
@@ -298,8 +314,9 @@ make migration-check
 名称以及是否误删或误改对象。`alembic check` 只检查 ORM Metadata 与现有 Revision
 的差异，不能替代人工审查。
 
-应用启动不会自动 Migration；不要重写历史 Revision。当前第二份 Revision 属于
-`PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW` candidate，不等于已批准或可提交。
+应用启动不会自动 Migration；不要重写历史 Revision。第二份 Revision 已随 Phase 1E-1
+implementation seal `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d` 封存；这不表示生产存储
+已就绪或后续阶段已获授权。
 
 ## Repository Structure
 
@@ -326,11 +343,11 @@ make migration-check
   approval record；后续复审不构成倒填批准；
 - Phase 1D-3 技术 remediation 与 governance reconciliation 均已封存，Phase 1D-3 当前为
   `CLOSED`；Commit 10 的提交前批准并未被倒填；
-- Phase 1D-4 当前为 `CLOSED`；Phase 1E-1 是
-  `PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW` 的未提交候选，下一 Gate 是全新
-  只读安全与产品独立复审，AI 接入未授权；
+- Phase 1D-4 当前为 `CLOSED`；Phase 1E-1 也已 `CLOSED`，implementation seal 为
+  `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d`；项目处于约 60% 检查点，下一 Phase
+  尚未获方向确认，AI 接入仍未授权；
 - Phase 1D-2 的 F-09-01、F-09-02、F-09-03、F-09-04 已在 Commit 9 前关闭；
-- 当前候选有四个基础业务表；PaintProject 仍没有 update、delete 或 Owner transfer，
+- 当前封存实现有四个基础业务表；PaintProject 仍没有 update、delete 或 Owner transfer，
   ImageAsset 也没有 update/delete；
 - 配置型单 Principal 不是公共认证、多人授权或真实用户系统，production 明确拒绝它；
 - Create 幂等 key 仅在当前页面生命周期内保留；浏览器刷新不会恢复尚未确认请求的 key，
