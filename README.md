@@ -1,7 +1,7 @@
 # CreativeDeploy
 
-Project Status: Phase 1D `COMPLETE` — Phase 1E-1 `CLOSED` — Phase 1E-2
-`IMPLEMENTED_PENDING_INDEPENDENT_REVIEW`
+Project Status: Phase 1D `COMPLETE` — Phase 1E-1 `CLOSED` — Phase 1E-2 `CLOSED` —
+Phase 1F `NEXT` / `NOT_STARTED`
 
 Implementation Status:
 
@@ -22,17 +22,23 @@ Implementation Status:
 - Atomic no-overwrite publication, receipt-bound compensation, Project-scoped upload
   idempotency, canonical automated gates, and the program-generated JPEG/PNG/WebP real-browser
   run are preserved as sealed evidence
-- The user confirmed the approximately 60% checkpoint direction for Phase 1E-2
-- Phase 1E-2 adds a four-role ImageSet candidate, deterministic readiness prerequisites,
+- The user confirmed the historical approximately 60% checkpoint direction for Phase 1E-2
+- Phase 1E-2 adds a four-role ImageSet, deterministic readiness prerequisites,
   append-only human READY / NOT READY reviews, staleness, and a responsive Project Detail
   workbench
 - Its original independent review returned `CONTRACT_OR_ARCHITECTURE_DECISION_REQUIRED` after
   a real 201 proved F-01: `primary_front` replacement bypassed the sealed workflow gate in
   `IMAGE_UPLOADED`
-- The focused role-aware Service/UI/test remediation is implemented and awaits a fresh
-  independent read-only review; it is not approved, committed, sealed, or closed
+- Project control retained ADR-0004, the focused role-aware Service/UI/test remediation restored
+  that boundary, and a fresh independent review returned
+  `PHASE_1E_2_WORKFLOW_GATE_REMEDIATION_PASS_READY_FOR_SEALING`
+- The independently reviewed implementation is sealed by
+  `cc89aa246607f7c44b4639149a3b251b803d3a80`; Phase 1E-2 is `CLOSED`
+- Overall project progress is approximately 70% (`approximately_70_percent`)
+- Phase 1F — Human-Governed Region Annotation and Review is `NEXT` / `NOT_STARTED`
 - AI is `NOT_AUTHORIZED`; external object storage is `NOT_SELECTED`; public/signed URLs are
   `NOT_AUTHORIZED`; deletion and real authentication are `NOT_IMPLEMENTED`
+- Polygon and RegionSet are `NOT_IMPLEMENTED`
 - Local storage is development/test only and production storage is `NOT_READY`
 
 Phase 1D-2 Commit:
@@ -120,7 +126,7 @@ Phase 1E-1:
 - Local filesystem storage is `NOT_FOR_PRODUCTION_OBJECT_STORAGE`; production fails closed
 - Candidate evidence:
   `docs/progress/phase-1e-1-imageasset-foundation-candidate.md`
-- Overall project checkpoint: `approximately_60_percent`
+- Historical Phase 1E-1 closure checkpoint: `approximately_60_percent`
 - AI: `NOT_AUTHORIZED`
 - External object storage: `NOT_SELECTED`
 - Public/signed URLs: `NOT_AUTHORIZED`
@@ -134,13 +140,18 @@ Phase 1E-1:
 
 Phase 1E-2:
 
-- Status: `IMPLEMENTED_PENDING_INDEPENDENT_REVIEW`
-- Candidate verdict:
+- Status: `CLOSED`
+- Historical candidate verdict:
   `PHASE_1E_2_WORKFLOW_GATE_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
 - Original independent review: `CONTRACT_OR_ARCHITECTURE_DECISION_REQUIRED`
-- Fresh remediation review: `NOT_YET_PERFORMED`
+- Final independent review:
+  `PHASE_1E_2_WORKFLOW_GATE_REMEDIATION_PASS_READY_FOR_SEALING`
 - Baseline: `7b0777c393af705637a1e63f7f25f1dc06f75c1e`
+- Implementation seal commit: `cc89aa246607f7c44b4639149a3b251b803d3a80`
 - Migration Revision: `d4c8a1f7b2e9`, parent `5ed9906e7d33`
+- Closure record:
+  `docs/progress/phase-1e-2-multi-role-image-set-and-readiness-closure.md`
+- Overall project progress: `approximately_70_percent`
 - Required roles: `primary_front`, `reference_back`, `reference_angle`
 - Optional role: `reference_detail`
 - Existing `primary_mvp_input` assets map in place to `primary_front`; identity, version,
@@ -156,8 +167,22 @@ Phase 1E-2:
   do not create asset, object, command, event, pointer, or readiness side effects
 - Candidate evidence:
   `docs/progress/phase-1e-2-multi-role-image-set-and-readiness-candidate.md`
-- No stage, commit, push, tag, independent approval, production authorization, or later-phase
-  authorization exists
+- The original workflow-gate failure remains part of the record; it was not rewritten as an
+  initial pass
+- No production authorization, AI authorization, push, tag, or PR was created by sealing
+
+Phase 1F:
+
+- Name: Human-Governed Region Annotation and Review
+- Status: `NEXT` / `NOT_STARTED`
+- Polygon: `NOT_IMPLEMENTED`
+- RegionSet: `NOT_IMPLEMENTED`
+- AI: `NOT_AUTHORIZED`
+- External object storage: `NOT_SELECTED`
+- Public/signed URLs: `NOT_AUTHORIZED`
+- Deletion: `NOT_IMPLEMENTED`
+- Real authentication: `NOT_IMPLEMENTED`
+- This phase has not been implemented in the Phase 1E-2 sealing conversation
 
 CreativeDeploy 的主案例是 PaintPilot。Phase 0 已建立 Golden Case、MVP Product
 Contract、状态机、领域数据字典和 ADR。Phase 1B 提供最小、真实的本地健康检查链路；
@@ -211,13 +236,16 @@ reconciliation 已通过独立复审并由 `ac8630ae393cb6ca5bf3a2d1db5070531d6f
 与 receipt compensation 后，第二次独立复审给出
 `PHASE_1E_1_PASS_READY_FOR_SEALING`。实现已由
 `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d` 封存，Phase 1E-1 当前为 `CLOSED`。用户随后
-确认约 60% 检查点的 Phase 1E-2 方向；当前 Phase 1E-2 实现候选为
-`IMPLEMENTED_PENDING_INDEPENDENT_REVIEW`。首次独立复审以真实 201 证明 F-01：
+确认历史约 60% 检查点的 Phase 1E-2 方向。首次独立复审以真实 201 证明 F-01：
 `primary_front` 替换可从 `IMAGE_UPLOADED` 绕过已封存 workflow gate，并返回
-`CONTRACT_OR_ARCHITECTURE_DECISION_REQUIRED`。当前聚焦修复已按 ADR-0004 实现角色级后端
-门禁、前端镜像和零副作用负向测试，但尚待全新独立只读复审，也尚未提交、封存或关闭。当前仍没有公开认证、真实用户授权、正式
-图片质量评估、区域分析、Polygon Editor、AI Provider、RAG、Paint inventory、Agent
-工作流、HumanApproval、CI、生产对象存储或生产部署能力。
+`CONTRACT_OR_ARCHITECTURE_DECISION_REQUIRED`。项目总控选择保留 ADR-0004，聚焦修复恢复
+角色级后端门禁、前端镜像和零副作用负向测试；新的独立复审给出
+`PHASE_1E_2_WORKFLOW_GATE_REMEDIATION_PASS_READY_FOR_SEALING`，实现由
+`cc89aa246607f7c44b4639149a3b251b803d3a80` 封存，Phase 1E-2 当前为 `CLOSED`。项目总体
+进度约 70%；Phase 1F — Human-Governed Region Annotation and Review 是 `NEXT` /
+`NOT_STARTED`。当前仍没有公开认证、真实用户授权、正式图片质量评估、区域分析、Polygon
+Editor、RegionSet、AI Provider、RAG、Paint inventory、Agent 工作流、HumanApproval、CI、
+生产对象存储或生产部署能力。
 
 ## Prerequisites
 
@@ -343,9 +371,10 @@ make db-down
 Alembic async 环境复用应用的仓库根目录 Settings 和数据库 Engine 创建边界。历史
 Revision `a10d3d8dab38` 仍保持不变；Phase 1E-1 implementation seal 包含第二份 Revision
 `5ed9906e7d33`，创建 `image_assets` 并同时引入受复合 Foreign Key 保护的
-`paint_projects.current_image_asset_id`。Phase 1E-2 候选新增唯一子 Revision
+`paint_projects.current_image_asset_id`。Phase 1E-2 implementation seal
+`cc89aa246607f7c44b4639149a3b251b803d3a80` 包含唯一子 Revision
 `d4c8a1f7b2e9`，原位映射封存角色并添加 append-only
-`image_set_readiness_reviews`；这份 Revision 尚未封存。
+`image_set_readiness_reviews`；这份 Revision 已封存。
 
 Migration 必须由开发者明确运行；应用启动不会自动执行 Migration。以下只读或差异
 检查命令从仓库根目录运行：
@@ -392,16 +421,18 @@ implementation seal `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d` 封存；这不�
 - Phase 1D-3 技术 remediation 与 governance reconciliation 均已封存，Phase 1D-3 当前为
   `CLOSED`；Commit 10 的提交前批准并未被倒填；
 - Phase 1D-4 当前为 `CLOSED`；Phase 1E-1 也已 `CLOSED`，implementation seal 为
-  `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d`；约 60% 检查点已为 Phase 1E-2 获用户
-  方向确认，但 Phase 1E-2 仍待独立复审，之后的 Phase 尚未授权，AI 接入仍未授权；
+  `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d`；Phase 1E-2 已由
+  `cc89aa246607f7c44b4639149a3b251b803d3a80` 封存并 `CLOSED`，项目总体约 70%；
+  Phase 1F 为 `NEXT` / `NOT_STARTED`，AI 接入仍未授权；
 - Phase 1D-2 的 F-09-01、F-09-02、F-09-03、F-09-04 已在 Commit 9 前关闭；
-- 当前候选 Metadata 有五个基础业务表；新增 readiness review 只能 append，PaintProject
+- 当前封存的 Metadata 有五个基础业务表；readiness review 只能 append，PaintProject
   仍没有 update、delete 或 Owner transfer，ImageAsset 也没有 update/delete；
 - 配置型单 Principal 不是公共认证、多人授权或真实用户系统，production 明确拒绝它；
 - Create 幂等 key 仅在当前页面生命周期内保留；浏览器刷新不会恢复尚未确认请求的 key，
   且本阶段不自行引入 localStorage 持久化协议；
 - 项目详情中的项目字段仍只读；图片工作台只处理人选角色、attestation、私有预览、
   版本历史与 readiness review，不包含 ImageQualityAssessment、自动视角识别或质量评分；
+- Polygon 和 RegionSet 均未实现；Phase 1F 尚未开始；
 - 未配置 CORS，开发访问依赖 Vite Proxy；
 - 未实现图片质量评估、AI、RAG、完整 Trace、HumanApproval、后台任务或 Redis。
 
