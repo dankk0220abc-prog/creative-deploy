@@ -21,8 +21,21 @@ from sqlalchemy.sql.elements import conv
 
 from creativedeploy_api.db.base import Base
 
-IMAGE_ROLE_PRIMARY = "primary_mvp_input"
-IMAGE_ROLES = (IMAGE_ROLE_PRIMARY,)
+IMAGE_ROLE_PRIMARY = "primary_front"
+IMAGE_ROLE_REFERENCE_BACK = "reference_back"
+IMAGE_ROLE_REFERENCE_ANGLE = "reference_angle"
+IMAGE_ROLE_REFERENCE_DETAIL = "reference_detail"
+IMAGE_ROLES = (
+    IMAGE_ROLE_PRIMARY,
+    IMAGE_ROLE_REFERENCE_BACK,
+    IMAGE_ROLE_REFERENCE_ANGLE,
+    IMAGE_ROLE_REFERENCE_DETAIL,
+)
+REQUIRED_IMAGE_ROLES = (
+    IMAGE_ROLE_PRIMARY,
+    IMAGE_ROLE_REFERENCE_BACK,
+    IMAGE_ROLE_REFERENCE_ANGLE,
+)
 IMAGE_LIFECYCLE_STATUSES = ("current", "superseded")
 IMAGE_STORAGE_PROVIDERS = ("local_filesystem",)
 IMAGE_FORMATS = ("jpeg", "png", "webp")

@@ -13,6 +13,7 @@ import { AppRoutes } from "../router/AppRoutes";
 import {
   deferred,
   errorEnvelope,
+  imageSetFixture,
   jsonResponse,
   PROJECT_ID,
   projectFixture,
@@ -117,6 +118,7 @@ describe("Create PaintProject workflow", () => {
     fetchMock()
       .mockResolvedValueOnce(jsonResponse(project, 201))
       .mockResolvedValueOnce(jsonResponse(project))
+      .mockResolvedValueOnce(jsonResponse(imageSetFixture()))
       .mockResolvedValueOnce(jsonResponse({ items: [] }));
     renderCreate();
 
@@ -131,7 +133,7 @@ describe("Create PaintProject workflow", () => {
       await screen.findByRole("heading", { name: "Trimmed title", level: 1 }),
     ).toHaveFocus();
     expect(screen.getByText(/project created and saved/i)).toBeInTheDocument();
-    expect(fetchMock()).toHaveBeenCalledTimes(3);
+    expect(fetchMock()).toHaveBeenCalledTimes(4);
     expect(fetchMock().mock.calls[0]?.[0]).toBe("/api/v1/paint-projects");
     expect(fetchMock().mock.calls[0]?.[1]?.method).toBe("POST");
     expect(idempotencyKeyAt(0)).toBe(REQUEST_ID);
@@ -143,7 +145,10 @@ describe("Create PaintProject workflow", () => {
       `/api/v1/paint-projects/${PROJECT_ID}`,
     );
     expect(fetchMock().mock.calls[2]?.[0]).toBe(
-      `/api/v1/paint-projects/${PROJECT_ID}/images`,
+      `/api/v1/paint-projects/${PROJECT_ID}/image-set`,
+    );
+    expect(fetchMock().mock.calls[3]?.[0]).toBe(
+      `/api/v1/paint-projects/${PROJECT_ID}/image-set/readiness-reviews`,
     );
     expect(screen.queryByText(REQUEST_ID)).not.toBeInTheDocument();
   });
@@ -250,6 +255,7 @@ describe("Create PaintProject workflow", () => {
       )
       .mockResolvedValueOnce(jsonResponse(project, 201))
       .mockResolvedValueOnce(jsonResponse(project))
+      .mockResolvedValueOnce(jsonResponse(imageSetFixture()))
       .mockResolvedValueOnce(jsonResponse({ items: [] }));
     renderCreate();
 
@@ -272,7 +278,7 @@ describe("Create PaintProject workflow", () => {
     expect(
       await screen.findByRole("heading", { name: project.title, level: 1 }),
     ).toHaveFocus();
-    expect(fetchMock()).toHaveBeenCalledTimes(4);
+    expect(fetchMock()).toHaveBeenCalledTimes(5);
     expect(idempotencyKeyAt(0)).toBe(REQUEST_ID);
     expect(idempotencyKeyAt(1)).toBe(SECOND_PROJECT_ID);
     expect(idempotencyKeyAt(0)).not.toBe(idempotencyKeyAt(1));
@@ -328,6 +334,7 @@ describe("Create PaintProject workflow", () => {
     fetchMock()
       .mockReturnValueOnce(pending.promise)
       .mockResolvedValueOnce(jsonResponse(project))
+      .mockResolvedValueOnce(jsonResponse(imageSetFixture()))
       .mockResolvedValueOnce(jsonResponse({ items: [] }));
     renderCreate();
 
@@ -348,7 +355,7 @@ describe("Create PaintProject workflow", () => {
     expect(
       await screen.findByRole("heading", { name: project.title, level: 1 }),
     ).toBeInTheDocument();
-    expect(fetchMock()).toHaveBeenCalledTimes(3);
+    expect(fetchMock()).toHaveBeenCalledTimes(4);
   });
 
   it("suppresses five consecutive Enter submissions with the same duplicate guard", async () => {

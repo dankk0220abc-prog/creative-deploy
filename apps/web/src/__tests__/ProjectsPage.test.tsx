@@ -7,6 +7,7 @@ import { AppRoutes } from "../router/AppRoutes";
 import {
   deferred,
   errorEnvelope,
+  imageSetFixture,
   jsonResponse,
   PROJECT_ID,
   projectFixture,
@@ -69,6 +70,9 @@ describe("Projects workspace", () => {
     expect(createLinks[0]).toHaveAttribute("href", "/paintpilot/projects/new");
     expect(screen.queryByText("Demo project")).not.toBeInTheDocument();
     expect(screen.queryByText("Primary image not added")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/private immutable multi-role image set/i),
+    ).toBeInTheDocument();
   });
 
   it("preserves backend order and renders only the approved first-release card fields", async () => {
@@ -146,6 +150,7 @@ describe("Projects workspace", () => {
         jsonResponse({ items: [project], total: 1, limit: 20, offset: 0 }),
       )
       .mockResolvedValueOnce(jsonResponse(project))
+      .mockResolvedValueOnce(jsonResponse(imageSetFixture()))
       .mockResolvedValueOnce(jsonResponse({ items: [] }));
 
     renderProjects();
@@ -159,12 +164,15 @@ describe("Projects workspace", () => {
     expect(
       await screen.findByRole("heading", { name: project.title, level: 1 }),
     ).toBeInTheDocument();
-    expect(fetchMock()).toHaveBeenCalledTimes(3);
+    expect(fetchMock()).toHaveBeenCalledTimes(4);
     expect(fetchMock().mock.calls[1]?.[0]).toBe(
       `/api/v1/paint-projects/${project.id}`,
     );
     expect(fetchMock().mock.calls[2]?.[0]).toBe(
-      `/api/v1/paint-projects/${project.id}/images`,
+      `/api/v1/paint-projects/${project.id}/image-set`,
+    );
+    expect(fetchMock().mock.calls[3]?.[0]).toBe(
+      `/api/v1/paint-projects/${project.id}/image-set/readiness-reviews`,
     );
   });
 

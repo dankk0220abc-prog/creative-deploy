@@ -3,7 +3,12 @@ const uuidPattern =
 const sha256Pattern = /^[0-9a-f]{64}$/;
 const timezonePattern = /(Z|[+-]\d{2}:\d{2})$/;
 
-export const imageRoles = ["primary_mvp_input"] as const;
+export const imageRoles = [
+  "primary_front",
+  "reference_back",
+  "reference_angle",
+  "reference_detail",
+] as const;
 export const imageSourceTypes = [
   "user_provided",
   "user_photographed",
@@ -53,11 +58,70 @@ export interface ImageAssetList {
   items: ImageAsset[];
 }
 
+export type ReadinessVerdict = "ready" | "not_ready";
+export type ImageSetStatus = "incomplete" | "ready" | "stale" | "not_ready";
+
+export interface ImageSetReadinessReview {
+  id: string;
+  paint_project_id: string;
+  version: number;
+  verdict: ReadinessVerdict;
+  reason: string | null;
+  primary_front_image_asset_id: string | null;
+  reference_back_image_asset_id: string | null;
+  reference_angle_image_asset_id: string | null;
+  reference_detail_image_asset_id: string | null;
+  image_set_fingerprint: string;
+  actor_type: "user";
+  actor_id: string;
+  actor_display_name_snapshot: string;
+  created_at: string;
+}
+
+export interface ImageRoleSlot {
+  role: ImageRole;
+  required: boolean;
+  missing: boolean;
+  object_available: boolean;
+  current: ImageAsset | null;
+  history: ImageAsset[];
+}
+
+export interface ImageSetReadinessChecklist {
+  required_roles_present: boolean;
+  deterministic_validation_accepted: boolean;
+  rights_complete: boolean;
+  content_distinct: boolean;
+  objects_available: boolean;
+  snapshot_current: boolean;
+  can_mark_ready: boolean;
+  blockers: string[];
+}
+
+export interface ImageSet {
+  paint_project_id: string;
+  image_set_fingerprint: string;
+  roles: ImageRoleSlot[];
+  checklist: ImageSetReadinessChecklist;
+  latest_review: ImageSetReadinessReview | null;
+  status: ImageSetStatus;
+  stale_reasons: string[];
+}
+
+export interface ReadinessReviewHistory {
+  items: ImageSetReadinessReview[];
+}
+
 export interface UploadImageInput {
   file: File;
   role: ImageRole;
   sourceType: ImageSourceType;
   intendedUsage: ImageIntendedUsage[];
+}
+
+export interface CreateReadinessReviewInput {
+  verdict: ReadinessVerdict;
+  reason: string | null;
 }
 
 export type ImageAssetApiErrorKind =
@@ -124,6 +188,53 @@ const imageAssetKeys = Object.freeze([
   "content_url",
 ] satisfies ReadonlyArray<keyof ImageAsset>);
 
+const readinessReviewKeys = Object.freeze([
+  "id",
+  "paint_project_id",
+  "version",
+  "verdict",
+  "reason",
+  "primary_front_image_asset_id",
+  "reference_back_image_asset_id",
+  "reference_angle_image_asset_id",
+  "reference_detail_image_asset_id",
+  "image_set_fingerprint",
+  "actor_type",
+  "actor_id",
+  "actor_display_name_snapshot",
+  "created_at",
+] satisfies ReadonlyArray<keyof ImageSetReadinessReview>);
+
+const roleSlotKeys = Object.freeze([
+  "role",
+  "required",
+  "missing",
+  "object_available",
+  "current",
+  "history",
+] satisfies ReadonlyArray<keyof ImageRoleSlot>);
+
+const readinessChecklistKeys = Object.freeze([
+  "required_roles_present",
+  "deterministic_validation_accepted",
+  "rights_complete",
+  "content_distinct",
+  "objects_available",
+  "snapshot_current",
+  "can_mark_ready",
+  "blockers",
+] satisfies ReadonlyArray<keyof ImageSetReadinessChecklist>);
+
+const imageSetKeys = Object.freeze([
+  "paint_project_id",
+  "image_set_fingerprint",
+  "roles",
+  "checklist",
+  "latest_review",
+  "status",
+  "stale_reasons",
+] satisfies ReadonlyArray<keyof ImageSet>);
+
 const errorEnvelopeKeys = Object.freeze([
   "error_code",
   "category",
@@ -189,7 +300,7 @@ function isImageAsset(value: unknown): value is ImageAsset {
   return (
     isUuid(value.id) &&
     isUuid(value.paint_project_id) &&
-    value.role === "primary_mvp_input" &&
+    isEnum(value.role, imageRoles) &&
     isInteger(value.version, 1) &&
     (value.supersedes_image_asset_id === null ||
       isUuid(value.supersedes_image_asset_id)) &&
@@ -247,6 +358,113 @@ function isImageAssetList(value: unknown): value is ImageAssetList {
     hasExactKeys(value, ["items"]) &&
     Array.isArray(value.items) &&
     value.items.every(isImageAsset)
+  );
+}
+
+function isNullableUuid(value: unknown): value is string | null {
+  return value === null || isUuid(value);
+}
+
+function isReadinessReview(value: unknown): value is ImageSetReadinessReview {
+  if (!isPlainObject(value) || !hasExactKeys(value, readinessReviewKeys)) {
+    return false;
+  }
+  const reasonValid =
+    value.reason === null ||
+    (typeof value.reason === "string" &&
+      value.reason.length >= 1 &&
+      value.reason.length <= 1000);
+  return (
+    isUuid(value.id) &&
+    isUuid(value.paint_project_id) &&
+    isInteger(value.version, 1) &&
+    isEnum(value.verdict, ["ready", "not_ready"] as const) &&
+    reasonValid &&
+    (value.verdict !== "not_ready" || value.reason !== null) &&
+    isNullableUuid(value.primary_front_image_asset_id) &&
+    isNullableUuid(value.reference_back_image_asset_id) &&
+    isNullableUuid(value.reference_angle_image_asset_id) &&
+    isNullableUuid(value.reference_detail_image_asset_id) &&
+    typeof value.image_set_fingerprint === "string" &&
+    sha256Pattern.test(value.image_set_fingerprint) &&
+    value.actor_type === "user" &&
+    typeof value.actor_id === "string" &&
+    value.actor_id.length >= 1 &&
+    value.actor_id.length <= 128 &&
+    typeof value.actor_display_name_snapshot === "string" &&
+    value.actor_display_name_snapshot.length >= 1 &&
+    value.actor_display_name_snapshot.length <= 200 &&
+    isTimestamp(value.created_at)
+  );
+}
+
+function isRoleSlot(value: unknown): value is ImageRoleSlot {
+  if (!isPlainObject(value) || !hasExactKeys(value, roleSlotKeys)) {
+    return false;
+  }
+  return (
+    isEnum(value.role, imageRoles) &&
+    typeof value.required === "boolean" &&
+    typeof value.missing === "boolean" &&
+    typeof value.object_available === "boolean" &&
+    (value.current === null || isImageAsset(value.current)) &&
+    Array.isArray(value.history) &&
+    value.history.every(isImageAsset) &&
+    value.missing === (value.current === null) &&
+    value.history.every((asset) => asset.role === value.role) &&
+    (value.current === null || value.current.role === value.role)
+  );
+}
+
+function isReadinessChecklist(
+  value: unknown,
+): value is ImageSetReadinessChecklist {
+  if (!isPlainObject(value) || !hasExactKeys(value, readinessChecklistKeys)) {
+    return false;
+  }
+  return (
+    typeof value.required_roles_present === "boolean" &&
+    typeof value.deterministic_validation_accepted === "boolean" &&
+    typeof value.rights_complete === "boolean" &&
+    typeof value.content_distinct === "boolean" &&
+    typeof value.objects_available === "boolean" &&
+    typeof value.snapshot_current === "boolean" &&
+    typeof value.can_mark_ready === "boolean" &&
+    Array.isArray(value.blockers) &&
+    value.blockers.every((blocker) => typeof blocker === "string")
+  );
+}
+
+function isImageSet(value: unknown): value is ImageSet {
+  if (!isPlainObject(value) || !hasExactKeys(value, imageSetKeys)) {
+    return false;
+  }
+  if (
+    !isUuid(value.paint_project_id) ||
+    typeof value.image_set_fingerprint !== "string" ||
+    !sha256Pattern.test(value.image_set_fingerprint) ||
+    !Array.isArray(value.roles) ||
+    value.roles.length !== imageRoles.length ||
+    !value.roles.every(isRoleSlot) ||
+    !value.roles.every((slot, index) => slot.role === imageRoles[index]) ||
+    !isReadinessChecklist(value.checklist) ||
+    !isEnum(value.status, ["incomplete", "ready", "stale", "not_ready"] as const) ||
+    !Array.isArray(value.stale_reasons) ||
+    !value.stale_reasons.every((reason) => typeof reason === "string")
+  ) {
+    return false;
+  }
+  return value.latest_review === null || isReadinessReview(value.latest_review);
+}
+
+function isReadinessReviewHistory(
+  value: unknown,
+): value is ReadinessReviewHistory {
+  return (
+    isPlainObject(value) &&
+    hasExactKeys(value, ["items"]) &&
+    Array.isArray(value.items) &&
+    value.items.every(isReadinessReview)
   );
 }
 
@@ -447,5 +665,85 @@ export async function uploadImageAsset(
     },
     201,
     isImageAsset,
+  );
+}
+
+export async function getImageSet(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<ImageSet> {
+  if (!isUuid(projectId)) {
+    throw new ImageAssetApiError("validation", "The project address is invalid.");
+  }
+  return requestJson(
+    `/api/v1/paint-projects/${encodeURIComponent(projectId)}/image-set`,
+    {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal,
+    },
+    200,
+    isImageSet,
+  );
+}
+
+export async function listReadinessReviews(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<ReadinessReviewHistory> {
+  if (!isUuid(projectId)) {
+    throw new ImageAssetApiError("validation", "The project address is invalid.");
+  }
+  return requestJson(
+    `/api/v1/paint-projects/${encodeURIComponent(projectId)}/image-set/readiness-reviews`,
+    {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal,
+    },
+    200,
+    isReadinessReviewHistory,
+  );
+}
+
+export async function createReadinessReview(
+  projectId: string,
+  input: CreateReadinessReviewInput,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+): Promise<ImageSetReadinessReview> {
+  if (!isUuid(projectId) || !isUuid(idempotencyKey)) {
+    throw new ImageAssetApiError(
+      "validation",
+      "A protected readiness review could not be started.",
+    );
+  }
+  if (
+    (input.verdict === "not_ready" &&
+      (input.reason === null || input.reason.trim().length === 0)) ||
+    (input.reason !== null && input.reason.trim().length > 1000)
+  ) {
+    throw new ImageAssetApiError(
+      "validation",
+      "The readiness reason is invalid.",
+    );
+  }
+  return requestJson(
+    `/api/v1/paint-projects/${encodeURIComponent(projectId)}/image-set/readiness-reviews`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
+      },
+      body: JSON.stringify({
+        verdict: input.verdict,
+        reason: input.reason === null ? null : input.reason.trim(),
+      }),
+      signal,
+    },
+    201,
+    isReadinessReview,
   );
 }

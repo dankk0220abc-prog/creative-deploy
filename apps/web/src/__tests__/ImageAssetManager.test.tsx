@@ -1,30 +1,97 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ImageAssetManager } from "../components/ImageAssetManager";
+import type { ImageSet } from "../api/imageAssets";
 import {
+  ANGLE_IMAGE_ID,
+  BACK_IMAGE_ID,
   deferred,
   errorEnvelope,
   IMAGE_ID,
-  imageFixture,
+  imageSetFixture,
   jsonResponse,
   PROJECT_ID,
   projectFixture,
+  readinessReviewFixture,
+  roleImageFixture,
   SECOND_IMAGE_ID,
 } from "../test/paintProjectFixtures";
 
-const FIRST_KEY = "55555555-5555-4555-8555-555555555555";
-const SECOND_KEY = "66666666-6666-4666-8666-666666666666";
+const FIRST_KEY = "99999999-9999-4999-8999-999999999999";
+const SECOND_KEY = "aaaaaaaa-1111-4111-8111-111111111111";
 
 function fetchMock(): ReturnType<typeof vi.fn> {
   return vi.mocked(fetch);
 }
 
+function completeImageSet(overrides: Partial<ImageSet> = {}): ImageSet {
+  const front = roleImageFixture("primary_front", IMAGE_ID);
+  const back = roleImageFixture("reference_back", BACK_IMAGE_ID);
+  const angle = roleImageFixture("reference_angle", ANGLE_IMAGE_ID);
+  return imageSetFixture({
+    roles: [
+      {
+        role: "primary_front",
+        required: true,
+        missing: false,
+        object_available: true,
+        current: front,
+        history: [front],
+      },
+      {
+        role: "reference_back",
+        required: true,
+        missing: false,
+        object_available: true,
+        current: back,
+        history: [back],
+      },
+      {
+        role: "reference_angle",
+        required: true,
+        missing: false,
+        object_available: true,
+        current: angle,
+        history: [angle],
+      },
+      {
+        role: "reference_detail",
+        required: false,
+        missing: true,
+        object_available: false,
+        current: null,
+        history: [],
+      },
+    ],
+    checklist: {
+      required_roles_present: true,
+      deterministic_validation_accepted: true,
+      rights_complete: true,
+      content_distinct: true,
+      objects_available: true,
+      snapshot_current: false,
+      can_mark_ready: true,
+      blockers: [],
+    },
+    ...overrides,
+  });
+}
+
+function mockWorkbench(imageSet = imageSetFixture(), reviews: unknown[] = []) {
+  fetchMock()
+    .mockResolvedValueOnce(jsonResponse(imageSet))
+    .mockResolvedValueOnce(jsonResponse({ items: reviews }));
+}
+
 function renderManager(
-  project = projectFixture(),
+  imageSet = imageSetFixture(),
+  project = projectFixture({ status: "IMAGE_UPLOADED" }),
+  reviews: unknown[] = [],
   onProjectChanged = vi.fn(),
 ) {
+  mockWorkbench(imageSet, reviews);
   return {
     onProjectChanged,
     view: render(
@@ -50,7 +117,7 @@ async function completeDeclaration(user: ReturnType<typeof userEvent.setup>) {
   return file;
 }
 
-describe("ImageAsset manager", () => {
+describe("ImageSet workbench", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
     let nextKey = 0;
@@ -65,250 +132,405 @@ describe("ImageAsset manager", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows a single empty formal slot and the complete first-upload declaration", async () => {
-    fetchMock().mockResolvedValue(jsonResponse({ items: [] }));
+  it("renders four controlled roles, required markers, and no destructive or AI action", async () => {
     renderManager();
-
-    expect(
-      await screen.findByRole("heading", { name: "No image has been stored" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("1 formal slot")).toBeInTheDocument();
-    expect(screen.getByLabelText("Image file")).toHaveAttribute(
-      "accept",
-      expect.stringContaining("image/webp"),
-    );
-    expect(screen.getByLabelText("Image source")).toBeInTheDocument();
-    expect(
-      screen.getByRole("checkbox", { name: "Private project planning" }),
-    ).toBeChecked();
-    expect(
-      screen.getByRole("checkbox", { name: "Portfolio demonstration" }),
-    ).not.toBeChecked();
-    expect(
-      screen.getByRole("button", { name: "Store primary image" }),
-    ).toBeEnabled();
-    expect(screen.queryByRole("button", { name: /delete/i })).not.toBeInTheDocument();
-  });
-
-  it("requires a file, intended use, and explicit user attestation", async () => {
-    const user = userEvent.setup();
-    fetchMock().mockResolvedValue(jsonResponse({ items: [] }));
-    renderManager();
-    await screen.findByRole("heading", { name: "No image has been stored" });
-
-    await user.click(screen.getByRole("button", { name: "Store primary image" }));
-    expect(
-      screen.getByRole("alert", { name: "" }),
-    ).toHaveTextContent("Choose one JPEG, PNG, or WebP image.");
-
-    await user.upload(
-      screen.getByLabelText("Image file"),
-      new File(["safe"], "reference.png", { type: "image/png" }),
-    );
-    await user.click(
-      screen.getByRole("checkbox", { name: "Private project planning" }),
-    );
-    await user.click(screen.getByRole("button", { name: "Store primary image" }));
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Choose at least one intended use.",
-    );
-
-    await user.click(
-      screen.getByRole("checkbox", { name: "Private project planning" }),
-    );
-    await user.click(screen.getByRole("button", { name: "Store primary image" }));
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Confirm the source, rights, and intended-use declaration.",
-    );
-    expect(fetchMock()).toHaveBeenCalledTimes(1);
-  });
-
-  it("renders an authorized private preview and immutable metadata", async () => {
-    const image = imageFixture();
-    fetchMock().mockResolvedValue(jsonResponse({ items: [image] }));
-    renderManager(
-      projectFixture({
-        current_image_asset_id: IMAGE_ID,
-        status: "IMAGE_UPLOADED",
-      }),
-    );
-
-    const preview = await screen.findByRole("img", {
-      name: `Private preview of ${image.original_filename}`,
-    });
-    expect(preview).toHaveAttribute("src", image.content_url);
-    expect(screen.getByText("1200 × 900 px")).toBeInTheDocument();
-    expect(screen.getByText("User attestation confirmed")).toBeInTheDocument();
-    expect(screen.getByText("Upload checks")).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", {
-        name: "Image upload is not available in IMAGE_UPLOADED",
-      }),
-    ).toBeInTheDocument();
-  });
-
-  it("offers replacement only in a formal replacement state and promises retention", async () => {
-    const image = imageFixture();
-    fetchMock().mockResolvedValue(jsonResponse({ items: [image] }));
-    renderManager(
-      projectFixture({
-        current_image_asset_id: IMAGE_ID,
-        status: "IMAGE_REVIEW_REQUIRED",
-      }),
-    );
 
     expect(
       await screen.findByRole("heading", {
-        name: "Upload a replacement original",
+        name: "Multi-role image-set workbench",
       }),
     ).toBeInTheDocument();
+    expect(screen.getByText("4 formal roles")).toBeInTheDocument();
+    for (const heading of [
+      "Primary front",
+      "Reference back",
+      "Reference angle",
+      "Reference detail",
+    ]) {
+      expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument();
+    }
+    expect(screen.getAllByText("Required role")).toHaveLength(3);
+    expect(screen.getByText("Optional role")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /delete/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/AI-detected angle/i)).not.toBeInTheDocument();
     expect(
-      screen.getByText(/previous original remains in immutable history/i),
+      screen.queryByRole("button", { name: /quality score/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/copyright verified/i)).not.toBeInTheDocument();
+  });
+
+  it("locks primary replacement in IMAGE_UPLOADED while keeping reference mutations available", async () => {
+    renderManager(
+      completeImageSet(),
+      projectFixture({ status: "IMAGE_UPLOADED" }),
+    );
+    const user = userEvent.setup();
+    const primaryCard = (
+      await screen.findByRole("heading", { name: "Primary front" })
+    ).closest("article");
+    const backCard = screen
+      .getByRole("heading", { name: "Reference back" })
+      .closest("article");
+    const detailCard = screen
+      .getByRole("heading", { name: "Reference detail" })
+      .closest("article");
+
+    expect(primaryCard).not.toBeNull();
+    expect(backCard).not.toBeNull();
+    expect(detailCard).not.toBeNull();
+    expect(
+      within(primaryCard as HTMLElement).queryByRole("button", {
+        name: "Replace safely",
+      }),
+    ).not.toBeInTheDocument();
+    expect(primaryCard).toHaveTextContent(
+      "Primary front replacement is available only when image review is required or image validation has failed.",
+    );
+    expect(
+      within(backCard as HTMLElement).getByRole("button", {
+        name: "Replace safely",
+      }),
+    ).toBeEnabled();
+    expect(
+      within(detailCard as HTMLElement).getByRole("button", {
+        name: "Add this role",
+      }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("heading", {
+        name: "Primary front replacement is locked in IMAGE_UPLOADED",
+      }),
+    ).toBeInTheDocument();
+
+    await user.click(
+      within(backCard as HTMLElement).getByRole("button", {
+        name: "Replace safely",
+      }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Replace Reference back" }),
+    ).toBeInTheDocument();
+  });
+
+  it.each(["IMAGE_REVIEW_REQUIRED", "IMAGE_VALIDATION_FAILED"] as const)(
+    "allows primary replacement in %s",
+    async (status) => {
+      renderManager(completeImageSet(), projectFixture({ status }));
+      const primaryCard = (
+        await screen.findByRole("heading", { name: "Primary front" })
+      ).closest("article");
+      expect(primaryCard).not.toBeNull();
+      expect(
+        within(primaryCard as HTMLElement).getByRole("button", {
+          name: "Replace safely",
+        }),
+      ).toBeEnabled();
+      expect(
+        screen.getByRole("heading", { name: "Replace Primary front" }),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it("allows only the first primary upload in DRAFT", async () => {
+    const initial = imageSetFixture();
+    const noPrimary = imageSetFixture({
+      roles: initial.roles.map((slot) =>
+        slot.role === "primary_front"
+          ? {
+              ...slot,
+              missing: true,
+              object_available: false,
+              current: null,
+              history: [],
+            }
+          : slot,
+      ),
+    });
+    const { unmount } = renderManager(
+      noPrimary,
+      projectFixture({ status: "DRAFT" }),
+    ).view;
+    const primaryCard = (
+      await screen.findByRole("heading", { name: "Primary front" })
+    ).closest("article");
+    expect(
+      within(primaryCard as HTMLElement).getByRole("button", {
+        name: "Add this role",
+      }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("heading", { name: "Add Primary front" }),
+    ).toBeInTheDocument();
+
+    unmount();
+    renderManager(completeImageSet(), projectFixture({ status: "DRAFT" }));
+    const existingPrimaryCard = (
+      await screen.findByRole("heading", { name: "Primary front" })
+    ).closest("article");
+    expect(
+      within(existingPrimaryCard as HTMLElement).queryByRole("button", {
+        name: "Replace safely",
+      }),
+    ).not.toBeInTheDocument();
+    expect(existingPrimaryCard).toHaveTextContent(
+      "Primary front replacement is available only when image review is required or image validation has failed.",
+    );
+  });
+
+  it("freezes every image role in IMAGE_VALIDATED", async () => {
+    renderManager(
+      completeImageSet(),
+      projectFixture({ status: "IMAGE_VALIDATED" }),
+    );
+    await screen.findByRole("heading", { name: "Primary front" });
+
+    expect(
+      screen.queryByRole("button", { name: "Replace safely" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Add this role" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getAllByText("All image roles are frozen after image validation."),
+    ).toHaveLength(5);
+    expect(
+      screen.getByRole("heading", {
+        name: "Primary front replacement is locked in IMAGE_VALIDATED",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows deterministic blockers and keeps READY disabled for an incomplete set", async () => {
+    renderManager();
+
+    expect(
+      await screen.findByText("All required roles present"),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Store replacement" }),
+      screen.getByText("Required images have distinct content").closest("li"),
+    ).toHaveClass("is-blocked");
+    expect(
+      screen.getByRole("button", { name: "Confirm READY" }),
+    ).toBeDisabled();
+    expect(screen.getByText(/human readiness not confirmed/i)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Duplicate content detected across required roles/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders complete checklist, private previews, and enables human READY", async () => {
+    renderManager(completeImageSet());
+
+    expect(
+      await screen.findByRole("img", {
+        name: /Private preview of Primary front/i,
+      }),
+    ).toHaveAttribute(
+      "src",
+      `/api/v1/paint-projects/${PROJECT_ID}/images/${IMAGE_ID}/content`,
+    );
+    expect(screen.getAllByText("Accepted")).toHaveLength(3);
+    expect(screen.getAllByText("Attested")).toHaveLength(3);
+    expect(
+      screen.getByText("Required images have distinct content").closest("li"),
+    ).toHaveClass("is-pass");
+    expect(
+      screen.getByRole("button", { name: "Confirm READY" }),
     ).toBeEnabled();
   });
 
-  it("shows retained versions without any destructive action", async () => {
-    const current = imageFixture({
-      id: SECOND_IMAGE_ID,
-      version: 2,
-      supersedes_image_asset_id: IMAGE_ID,
-      content_url: `/api/v1/paint-projects/${PROJECT_ID}/images/${SECOND_IMAGE_ID}/content`,
-    });
-    const retained = imageFixture({
-      is_current: false,
-      lifecycle_status: "superseded",
-    });
-    fetchMock().mockResolvedValue(jsonResponse({ items: [current, retained] }));
-    const user = userEvent.setup();
+  it("warns about duplicate required content and blocks READY", async () => {
     renderManager(
-      projectFixture({
-        current_image_asset_id: SECOND_IMAGE_ID,
-        status: "IMAGE_UPLOADED",
+      completeImageSet({
+        status: "stale",
+        stale_reasons: ["reference_back_changed"],
+        checklist: {
+          required_roles_present: true,
+          deterministic_validation_accepted: true,
+          rights_complete: true,
+          content_distinct: false,
+          objects_available: true,
+          snapshot_current: false,
+          can_mark_ready: false,
+          blockers: ["duplicate_or_missing_required_content"],
+        },
+        latest_review: readinessReviewFixture(),
       }),
+      projectFixture({ status: "IMAGE_UPLOADED" }),
+      [readinessReviewFixture()],
     );
 
-    await user.click(
-      await screen.findByText("Retained image history (1)"),
-    );
     expect(
-      screen.getByLabelText("Retained primary image, version 1"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: "Open private original" }),
-    ).toHaveAttribute("href", retained.content_url);
-    expect(screen.queryByRole("button", { name: /delete/i })).not.toBeInTheDocument();
-  });
-
-  it("prevents repeated submit while one upload is in flight", async () => {
-    const uploadPending = deferred<Response>();
-    fetchMock()
-      .mockResolvedValueOnce(jsonResponse({ items: [] }))
-      .mockReturnValueOnce(uploadPending.promise);
-    const user = userEvent.setup();
-    const { view } = renderManager();
-    await screen.findByRole("heading", { name: "No image has been stored" });
-    await completeDeclaration(user);
-
-    const form = view.container.querySelector("form");
-    expect(form).not.toBeNull();
-    fireEvent.submit(form as HTMLFormElement);
-    fireEvent.submit(form as HTMLFormElement);
-
-    expect(
-      await screen.findByRole("progressbar", {
-        name: "Uploading and checking image",
+      await screen.findByRole("alert", {
+        name: "",
       }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button")).toBeDisabled();
-    expect(fetchMock()).toHaveBeenCalledTimes(2);
-
-    uploadPending.resolve(jsonResponse(imageFixture(), 201));
+    ).toHaveTextContent("Duplicate content detected");
+    expect(screen.getByText(/image set changed after review/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Confirm READY" }),
+    ).toBeDisabled();
   });
 
-  it("reuses the same idempotency key after a retryable connection loss", async () => {
-    const image = imageFixture();
-    fetchMock()
-      .mockResolvedValueOnce(jsonResponse({ items: [] }))
-      .mockRejectedValueOnce(new TypeError("connection lost"))
-      .mockResolvedValueOnce(jsonResponse(image, 201))
-      .mockResolvedValueOnce(jsonResponse({ items: [image] }));
-    const user = userEvent.setup();
-    const onProjectChanged = vi.fn();
-    renderManager(projectFixture(), onProjectChanged);
-    await screen.findByRole("heading", { name: "No image has been stored" });
-    await completeDeclaration(user);
-
-    await user.click(screen.getByRole("button", { name: "Store primary image" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Retry keeps the same protected upload attempt.",
-    );
-    await user.click(screen.getByRole("button", { name: "Store primary image" }));
-
-    await waitFor(() => expect(onProjectChanged).toHaveBeenCalledTimes(1));
-    const firstHeaders = fetchMock().mock.calls[1]?.[1]?.headers as Record<
-      string,
-      string
-    >;
-    const retryHeaders = fetchMock().mock.calls[2]?.[1]?.headers as Record<
-      string,
-      string
-    >;
-    expect(firstHeaders["Idempotency-Key"]).toBe(FIRST_KEY);
-    expect(retryHeaders["Idempotency-Key"]).toBe(FIRST_KEY);
-  });
-
-  it("starts a new protected command after upload inputs change", async () => {
-    fetchMock()
-      .mockResolvedValueOnce(jsonResponse({ items: [] }))
-      .mockRejectedValueOnce(new TypeError("connection lost"))
-      .mockResolvedValueOnce(jsonResponse(imageFixture(), 201))
-      .mockResolvedValueOnce(jsonResponse({ items: [imageFixture()] }));
-    const user = userEvent.setup();
+  it("uploads the selected role with one protected request despite repeated submit", async () => {
+    const pending = deferred<Response>();
     renderManager();
-    await screen.findByRole("heading", { name: "No image has been stored" });
-    await completeDeclaration(user);
+    const user = userEvent.setup();
+    const backCard = (
+      await screen.findByRole("heading", { name: "Reference back" })
+    ).closest("article");
+    expect(backCard).not.toBeNull();
+    await user.click(
+      within(backCard as HTMLElement).getByRole("button", {
+        name: "Add this role",
+      }),
+    );
+    const file = await completeDeclaration(user);
+    fetchMock().mockReturnValueOnce(pending.promise);
 
-    await user.click(screen.getByRole("button", { name: "Store primary image" }));
-    await screen.findByRole("alert");
-    await user.selectOptions(screen.getByLabelText("Image source"), "user_photographed");
-    await user.click(screen.getByRole("button", { name: "Store primary image" }));
+    const submit = screen.getByRole("button", {
+      name: "Store Reference back",
+    });
+    const form = submit.closest("form");
+    fireEvent.submit(form as HTMLFormElement);
+    fireEvent.submit(form as HTMLFormElement);
 
-    const retryHeaders = fetchMock().mock.calls[2]?.[1]?.headers as Record<
-      string,
-      string
-    >;
-    expect(retryHeaders["Idempotency-Key"]).toBe(SECOND_KEY);
+    await waitFor(() => expect(fetchMock()).toHaveBeenCalledTimes(3));
+    const uploadRequest = fetchMock().mock.calls[2]?.[1];
+    const body = uploadRequest?.body as FormData;
+    expect(body.get("file")).toBe(file);
+    expect(body.get("role")).toBe("reference_back");
+    expect(uploadRequest?.headers).toEqual({
+      Accept: "application/json",
+      "Idempotency-Key": FIRST_KEY,
+    });
+    expect(submit).toBeDisabled();
   });
 
-  it("recovers an owner-scoped list error only after explicit retry", async () => {
+  it("requires a NOT READY reason and prevents repeated review submit", async () => {
+    const pending = deferred<Response>();
+    renderManager(completeImageSet());
+    const user = userEvent.setup();
+    await screen.findByRole("button", { name: "Confirm READY" });
+    await user.click(screen.getByRole("radio", { name: "NOT READY" }));
+    await user.click(screen.getByRole("button", { name: "Record NOT READY" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Explain why this image set is not ready.",
+    );
+
+    await user.type(
+      screen.getByLabelText("Reason (required)"),
+      "The angle needs a safer replacement.",
+    );
+    fetchMock().mockReturnValueOnce(pending.promise);
+    const submit = screen.getByRole("button", { name: "Record NOT READY" });
+    const form = submit.closest("form");
+    fireEvent.submit(form as HTMLFormElement);
+    fireEvent.submit(form as HTMLFormElement);
+
+    await waitFor(() => expect(fetchMock()).toHaveBeenCalledTimes(3));
+    const reviewRequest = fetchMock().mock.calls[2]?.[1];
+    expect(reviewRequest?.headers).toEqual({
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "Idempotency-Key": FIRST_KEY,
+    });
+    expect(JSON.parse(String(reviewRequest?.body))).toEqual({
+      verdict: "not_ready",
+      reason: "The angle needs a safer replacement.",
+    });
+    expect(submit).toBeDisabled();
+  });
+
+  it("reuses the same readiness key after a retryable response", async () => {
+    const review = readinessReviewFixture({
+      verdict: "not_ready",
+      reason: "Retry this exact decision.",
+    });
+    renderManager(completeImageSet());
     fetchMock()
       .mockResolvedValueOnce(
         jsonResponse(
           errorEnvelope({
-            category: "STORAGE_ERROR",
-            error_code: "IMAGE_STORAGE_UNAVAILABLE",
+            category: "DATABASE_UNAVAILABLE",
+            error_code: "DATABASE_UNAVAILABLE",
             retryable: true,
           }),
           503,
         ),
       )
-      .mockResolvedValueOnce(jsonResponse({ items: [] }));
+      .mockResolvedValueOnce(jsonResponse(review, 201))
+      .mockResolvedValueOnce(jsonResponse(completeImageSet()))
+      .mockResolvedValueOnce(jsonResponse({ items: [review] }));
     const user = userEvent.setup();
-    renderManager();
+    await screen.findByRole("button", { name: "Confirm READY" });
+    await user.click(screen.getByRole("radio", { name: "NOT READY" }));
+    await user.type(screen.getByLabelText("Reason (required)"), review.reason ?? "");
+
+    await user.click(screen.getByRole("button", { name: "Record NOT READY" }));
+    expect(
+      await screen.findByText(/Private image storage is temporarily unavailable/i),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Record NOT READY" }));
+
+    await waitFor(() => expect(fetchMock()).toHaveBeenCalledTimes(6));
+    expect(
+      (fetchMock().mock.calls[2]?.[1]?.headers as Record<string, string>)[
+        "Idempotency-Key"
+      ],
+    ).toBe(FIRST_KEY);
+    expect(
+      (fetchMock().mock.calls[3]?.[1]?.headers as Record<string, string>)[
+        "Idempotency-Key"
+      ],
+    ).toBe(FIRST_KEY);
+  });
+
+  it("shows retained per-role versions, latest review, history, and reconfirmation", async () => {
+    const latest = readinessReviewFixture({
+      version: 2,
+      id: SECOND_IMAGE_ID,
+      image_set_fingerprint: "9".repeat(64),
+    });
+    const retainedAngle = roleImageFixture("reference_angle", SECOND_IMAGE_ID, {
+      is_current: false,
+      lifecycle_status: "superseded",
+      version: 1,
+    });
+    const currentAngle = roleImageFixture("reference_angle", ANGLE_IMAGE_ID, {
+      version: 2,
+      supersedes_image_asset_id: SECOND_IMAGE_ID,
+    });
+    const base = completeImageSet({
+      status: "stale",
+      latest_review: latest,
+      stale_reasons: ["reference_angle_changed"],
+    });
+    const stale: ImageSet = {
+      ...base,
+      roles: base.roles.map((slot) =>
+        slot.role === "reference_angle"
+          ? {
+              ...slot,
+              current: currentAngle,
+              history: [currentAngle, retainedAngle],
+            }
+          : slot,
+      ),
+    };
+    renderManager(stale, projectFixture({ status: "IMAGE_UPLOADED" }), [
+      latest,
+      readinessReviewFixture(),
+    ]);
+    const user = userEvent.setup();
 
     expect(
-      await screen.findByRole("heading", {
-        name: "The image records could not be loaded",
-      }),
+      await screen.findByText("Latest review · version 2"),
     ).toBeInTheDocument();
-    expect(fetchMock()).toHaveBeenCalledTimes(1);
-    await user.click(screen.getByRole("button", { name: "Retry image history" }));
-    expect(
-      await screen.findByRole("heading", { name: "No image has been stored" }),
-    ).toBeInTheDocument();
-    expect(fetchMock()).toHaveBeenCalledTimes(2);
+    await user.click(screen.getByText("Version history (2)"));
+    expect(screen.getByText(/v1 · reference_angle.png/i)).toBeInTheDocument();
+    await user.click(screen.getByText("Review history (2)"));
+    expect(screen.getByText(/v2 · READY/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm READY" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /delete/i })).not.toBeInTheDocument();
   });
 });

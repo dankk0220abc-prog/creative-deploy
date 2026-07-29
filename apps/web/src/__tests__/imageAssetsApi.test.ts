@@ -1,16 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createReadinessReview,
+  getImageSet,
   ImageAssetApiError,
   listImageAssets,
+  listReadinessReviews,
   uploadImageAsset,
 } from "../api/imageAssets";
 import {
   errorEnvelope,
   IMAGE_ID,
   imageFixture,
+  imageSetFixture,
   jsonResponse,
   PROJECT_ID,
+  readinessReviewFixture,
 } from "../test/paintProjectFixtures";
 
 const IDEMPOTENCY_KEY = "55555555-5555-4555-8555-555555555555";
@@ -64,7 +69,7 @@ describe("ImageAsset API client", () => {
         PROJECT_ID,
         {
           file,
-          role: "primary_mvp_input",
+          role: "primary_front",
           sourceType: "user_photographed",
           intendedUsage: ["private_project", "portfolio_demo"],
         },
@@ -80,7 +85,7 @@ describe("ImageAsset API client", () => {
     });
     expect(body).toBeInstanceOf(FormData);
     expect((body as FormData).get("file")).toBe(file);
-    expect((body as FormData).get("role")).toBe("primary_mvp_input");
+    expect((body as FormData).get("role")).toBe("primary_front");
     expect((body as FormData).get("source_type")).toBe("user_photographed");
     expect((body as FormData).getAll("intended_usage")).toEqual([
       "private_project",
@@ -129,5 +134,83 @@ describe("ImageAsset API client", () => {
     await expect(listImageAssets(PROJECT_ID)).rejects.toMatchObject({
       kind: "invalid_response",
     });
+  });
+
+  it("validates the exact four-role image-set response", async () => {
+    const imageSet = imageSetFixture();
+    fetchMock().mockResolvedValue(jsonResponse(imageSet));
+
+    await expect(getImageSet(PROJECT_ID)).resolves.toEqual(imageSet);
+    expect(fetchMock()).toHaveBeenCalledWith(
+      `/api/v1/paint-projects/${PROJECT_ID}/image-set`,
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("fails closed when role order or readiness fields drift", async () => {
+    const imageSet = imageSetFixture();
+    fetchMock()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...imageSet,
+          roles: [...imageSet.roles].reverse(),
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...imageSet,
+          checklist: { ...imageSet.checklist, quality_score: 0.99 },
+        }),
+      );
+
+    await expect(getImageSet(PROJECT_ID)).rejects.toMatchObject({
+      kind: "invalid_response",
+    });
+    await expect(getImageSet(PROJECT_ID)).rejects.toMatchObject({
+      kind: "invalid_response",
+    });
+  });
+
+  it("creates a protected readiness review with strict JSON and reads history", async () => {
+    const review = readinessReviewFixture({
+      verdict: "not_ready",
+      reason: "Needs another view.",
+    });
+    fetchMock()
+      .mockResolvedValueOnce(jsonResponse(review, 201))
+      .mockResolvedValueOnce(jsonResponse({ items: [review] }));
+
+    await expect(
+      createReadinessReview(
+        PROJECT_ID,
+        { verdict: "not_ready", reason: "  Needs another view.  " },
+        IDEMPOTENCY_KEY,
+      ),
+    ).resolves.toEqual(review);
+    const request = fetchMock().mock.calls[0]?.[1];
+    expect(request?.headers).toEqual({
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "Idempotency-Key": IDEMPOTENCY_KEY,
+    });
+    expect(JSON.parse(String(request?.body))).toEqual({
+      verdict: "not_ready",
+      reason: "Needs another view.",
+    });
+
+    await expect(listReadinessReviews(PROJECT_ID)).resolves.toEqual({
+      items: [review],
+    });
+  });
+
+  it("rejects an empty NOT READY reason before sending a request", async () => {
+    await expect(
+      createReadinessReview(
+        PROJECT_ID,
+        { verdict: "not_ready", reason: " " },
+        IDEMPOTENCY_KEY,
+      ),
+    ).rejects.toMatchObject({ kind: "validation" });
+    expect(fetchMock()).not.toHaveBeenCalled();
   });
 });

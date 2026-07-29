@@ -270,9 +270,10 @@ export function ProjectsPage() {
             <strong>Current release boundary</strong>
             <p>
               Project cards remain metadata-only. Open a project detail to manage its
-              private immutable primary image. Image quality assessment, analysis, Polygon
-              editing, inventory, knowledge retrieval, and paint-plan generation are not
-              implemented in this phase.
+              private immutable multi-role image set and human readiness history. Image
+              quality assessment, automated viewpoint analysis, Polygon editing, inventory,
+              knowledge retrieval, and paint-plan generation are not implemented in this
+              phase.
             </p>
           </div>
         </aside>

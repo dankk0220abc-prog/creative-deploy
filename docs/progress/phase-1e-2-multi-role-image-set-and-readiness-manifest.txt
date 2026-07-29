@@ -1,0 +1,65 @@
+Phase 1E-2 — Multi-Role ImageSet and Readiness Candidate Manifest
+Generated: 2026-07-29
+Status: PHASE_1E_2_WORKFLOW_GATE_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW
+Branch: main
+Baseline HEAD: 7b0777c393af705637a1e63f7f25f1dc06f75c1e
+Baseline subject: docs(progress): close phase 1e-1 image assets
+Baseline/current commit count: 17
+Staged files: 0
+Commit/push/tag created by this task: NO
+
+Scope definition:
+- 33 candidate files are listed below.
+- This manifest is the 34th untracked candidate file.
+- The manifest excludes only itself from file hashes, tracked-patch SHA-256, and
+  porcelain-scope SHA-256 to avoid recursive self-hashing.
+- Status is the two-column `git status --porcelain=v1` value.
+- Size is the exact byte count.
+- Tracked patch hashes raw `git diff --binary --no-ext-diff` output.
+- Porcelain scope hashes raw NUL-delimited `git status --porcelain=v1 -z
+  --untracked-files=all` output.
+
+Tracked patch SHA-256 (manifest excluded):
+c2a53441d9cab65117f2fd22445adffe3d0238325cbec3fd76e44282ea7665ef
+
+Porcelain scope SHA-256 (manifest excluded):
+e276b0d35256bbd8f380bf0dca6c0eb524ab305ecd25a92a0072a96f217fb6aa
+
+Preserved historical Revision SHA-256:
+a10d3d8dab38  5bb485081ae076d9dda922d64c8e4aaa0b33e9eefa3287d4feb271be2371aaa7
+5ed9906e7d33  40148f650be5f85e9b831b8a6db788d2920f9b661f5eeac69d6ee8eae9d4d309
+
+ST  SHA-256                                                           BYTES  PATH
+ M  68518ac2e63afed92f2e052e915c61472aaac7f49750433e9e0be213c69cffe3     19950  AGENTS.md
+ M  d83ff2061df79e28e15b471a8b1cc4b1b6e29a2aee4c62d54b5e013f3a1b9e4f     21246  README.md
+??  ee7f989a543e228832234d8ee979bb8a6709ea15e738998c7eaab3041381570a     11756  apps/api/migrations/versions/d4c8a1f7b2e9_add_multi_role_image_set_readiness.py
+ M  e746bfd4bb05424172f5b3a394316fd9a82ac857a9b2814a913a88c2bdd8c8d0       621  apps/api/src/creativedeploy_api/api/router.py
+??  9e8a9fab84037f037cc39cf10c12d1a24745756c55c5e22cf6d94d5c2fd46402      2828  apps/api/src/creativedeploy_api/api/routes/image_sets.py
+ M  bb3c7be00e5960ecd30861d168e73a2d83d60b1dbc3ca3552ea179a4c5657f14       908  apps/api/src/creativedeploy_api/db/models/__init__.py
+ M  9182d0a9e12defde841095d8376d667dd288570dea0d82503c081005c520a758     11223  apps/api/src/creativedeploy_api/db/models/image_asset.py
+??  4d9d32c4aa8b0478c88fb9b20a4017c018c32734e5f82704f2345363d363d221      7921  apps/api/src/creativedeploy_api/db/models/image_set_readiness_review.py
+ M  bd4e7988240ca26373b81e842293c5b14a8e18d9dc2e8ff9ed0a3f6e54f69d1b     13922  apps/api/src/creativedeploy_api/repositories/image_assets.py
+ M  3244b3be1f79ab06d6a30046573bbd88742c4d17ee1280edc437b8aa8d4320b8      7122  apps/api/src/creativedeploy_api/schemas/image_assets.py
+ M  43b7be6bf152f5d6d1e6d8c83852c5250c2f96f629eb20da9db5ec530d22217a     53714  apps/api/src/creativedeploy_api/services/image_assets.py
+ M  17cc7328851c8e514e557bff7df90cc064ee2eb8ca77886239acfb4b25847251     28446  apps/api/tests/integration/test_image_asset_api.py
+??  b4bb49299abb864d0c42a730deefcf65a9ac2f012db934159d0aa4967c0d6081     53949  apps/api/tests/integration/test_image_set_readiness_api.py
+ M  e8b6009e0dbe735b1e10b788d75054d1d49f74285ea4d4eb9e264a6e85dd8e13     98344  apps/api/tests/integration/test_initial_paint_project_migration.py
+ M  7f48f5ddb1c65a5e7bd790266a49bdd28cab6333c187e891aae73f641903e045     14676  apps/api/tests/unit/test_database_metadata.py
+??  7c6ad1c5294bde0124487ba6506f8fe2c06dbf9bfc632c66dd0e1ea22e0b8b8e     13988  apps/api/tests/unit/test_image_set_readiness.py
+ M  cb57d9b17ce82d1c51b521cd15b9eab308e129cd9a263a538947f16ef073276e     35664  apps/api/tests/unit/test_paint_project_models.py
+ M  97540beda53bee54d2d50efb1bde7892a4f8c140779fcc8e1f4db36cbab92c03     13340  apps/web/src/__tests__/AppRoutes.test.tsx
+ M  d4467bfbd0771610ef4862efed07ee05ed67ef28521e8b2d19d90a3688b9d4bd     15455  apps/web/src/__tests__/CreateProjectPage.test.tsx
+ M  723db27e46c54c34473d6351df2b0b200c99b61729791c6c690ef3939648578a     17511  apps/web/src/__tests__/ImageAssetManager.test.tsx
+ M  51b5ad6037082f629cfd33ba27ddb25ed01503f3ecef22fc80ae068aedaf43e1      7254  apps/web/src/__tests__/ProjectDetailPage.test.tsx
+ M  85d48ebadee11915767d019671cfd63205217506e65498ded8eb0746ee20182e      9182  apps/web/src/__tests__/ProjectsPage.test.tsx
+ M  a8794a850a4a318655867d3755ee24fd2c4246c1b2951d785e29f83411183059      6400  apps/web/src/__tests__/imageAssetsApi.test.ts
+ M  4fb071fd22c2c7e5bb412ad2099f70f75c0b06a38012a103c2149b7a23c2cbc5     21190  apps/web/src/api/imageAssets.ts
+ M  b7f1cf569d85a2ac3f4a154805a56522dd3b189a5121125c19a94c4f36186112     33655  apps/web/src/components/ImageAssetManager.tsx
+ M  0b7ee0bfcf3131fed49fddea882bc8bf91d1e8d981859ab47f86b68068edbd52     48169  apps/web/src/index.css
+ M  d1ae7e4db4a2acafa4c02c1009dd9c9742fec235f0b8c8d0a959efc1b67168dc     10699  apps/web/src/pages/ProjectDetailPage.tsx
+ M  42b6daf9870c55ac4ec9cd44446e40f73fdb7757b813aa3d6f67e94464b385f5      8834  apps/web/src/pages/ProjectsPage.tsx
+ M  04b2b73857aa515c3f6a77d287ec2b2fcda3162c701fb5cbad797cc49ecb2631      6183  apps/web/src/test/paintProjectFixtures.ts
+??  ed7f78a5ebfc179b298054ffc70170b4cd0c62d56e95dbe8943dc228c1a65e0c      7497  docs/architecture/paintpilot-image-set-readiness-physical-data-dictionary-v0.1.md
+??  7929ffea05ee625d654a3c04d469ac344c3b39eb9e98216adf8c921e29240fca     10924  docs/decisions/ADR-0005-multi-role-image-set-and-human-readiness-boundary.md
+??  f72cb895f09c6e7c595c5d049cea004ac586f51bc667751975aa988dd5b22e4a     15238  docs/progress/phase-1e-2-multi-role-image-set-and-readiness-candidate.md
+??  da771cbb01d5cee4d77188ad3a6bd3f9578082025582589362be8f3b9b401491      7222  docs/progress/phase-1e-2-multi-role-image-set-and-readiness-plan.md

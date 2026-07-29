@@ -40,12 +40,26 @@ complete journey. The first independent review returned
 `PHASE_1E_1_FAIL_REMEDIATION_REQUIRED`; Security Remediation Round 1 added no-replace publication
 and receipt compensation, and the second independent review authorized sealing.
 
+The user confirmed the approximately 60% checkpoint direction for Phase 1E-2 — Multi-Role
+ImageSet and Readiness. The current Phase 1E-2 source is
+`IMPLEMENTED_PENDING_INDEPENDENT_REVIEW`, with candidate verdict
+`PHASE_1E_2_WORKFLOW_GATE_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`. The original
+independent review returned `CONTRACT_OR_ARCHITECTURE_DECISION_REQUIRED`: F-01 demonstrated a
+real 201 `primary_front` replacement in unauthorized `IMAGE_UPLOADED`. The focused candidate
+remediation preserves ADR-0004, makes the Service role/current/operation/state policy the final
+authority, and awaits a fresh independent read-only review. It adds exact roles
+`primary_front`, `reference_back`, `reference_angle`, and optional `reference_detail`; preserves
+per-role immutable history; derives deterministic ImageSet readiness facts; and appends human
+READY / NOT READY fingerprint-bound reviews. Revision `d4c8a1f7b2e9` maps sealed
+`primary_mvp_input` rows in place and adds `image_set_readiness_reviews` without changing the
+historical revisions. This candidate is not independently approved, commit-ready, sealed,
+closed, production-ready, or authorization for a later phase.
+
 The overall project checkpoint is approximately 60% (`approximately_60_percent`). AI is
 `NOT_AUTHORIZED`; external object storage is `NOT_SELECTED`; public/signed URLs are
 `NOT_AUTHORIZED`; deletion and real authentication are `NOT_IMPLEMENTED`; local storage is
-development/test only; production storage is `NOT_READY`. No later formal phase is defined, so the
-next state is
-`NEXT_PHASE_REQUIRES_60_PERCENT_CHECKPOINT_CONFIRMATION`.
+development/test only; production storage is `NOT_READY`. The checkpoint confirmation applies
+only to Phase 1E-2; no phase after it is authorized.
 
 The current source and verification evidence include:
 
@@ -92,6 +106,14 @@ The current source and verification evidence include:
 - a compliant real-browser JPEG/PNG/WebP continuation with one-shot confirmation-loss replay,
   immutable three-version history, invalid-file rejection, API/Vite restart persistence,
   1440×900, 768×1024 and 390×844 verification, and zero-residual cleanup.
+- one Phase 1E-2 candidate Revision `d4c8a1f7b2e9` with exact four-role ImageAsset vocabulary,
+  in-place Phase 1E-1 compatibility mapping, and one append-only readiness-review table;
+- a derived owner-scoped ImageSet with per-role current/history, deterministic checklist,
+  canonical fingerprint, `incomplete/ready/not_ready/stale` states, and explicit stale reasons;
+- Project-locked, Project-scoped idempotent human readiness review creation with database-enforced
+  owner/Project/role snapshots and upload/review race coverage;
+- a four-role workbench with required/optional labels, private previews, immutable histories,
+  safe add/replace, blockers, human READY / NOT READY, retry, history, and reconfirmation.
 
 The Phase 1D-3 F-01/F-02 technical remediation was independently reviewed and sealed. This does
 not cure or erase the governance exception: Commit 10 entered Git history without a formal prior
@@ -119,6 +141,9 @@ rewriting the original failure. Phase 1D-4 is `CLOSED`, Phase 1D is `COMPLETE`, 
 authorize production storage, image quality assessment, AI integration, or a later product phase.
 See `docs/progress/phase-1e-1-imageasset-foundation-closure.md`.
 
+The user later authorized Phase 1E-2 at the checkpoint. Its current implementation remains a
+candidate pending fresh independent review and does not alter the closed Phase 1E-1 record.
+
 For every subsequent Codex task:
 
 - do not claim Commit 10 is uncreated;
@@ -128,11 +153,15 @@ For every subsequent Codex task:
 - preserve the Phase 1D-4 original failure and later blocker-remediation evidence;
 - do not reopen or re-enter Phase 1D-3, Phase 1D-4, or Phase 1D;
 - keep Phase 1E-1 `CLOSED` and preserve its implementation seal and complete review history;
+- keep Phase 1E-2 `IMPLEMENTED_PENDING_INDEPENDENT_REVIEW` until a fresh review; do not present
+  passing gates as approval or create a seal without explicit authorization;
+- preserve the original Phase 1E-2 F-01/real-201 evidence; ADR-0005 does not supersede the
+  ADR-0004 primary workflow gate;
 - do not claim the sealed Phase 1E-1 implementation is production-ready;
 - do not integrate AI;
 - do not select external object storage, public URLs, irreversible deletion, real authentication,
   or major permission changes;
-- do not begin or name a later product phase until the 60% checkpoint direction is confirmed;
+- do not begin or name a product phase after Phase 1E-2 without separate direction;
 - do not rewrite historical snapshots into fictional pre-commit approval.
 
 Phase 1D completion closes the specified PaintProject vertical slice. The closed Phase 1E-1 work
@@ -144,10 +173,11 @@ authorization.
 Do not claim or imply implementation or independent approval of:
 
 - public authentication, full authorization, JWT, OAuth or a real-user Principal Adapter;
-- ImageQualityAssessment, image analysis, segmentation, or Polygon Editor;
+- ImageQualityAssessment, automated viewpoint analysis, segmentation, or Polygon Editor;
 - AI providers, Agent workflows, RAG, inventory, citations, or Trace;
-- HumanApproval or workflow transitions beyond `null -> DRAFT` and guarded `upload_image ->
-  IMAGE_UPLOADED`;
+- a HumanApproval entity or workflow transitions beyond `null -> DRAFT` and guarded
+  `upload_image -> IMAGE_UPLOADED`; Phase 1E-2 readiness reviews are append-only human records,
+  not workflow transitions;
 - PaintProject update/delete/owner transfer;
 - image-backed project cards, editable PaintProject fields, image update/delete, or public images;
 - Redis, workers, CI, production deployment or real-user validation.
@@ -157,7 +187,8 @@ Do not claim or imply implementation or independent approval of:
 - `apps/api`: the independent uv-managed FastAPI package, health, PaintProject, and ImageAsset schemas,
   configuration, async database engine/session, shared Metadata, Alembic, the approved three-model
   Phase 1D persistence foundation, the committed Phase 1D-2 Repository/Service/API, the sealed
-  Phase 1E-1 ImageAsset foundation, and pytest tests.
+  Phase 1E-1 ImageAsset foundation, the pending Phase 1E-2 ImageSet/readiness candidate, and
+  pytest tests.
 - `apps/web`: the pnpm-managed React/Vite PaintPilot application shell, routes, API client,
   Projects/Create/Detail pages and Vitest tests.
 - `docs/product`, `docs/architecture`, `docs/decisions`: approved Phase 0 baselines; do not
@@ -211,7 +242,8 @@ make migration-check
 
 These commands never generate or upgrade a revision. The repository preserves historical
 Revision `a10d3d8dab38`; the Phase 1E-1 implementation seal adds Revision `5ed9906e7d33` and a
-fourth business table. This does not imply production storage readiness.
+fourth business table. The Phase 1E-2 candidate adds child Revision `d4c8a1f7b2e9` and a fifth
+business table. This does not imply independent approval or production storage readiness.
 
 Backend:
 
@@ -279,6 +311,8 @@ under normal operating-system rules, unlike the standard Make targets.
 - Preserve historical business Revision `a10d3d8dab38`; never rewrite it.
 - Preserve the sealed Phase 1E-1 Revision `5ed9906e7d33`, ImageAsset physical constraints,
   private-storage boundary, and committed Phase 1D-2 API contracts during focused review.
+- Treat Revision `d4c8a1f7b2e9` and the ImageSet/readiness work as an unsealed candidate until
+  independent review; never rewrite either historical parent revision.
 - Preserve safe 503 responses: never expose database URLs, passwords, stack traces, or raw
   infrastructure exceptions.
 - Keep Create Project database waits finite and transaction-local. Do not remove the positive,
@@ -306,7 +340,7 @@ under normal operating-system rules, unlike the standard Make targets.
 - Preserve the independently reviewed README remediation and its seal commit
   `707bdfa3c5931867125cc9c7dc11067a86f5f343`; do not rewrite the original Phase 1D-4 failure.
 - Keep Phase 1D-3 and Phase 1D-4 `CLOSED` and Phase 1D `COMPLETE`; do not reopen Phase 1D.
-- Keep Phase 1E-1 `CLOSED`; do not reopen it or begin a later phase without 60% checkpoint
-  confirmation. Do not integrate AI or image quality assessment, select
+- Keep Phase 1E-1 `CLOSED`; keep Phase 1E-2 pending independent review and do not begin a phase
+  after it without separate direction. Do not integrate AI or image quality assessment, select
   external object storage, add public URLs, irreversible deletion, real authentication, or major
   permission changes.

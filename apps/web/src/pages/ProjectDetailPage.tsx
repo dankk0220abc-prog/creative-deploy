@@ -313,12 +313,13 @@ export function ProjectDetailPage() {
             <div>
               <p className="eyebrow">Next governed boundary</p>
               <h2 id="next-boundary-heading">
-                Image quality assessment is not implemented yet
+                Human-guided region planning is not implemented yet
               </h2>
               <p>
-                This phase stores and previews an immutable original only. No formal
-                quality decision, region analysis, AI result, inventory match,
-                approval, or paint plan has been created.
+                Phase 1E-2 ends with a human-confirmed multi-role image set. Region
+                drawing, RegionSet creation, AI analysis, inventory matching, and
+                PaintPlan generation remain outside this workbench and require the
+                next independently reviewed and sealed phase.
               </p>
             </div>
           </aside>

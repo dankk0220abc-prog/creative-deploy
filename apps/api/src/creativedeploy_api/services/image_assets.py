@@ -7,7 +7,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import MappingProxyType
-from typing import BinaryIO
+from typing import BinaryIO, Literal
 
 from fastapi import UploadFile
 from pydantic import ValidationError
@@ -19,16 +19,30 @@ from creativedeploy_api.core.principal import PrincipalContext, PrincipalType
 from creativedeploy_api.db.models import (
     CommandIdempotencyRecord,
     ImageAsset,
+    ImageSetReadinessReview,
     StateTransitionEvent,
 )
 from creativedeploy_api.db.models.constants import IDEMPOTENCY_STATUS_COMPLETED
-from creativedeploy_api.db.models.image_asset import IMAGE_ROLE_PRIMARY
+from creativedeploy_api.db.models.image_asset import (
+    IMAGE_ROLE_PRIMARY,
+    IMAGE_ROLE_REFERENCE_ANGLE,
+    IMAGE_ROLE_REFERENCE_BACK,
+    IMAGE_ROLE_REFERENCE_DETAIL,
+    IMAGE_ROLES,
+    REQUIRED_IMAGE_ROLES,
+)
 from creativedeploy_api.repositories.image_assets import SqlAlchemyImageAssetRepository
 from creativedeploy_api.schemas.errors import ErrorCategory
 from creativedeploy_api.schemas.image_assets import (
     CreateImageAssetRequest,
+    CreateReadinessReviewRequest,
     ImageAssetListResponse,
     ImageAssetRead,
+    ImageRoleSlotRead,
+    ImageSetRead,
+    ImageSetReadinessChecklist,
+    ImageSetReadinessReviewRead,
+    ReadinessReviewHistoryResponse,
 )
 from creativedeploy_api.services.image_validation import (
     DeterministicImageValidationError,
@@ -54,8 +68,32 @@ logger = logging.getLogger(__name__)
 
 UPLOAD_COMMAND_TYPE = "upload_image"
 UPLOAD_PAYLOAD_VERSION = "upload_image.v1"
-FIRST_UPLOAD_STATES = ("DRAFT",)
-REPLACEMENT_STATES = ("IMAGE_REVIEW_REQUIRED", "IMAGE_VALIDATION_FAILED")
+READINESS_COMMAND_TYPE = "review_image_set_readiness"
+READINESS_PAYLOAD_VERSION = "image_set_readiness_review.v1"
+PRIMARY_FIRST_UPLOAD_STATES = frozenset({"DRAFT"})
+PRIMARY_REPLACEMENT_STATES = frozenset(
+    {
+        "IMAGE_REVIEW_REQUIRED",
+        "IMAGE_VALIDATION_FAILED",
+    }
+)
+REFERENCE_MUTATION_STATES = frozenset(
+    {
+        "DRAFT",
+        "IMAGE_UPLOADED",
+        "IMAGE_REVIEW_REQUIRED",
+        "IMAGE_VALIDATION_FAILED",
+    }
+)
+REFERENCE_IMAGE_ROLES = frozenset(
+    {
+        IMAGE_ROLE_REFERENCE_BACK,
+        IMAGE_ROLE_REFERENCE_ANGLE,
+        IMAGE_ROLE_REFERENCE_DETAIL,
+    }
+)
+
+ImageAssetMutationOperation = Literal["first_upload", "replacement"]
 
 
 class ImageAssetNotFoundError(PaintProjectApplicationError):
@@ -107,6 +145,33 @@ class ImageIdempotencyKeyReusedError(PaintProjectApplicationError):
     )
 
 
+class ReadinessIdempotencyKeyReusedError(PaintProjectApplicationError):
+    """A readiness key was reused with a changed verdict, reason, or ImageSet."""
+
+    status_code = 409
+    error_code = "IDEMPOTENCY_KEY_REUSED"
+    category: ErrorCategory = "IDEMPOTENCY_KEY_REUSED"
+    message = "The Idempotency-Key was already used for a different readiness review."
+    allowed_actions = (
+        "retry_with_original_payload",
+        "start_new_command_with_new_idempotency_key",
+    )
+
+
+class ImageSetReadyPrerequisitesError(PaintProjectApplicationError):
+    """The server-owned deterministic checklist does not permit READY."""
+
+    status_code = 409
+    error_code = "IMAGE_SET_READY_PREREQUISITES_NOT_MET"
+    category: ErrorCategory = "CONFLICT"
+    message = "The image set does not satisfy every deterministic READY prerequisite."
+    allowed_actions = ("review_image_set", "resolve_readiness_blockers")
+
+    def __init__(self, blockers: list[str]) -> None:
+        super().__init__()
+        self.safe_details = MappingProxyType({"blockers": list(blockers)})
+
+
 class ImageStorageApplicationError(PaintProjectApplicationError):
     """A private object could not be stored or read."""
 
@@ -133,14 +198,16 @@ class ImageWorkflowStateError(PaintProjectApplicationError):
     category: ErrorCategory = "INVALID_STATE_TRANSITION"
     message = "The project state does not allow this image operation."
 
-    def __init__(self, *, current_state: str, replacement: bool) -> None:
+    def __init__(
+        self,
+        *,
+        current_state: str,
+        operation: ImageAssetMutationOperation,
+    ) -> None:
         super().__init__()
         self.current_state = current_state
-        self.allowed_actions = (
-            ("review_image", "replace_image", "abandon_project")
-            if replacement
-            else ("view_project", "abandon_project")
-        )
+        self.allowed_actions = ("view_project", "abandon_project")
+        self.safe_details = MappingProxyType({"operation": operation})
 
 
 class ImagePrincipalTypeNotAllowedError(PaintProjectApplicationError):
@@ -200,9 +267,54 @@ class PrivateImageContent:
     byte_size: int
 
 
+@dataclass(frozen=True, slots=True)
+class ImageSetFacts:
+    """One deterministic server-owned view of current role and storage facts."""
+
+    fingerprint: str
+    current_by_role: dict[str, ImageAsset]
+    object_available_by_role: dict[str, bool]
+    checklist: ImageSetReadinessChecklist
+
+
+@dataclass(frozen=True, slots=True)
+class ImageAssetMutationDecision:
+    """Pure role/current/workflow authorization result."""
+
+    allowed: bool
+    operation: ImageAssetMutationOperation
+
+
+def evaluate_image_asset_mutation(
+    *,
+    role: str,
+    has_current_asset: bool,
+    project_state: str,
+) -> ImageAssetMutationDecision:
+    """Evaluate the sealed role-aware upload/replacement workflow policy."""
+    operation: ImageAssetMutationOperation = "replacement" if has_current_asset else "first_upload"
+    if role == IMAGE_ROLE_PRIMARY:
+        allowed_states = (
+            PRIMARY_REPLACEMENT_STATES if has_current_asset else PRIMARY_FIRST_UPLOAD_STATES
+        )
+    elif role in REFERENCE_IMAGE_ROLES:
+        allowed_states = REFERENCE_MUTATION_STATES
+    else:
+        return ImageAssetMutationDecision(allowed=False, operation=operation)
+    return ImageAssetMutationDecision(
+        allowed=project_state in allowed_states,
+        operation=operation,
+    )
+
+
 def image_scope_key(principal_id: str, project_id: uuid.UUID) -> str:
     """Compute the server-owned project upload scope."""
     return f"principal:{principal_id}:project:{project_id}:command:{UPLOAD_COMMAND_TYPE}"
+
+
+def readiness_scope_key(principal_id: str, project_id: uuid.UUID) -> str:
+    """Compute the server-owned Project-scoped readiness command scope."""
+    return f"principal:{principal_id}:project:{project_id}:command:{READINESS_COMMAND_TYPE}"
 
 
 def image_payload_hash(
@@ -223,6 +335,69 @@ def image_payload_hash(
         "role": payload.role,
         "source_type": payload.source_type,
         "version": UPLOAD_PAYLOAD_VERSION,
+    }
+    encoded = json.dumps(
+        canonical,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def image_set_fingerprint(
+    *,
+    project_id: uuid.UUID,
+    current_by_role: dict[str, ImageAsset],
+    object_available_by_role: dict[str, bool],
+) -> str:
+    """Hash a canonical, path-free snapshot in the frozen formal role order."""
+    roles: list[dict[str, object]] = []
+    for role in IMAGE_ROLES:
+        asset = current_by_role.get(role)
+        roles.append(
+            {
+                "image_asset_id": None if asset is None else str(asset.id),
+                "missing": asset is None,
+                "object_available": object_available_by_role.get(role, False),
+                "rights_attestation_status": (
+                    None if asset is None else asset.rights_attestation_status
+                ),
+                "rights_attestation_version": (
+                    None if asset is None else asset.rights_attestation_version
+                ),
+                "role": role,
+                "sha256": None if asset is None else asset.sha256,
+                "upload_validation_result": (
+                    None if asset is None else asset.upload_validation_result
+                ),
+            }
+        )
+    canonical = {
+        "paint_project_id": str(project_id),
+        "roles": roles,
+        "version": "paintpilot_image_set_fingerprint.v1",
+    }
+    encoded = json.dumps(
+        canonical,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def readiness_payload_hash(
+    *,
+    payload: CreateReadinessReviewRequest,
+    fingerprint: str,
+) -> str:
+    """Hash only normalized human input plus the server-owned current fingerprint."""
+    canonical = {
+        "image_set_fingerprint": fingerprint,
+        "reason": payload.reason,
+        "verdict": payload.verdict,
+        "version": READINESS_PAYLOAD_VERSION,
     }
     encoded = json.dumps(
         canonical,
@@ -271,6 +446,27 @@ def _image_read(asset: ImageAsset) -> ImageAssetRead:
     )
 
 
+def _review_read(review: ImageSetReadinessReview) -> ImageSetReadinessReviewRead:
+    return ImageSetReadinessReviewRead.model_validate(
+        {
+            "id": review.id,
+            "paint_project_id": review.paint_project_id,
+            "version": review.version,
+            "verdict": review.verdict,
+            "reason": review.reason,
+            "primary_front_image_asset_id": review.primary_front_image_asset_id,
+            "reference_back_image_asset_id": review.reference_back_image_asset_id,
+            "reference_angle_image_asset_id": review.reference_angle_image_asset_id,
+            "reference_detail_image_asset_id": review.reference_detail_image_asset_id,
+            "image_set_fingerprint": review.image_set_fingerprint,
+            "actor_type": review.actor_type,
+            "actor_id": review.actor_id,
+            "actor_display_name_snapshot": review.actor_display_name_snapshot,
+            "created_at": review.created_at,
+        }
+    )
+
+
 def _stored_image_read(record: CommandIdempotencyRecord) -> ImageAssetRead:
     if (
         record.execution_status != IDEMPOTENCY_STATUS_COMPLETED
@@ -287,6 +483,28 @@ def _stored_image_read(record: CommandIdempotencyRecord) -> ImageAssetRead:
             separators=(",", ":"),
         )
         return ImageAssetRead.model_validate_json(encoded_snapshot)
+    except (TypeError, ValueError, ValidationError) as error:
+        raise StoredIdempotencyResultInvalidError from error
+
+
+def _stored_review_read(
+    record: CommandIdempotencyRecord,
+) -> ImageSetReadinessReviewRead:
+    if (
+        record.execution_status != IDEMPOTENCY_STATUS_COMPLETED
+        or record.resource_type != "image_set_readiness_review"
+        or record.http_status != 201
+        or record.response_snapshot is None
+    ):
+        raise StoredIdempotencyResultInvalidError
+    try:
+        encoded_snapshot = json.dumps(
+            record.response_snapshot,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return ImageSetReadinessReviewRead.model_validate_json(encoded_snapshot)
     except (TypeError, ValueError, ValidationError) as error:
         raise StoredIdempotencyResultInvalidError from error
 
@@ -328,6 +546,161 @@ class ImageAssetService:
             max_pixels=settings.image_max_pixels,
         )
 
+    def _object_is_available(self, asset: ImageAsset) -> bool:
+        """Verify immutable private object size and SHA without exposing its path."""
+        try:
+            metadata = self._storage.stat(asset.storage_key)
+            if metadata.st_size != asset.byte_size:
+                return False
+            stream = self._storage.open_private(asset.storage_key)
+            try:
+                digest = hashlib.sha256()
+                while chunk := stream.read(64 * 1024):
+                    digest.update(chunk)
+                return digest.hexdigest() == asset.sha256
+            finally:
+                stream.close()
+        except (ImageStorageError, FileNotFoundError, OSError):
+            return False
+
+    def _image_set_facts(
+        self,
+        *,
+        project_id: uuid.UUID,
+        current_assets: list[ImageAsset],
+    ) -> ImageSetFacts:
+        """Compute the complete deterministic non-AI readiness facts."""
+        current_by_role = {asset.role: asset for asset in current_assets}
+        object_available_by_role = {
+            role: self._object_is_available(asset) for role, asset in current_by_role.items()
+        }
+        required_present = all(role in current_by_role for role in REQUIRED_IMAGE_ROLES)
+        all_current = list(current_by_role.values())
+        deterministic_accepted = bool(all_current) and all(
+            asset.upload_validation_result == "accepted" for asset in all_current
+        )
+        rights_complete = bool(all_current) and all(
+            asset.rights_attestation_status == "confirmed"
+            and asset.rights_attestation_version >= 1
+            and asset.rights_attested_by_principal_id is not None
+            and asset.rights_attested_at is not None
+            for asset in all_current
+        )
+        required_sha256 = [
+            current_by_role[role].sha256 for role in REQUIRED_IMAGE_ROLES if role in current_by_role
+        ]
+        content_distinct = required_present and len(set(required_sha256)) == len(
+            REQUIRED_IMAGE_ROLES
+        )
+        objects_available = required_present and all(
+            object_available_by_role.get(role, False) for role in current_by_role
+        )
+        blockers: list[str] = []
+        if not required_present:
+            blockers.append("missing_required_roles")
+        if not deterministic_accepted:
+            blockers.append("deterministic_validation_not_accepted")
+        if not rights_complete:
+            blockers.append("rights_attestation_incomplete")
+        if not content_distinct:
+            blockers.append("duplicate_or_missing_required_content")
+        if not objects_available:
+            blockers.append("private_object_unavailable")
+        checklist = ImageSetReadinessChecklist(
+            required_roles_present=required_present,
+            deterministic_validation_accepted=deterministic_accepted,
+            rights_complete=rights_complete,
+            content_distinct=content_distinct,
+            objects_available=objects_available,
+            snapshot_current=False,
+            can_mark_ready=not blockers,
+            blockers=blockers,
+        )
+        return ImageSetFacts(
+            fingerprint=image_set_fingerprint(
+                project_id=project_id,
+                current_by_role=current_by_role,
+                object_available_by_role=object_available_by_role,
+            ),
+            current_by_role=current_by_role,
+            object_available_by_role=object_available_by_role,
+            checklist=checklist,
+        )
+
+    def _image_set_read(
+        self,
+        *,
+        project_id: uuid.UUID,
+        assets: list[ImageAsset],
+        reviews: list[ImageSetReadinessReview],
+    ) -> ImageSetRead:
+        """Build the strict ImageSet response from database and private-object facts."""
+        current_assets = [asset for asset in assets if asset.is_current]
+        facts = self._image_set_facts(
+            project_id=project_id,
+            current_assets=current_assets,
+        )
+        latest = reviews[0] if reviews else None
+        snapshot_current = latest is not None and latest.image_set_fingerprint == facts.fingerprint
+        checklist = facts.checklist.model_copy(update={"snapshot_current": snapshot_current})
+        stale_reasons: list[str] = []
+        if latest is None:
+            status = "incomplete"
+        elif not snapshot_current or (latest.verdict == "ready" and not checklist.can_mark_ready):
+            status = "stale"
+            snapshot_fields = {
+                IMAGE_ROLE_PRIMARY: latest.primary_front_image_asset_id,
+                IMAGE_ROLE_REFERENCE_BACK: latest.reference_back_image_asset_id,
+                IMAGE_ROLE_REFERENCE_ANGLE: latest.reference_angle_image_asset_id,
+                IMAGE_ROLE_REFERENCE_DETAIL: latest.reference_detail_image_asset_id,
+            }
+            for role in IMAGE_ROLES:
+                current = facts.current_by_role.get(role)
+                current_id = None if current is None else current.id
+                if snapshot_fields[role] != current_id:
+                    stale_reasons.append(f"{role}_changed")
+            if not stale_reasons:
+                if not checklist.objects_available:
+                    stale_reasons.append("private_object_unavailable")
+                elif not checklist.rights_complete:
+                    stale_reasons.append("rights_attestation_changed")
+                elif not checklist.deterministic_validation_accepted:
+                    stale_reasons.append("deterministic_validation_changed")
+                else:
+                    stale_reasons.append("image_set_fingerprint_changed")
+        elif latest.verdict == "ready":
+            status = "ready"
+        else:
+            status = "not_ready"
+
+        history_by_role = {
+            role: [asset for asset in assets if asset.role == role] for role in IMAGE_ROLES
+        }
+        roles = [
+            ImageRoleSlotRead(
+                role=role,  # type: ignore[arg-type]
+                required=role in REQUIRED_IMAGE_ROLES,
+                missing=role not in facts.current_by_role,
+                object_available=facts.object_available_by_role.get(role, False),
+                current=(
+                    None
+                    if role not in facts.current_by_role
+                    else _image_read(facts.current_by_role[role])
+                ),
+                history=[_image_read(asset) for asset in history_by_role[role]],
+            )
+            for role in IMAGE_ROLES
+        ]
+        return ImageSetRead(
+            paint_project_id=project_id,
+            image_set_fingerprint=facts.fingerprint,
+            roles=roles,
+            checklist=checklist,
+            latest_review=None if latest is None else _review_read(latest),
+            status=status,  # type: ignore[arg-type]
+            stale_reasons=stale_reasons,
+        )
+
     async def _require_owned_project(
         self,
         *,
@@ -341,6 +714,48 @@ class ImageAssetService:
             )
             if project is None:
                 raise PaintProjectNotFoundError
+
+    async def _preflight_image_mutation(
+        self,
+        *,
+        project_id: uuid.UUID,
+        role: str,
+        principal: PrincipalContext,
+        idempotency_key: uuid.UUID,
+    ) -> None:
+        """Reject a known-new unauthorized command before staging file bytes."""
+        async with self._session.begin():
+            await self._repository.configure_transaction_timeouts(
+                lock_timeout_ms=self._lock_timeout_ms,
+                statement_timeout_ms=self._statement_timeout_ms,
+            )
+            project = await self._repository.get_owned_project(
+                project_id=project_id,
+                owner_principal_id=principal.principal_id,
+                for_update=True,
+            )
+            if project is None:
+                raise PaintProjectNotFoundError
+            existing = await self._repository.get_upload_command(
+                scope_key=image_scope_key(principal.principal_id, project_id),
+                idempotency_key=idempotency_key,
+            )
+            if existing is not None:
+                return
+            current = await self._repository.get_current_for_update(
+                project_id=project_id,
+                role=role,
+            )
+            decision = evaluate_image_asset_mutation(
+                role=role,
+                has_current_asset=current is not None,
+                project_state=project.status,
+            )
+            if not decision.allowed:
+                raise ImageWorkflowStateError(
+                    current_state=project.status,
+                    operation=decision.operation,
+                )
 
     async def _compensate(
         self,
@@ -402,7 +817,12 @@ class ImageAssetService:
         """Validate, store, persist, replace, compensate, or replay one image command."""
         if principal.principal_type is not PrincipalType.HUMAN:
             raise ImagePrincipalTypeNotAllowedError
-        await self._require_owned_project(project_id=project_id, principal=principal)
+        await self._preflight_image_mutation(
+            project_id=project_id,
+            role=payload.role,
+            principal=principal,
+            idempotency_key=idempotency_key,
+        )
 
         staged = None
         stored: StoragePublishReceipt | None = None
@@ -474,12 +894,15 @@ class ImageAssetService:
                             project_id=project_id,
                             role=payload.role,
                         )
-                        replacement = current is not None
-                        allowed_states = REPLACEMENT_STATES if replacement else FIRST_UPLOAD_STATES
-                        if project.status not in allowed_states:
+                        decision = evaluate_image_asset_mutation(
+                            role=payload.role,
+                            has_current_asset=current is not None,
+                            project_state=project.status,
+                        )
+                        if not decision.allowed:
                             raise ImageWorkflowStateError(
                                 current_state=project.status,
-                                replacement=replacement,
+                                operation=decision.operation,
                             )
 
                         try:
@@ -508,7 +931,7 @@ class ImageAssetService:
                             id=asset_id,
                             paint_project_id=project_id,
                             owner_principal_id=principal.principal_id,
-                            role=IMAGE_ROLE_PRIMARY,
+                            role=payload.role,
                             version=version,
                             supersedes_image_asset_id=None if current is None else current.id,
                             is_current=True,
@@ -539,34 +962,42 @@ class ImageAssetService:
                             created_by_actor_display_name_snapshot=principal.display_name,
                             created_at=created_at,
                         )
-                        project.current_image_asset_id = asset_id
-                        project.status = "IMAGE_UPLOADED"
+                        previous_state = project.status
+                        if payload.role == IMAGE_ROLE_PRIMARY:
+                            project.current_image_asset_id = asset_id
+                            if project.status in (
+                                "DRAFT",
+                                "IMAGE_REVIEW_REQUIRED",
+                                "IMAGE_VALIDATION_FAILED",
+                            ):
+                                project.status = "IMAGE_UPLOADED"
                         project.updated_at = created_at
-                        event = StateTransitionEvent(
-                            id=uuid.uuid4(),
-                            project_id=project_id,
-                            from_state=from_state,
-                            to_state="IMAGE_UPLOADED",
-                            event="upload_image",
-                            actor_type="user",
-                            actor_principal_id=principal.principal_id,
-                            actor_display_name_snapshot=principal.display_name,
-                            reason=(
-                                "image_uploaded"
-                                if current is None
-                                else "replacement_image_uploaded"
-                            ),
-                            correlation_id=correlation_id,
-                            event_metadata={
-                                "schema_version": "image_upload_event.v1",
-                                "image_asset_id": str(asset_id),
-                                "role": payload.role,
-                                "version": version,
-                            },
-                            created_at=created_at,
-                        )
                         self._repository.add_asset(asset)
-                        self._repository.add_event(event)
+                        if project.status != previous_state:
+                            event = StateTransitionEvent(
+                                id=uuid.uuid4(),
+                                project_id=project_id,
+                                from_state=from_state,
+                                to_state=project.status,
+                                event="upload_image",
+                                actor_type="user",
+                                actor_principal_id=principal.principal_id,
+                                actor_display_name_snapshot=principal.display_name,
+                                reason=(
+                                    "image_uploaded"
+                                    if current is None
+                                    else "replacement_image_uploaded"
+                                ),
+                                correlation_id=correlation_id,
+                                event_metadata={
+                                    "schema_version": "image_upload_event.v2",
+                                    "image_asset_id": str(asset_id),
+                                    "role": payload.role,
+                                    "version": version,
+                                },
+                                created_at=created_at,
+                            )
+                            self._repository.add_event(event)
                         await self._repository.flush()
                         image_read = _image_read(asset)
                         acquired_record_id = claim.acquired_record_id
@@ -637,6 +1068,184 @@ class ImageAssetService:
                 owner_principal_id=principal.principal_id,
             )
         return ImageAssetListResponse(items=[_image_read(asset) for asset in assets])
+
+    async def get_image_set(
+        self,
+        *,
+        project_id: uuid.UUID,
+        principal: PrincipalContext,
+    ) -> ImageSetRead:
+        """Read one complete owner-scoped ImageSet and deterministic readiness state."""
+        async with self._session.begin():
+            project = await self._repository.get_owned_project(
+                project_id=project_id,
+                owner_principal_id=principal.principal_id,
+            )
+            if project is None:
+                raise PaintProjectNotFoundError
+            assets = await self._repository.list_owned_assets(
+                project_id=project_id,
+                owner_principal_id=principal.principal_id,
+            )
+            reviews = await self._repository.list_readiness_reviews(
+                project_id=project_id,
+                owner_principal_id=principal.principal_id,
+            )
+        return self._image_set_read(
+            project_id=project_id,
+            assets=assets,
+            reviews=reviews,
+        )
+
+    async def create_readiness_review(
+        self,
+        *,
+        project_id: uuid.UUID,
+        payload: CreateReadinessReviewRequest,
+        principal: PrincipalContext,
+        idempotency_key: uuid.UUID,
+    ) -> ImageSetReadinessReviewRead:
+        """Create or replay one human verdict against the locked current ImageSet."""
+        if principal.principal_type is not PrincipalType.HUMAN:
+            raise ImagePrincipalTypeNotAllowedError
+        created_at = datetime.now(UTC)
+        async with self._session.begin():
+            await self._repository.configure_transaction_timeouts(
+                lock_timeout_ms=self._lock_timeout_ms,
+                statement_timeout_ms=self._statement_timeout_ms,
+            )
+            project = await self._repository.get_owned_project(
+                project_id=project_id,
+                owner_principal_id=principal.principal_id,
+                for_update=True,
+            )
+            if project is None:
+                raise PaintProjectNotFoundError
+            current_assets = await self._repository.list_current_for_update(
+                project_id=project_id,
+                owner_principal_id=principal.principal_id,
+            )
+            facts = self._image_set_facts(
+                project_id=project_id,
+                current_assets=current_assets,
+            )
+            command_hash = readiness_payload_hash(
+                payload=payload,
+                fingerprint=facts.fingerprint,
+            )
+            claim = await self._repository.claim_readiness_command(
+                record_id=uuid.uuid4(),
+                scope_key=readiness_scope_key(principal.principal_id, project_id),
+                principal_id=principal.principal_id,
+                idempotency_key=idempotency_key,
+                payload_hash=command_hash,
+                created_at=created_at,
+                expires_at=created_at + IDEMPOTENCY_RETENTION,
+            )
+            if not claim.acquired:
+                existing = claim.existing_record
+                if existing is None:
+                    raise StoredIdempotencyResultInvalidError
+                if existing.payload_hash != command_hash:
+                    raise ReadinessIdempotencyKeyReusedError
+                result = _stored_review_read(existing)
+            else:
+                if payload.verdict == "ready" and not facts.checklist.can_mark_ready:
+                    raise ImageSetReadyPrerequisitesError(facts.checklist.blockers)
+                version = await self._repository.next_readiness_version(project_id=project_id)
+                review_id = uuid.uuid4()
+                review = ImageSetReadinessReview(
+                    id=review_id,
+                    owner_principal_id=principal.principal_id,
+                    paint_project_id=project_id,
+                    version=version,
+                    verdict=payload.verdict,
+                    reason=payload.reason,
+                    primary_front_image_asset_id=(
+                        facts.current_by_role[IMAGE_ROLE_PRIMARY].id
+                        if IMAGE_ROLE_PRIMARY in facts.current_by_role
+                        else None
+                    ),
+                    primary_front_role=(
+                        IMAGE_ROLE_PRIMARY if IMAGE_ROLE_PRIMARY in facts.current_by_role else None
+                    ),
+                    reference_back_image_asset_id=(
+                        facts.current_by_role[IMAGE_ROLE_REFERENCE_BACK].id
+                        if IMAGE_ROLE_REFERENCE_BACK in facts.current_by_role
+                        else None
+                    ),
+                    reference_back_role=(
+                        IMAGE_ROLE_REFERENCE_BACK
+                        if IMAGE_ROLE_REFERENCE_BACK in facts.current_by_role
+                        else None
+                    ),
+                    reference_angle_image_asset_id=(
+                        facts.current_by_role[IMAGE_ROLE_REFERENCE_ANGLE].id
+                        if IMAGE_ROLE_REFERENCE_ANGLE in facts.current_by_role
+                        else None
+                    ),
+                    reference_angle_role=(
+                        IMAGE_ROLE_REFERENCE_ANGLE
+                        if IMAGE_ROLE_REFERENCE_ANGLE in facts.current_by_role
+                        else None
+                    ),
+                    reference_detail_image_asset_id=(
+                        facts.current_by_role[IMAGE_ROLE_REFERENCE_DETAIL].id
+                        if IMAGE_ROLE_REFERENCE_DETAIL in facts.current_by_role
+                        else None
+                    ),
+                    reference_detail_role=(
+                        IMAGE_ROLE_REFERENCE_DETAIL
+                        if IMAGE_ROLE_REFERENCE_DETAIL in facts.current_by_role
+                        else None
+                    ),
+                    image_set_fingerprint=facts.fingerprint,
+                    actor_type="user",
+                    actor_id=principal.principal_id,
+                    actor_display_name_snapshot=principal.display_name,
+                    created_at=created_at,
+                )
+                self._repository.add_readiness_review(review)
+                await self._repository.flush()
+                result = _review_read(review)
+                acquired_record_id = claim.acquired_record_id
+                if acquired_record_id is None:
+                    raise StoredIdempotencyResultInvalidError
+                await self._repository.complete_readiness_command(
+                    record_id=acquired_record_id,
+                    review_id=review_id,
+                    response_snapshot=result.model_dump(mode="json"),
+                )
+        logger.info(
+            "ImageSet readiness review command completed",
+            extra={
+                "principal_id": principal.principal_id,
+                "project_id": str(project_id),
+                "readiness_review_id": str(result.id),
+                "image_set_fingerprint": result.image_set_fingerprint,
+            },
+        )
+        return result
+
+    async def list_readiness_history(
+        self,
+        *,
+        project_id: uuid.UUID,
+        principal: PrincipalContext,
+    ) -> ReadinessReviewHistoryResponse:
+        """Read immutable readiness history without disclosing other owners."""
+        async with self._session.begin():
+            project = await self._repository.get_owned_project(
+                project_id=project_id,
+                owner_principal_id=principal.principal_id,
+            )
+            if project is None:
+                raise PaintProjectNotFoundError
+            reviews = await self._repository.list_readiness_reviews(
+                project_id=project_id,
+                owner_principal_id=principal.principal_id,
+            )
+        return ReadinessReviewHistoryResponse(items=[_review_read(review) for review in reviews])
 
     async def get_image(
         self,

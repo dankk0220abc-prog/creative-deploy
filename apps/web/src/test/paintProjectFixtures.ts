@@ -1,10 +1,19 @@
-import type { ImageAsset } from "../api/imageAssets";
+import type {
+  ImageAsset,
+  ImageRole,
+  ImageSet,
+  ImageSetReadinessReview,
+} from "../api/imageAssets";
 import type { PaintProject } from "../api/paintProjects";
 
 export const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 export const SECOND_PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 export const IMAGE_ID = "33333333-3333-4333-8333-333333333333";
 export const SECOND_IMAGE_ID = "44444444-4444-4444-8444-444444444444";
+export const BACK_IMAGE_ID = "55555555-5555-4555-8555-555555555555";
+export const ANGLE_IMAGE_ID = "66666666-6666-4666-8666-666666666666";
+export const DETAIL_IMAGE_ID = "77777777-7777-4777-8777-777777777777";
+export const REVIEW_ID = "88888888-8888-4888-8888-888888888888";
 export const REQUEST_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 export function projectFixture(
@@ -29,7 +38,7 @@ export function imageFixture(overrides: Partial<ImageAsset> = {}): ImageAsset {
   return {
     id: IMAGE_ID,
     paint_project_id: PROJECT_ID,
-    role: "primary_mvp_input",
+    role: "primary_front",
     version: 1,
     supersedes_image_asset_id: null,
     is_current: true,
@@ -57,6 +66,110 @@ export function imageFixture(overrides: Partial<ImageAsset> = {}): ImageAsset {
     rights_attested_at: "2026-07-29T08:10:00+00:00",
     created_at: "2026-07-29T08:10:00+00:00",
     content_url: `/api/v1/paint-projects/${PROJECT_ID}/images/${IMAGE_ID}/content`,
+    ...overrides,
+  };
+}
+
+export function roleImageFixture(
+  role: ImageRole,
+  id: string,
+  overrides: Partial<ImageAsset> = {},
+): ImageAsset {
+  return imageFixture({
+    id,
+    role,
+    original_filename: `${role}.png`,
+    sha256:
+      role === "primary_front"
+        ? "a".repeat(64)
+        : role === "reference_back"
+          ? "b".repeat(64)
+          : role === "reference_angle"
+            ? "c".repeat(64)
+            : "d".repeat(64),
+    content_url: `/api/v1/paint-projects/${PROJECT_ID}/images/${id}/content`,
+    ...overrides,
+  });
+}
+
+export function readinessReviewFixture(
+  overrides: Partial<ImageSetReadinessReview> = {},
+): ImageSetReadinessReview {
+  return {
+    id: REVIEW_ID,
+    paint_project_id: PROJECT_ID,
+    version: 1,
+    verdict: "ready",
+    reason: null,
+    primary_front_image_asset_id: IMAGE_ID,
+    reference_back_image_asset_id: BACK_IMAGE_ID,
+    reference_angle_image_asset_id: ANGLE_IMAGE_ID,
+    reference_detail_image_asset_id: null,
+    image_set_fingerprint: "e".repeat(64),
+    actor_type: "user",
+    actor_id: "local-demo-owner",
+    actor_display_name_snapshot: "Local Demo Owner",
+    created_at: "2026-07-29T09:10:00+00:00",
+    ...overrides,
+  };
+}
+
+export function imageSetFixture(overrides: Partial<ImageSet> = {}): ImageSet {
+  const front = roleImageFixture("primary_front", IMAGE_ID);
+  return {
+    paint_project_id: PROJECT_ID,
+    image_set_fingerprint: "f".repeat(64),
+    roles: [
+      {
+        role: "primary_front",
+        required: true,
+        missing: false,
+        object_available: true,
+        current: front,
+        history: [front],
+      },
+      {
+        role: "reference_back",
+        required: true,
+        missing: true,
+        object_available: false,
+        current: null,
+        history: [],
+      },
+      {
+        role: "reference_angle",
+        required: true,
+        missing: true,
+        object_available: false,
+        current: null,
+        history: [],
+      },
+      {
+        role: "reference_detail",
+        required: false,
+        missing: true,
+        object_available: false,
+        current: null,
+        history: [],
+      },
+    ],
+    checklist: {
+      required_roles_present: false,
+      deterministic_validation_accepted: true,
+      rights_complete: true,
+      content_distinct: false,
+      objects_available: false,
+      snapshot_current: false,
+      can_mark_ready: false,
+      blockers: [
+        "missing_required_roles",
+        "duplicate_or_missing_required_content",
+        "private_object_unavailable",
+      ],
+    },
+    latest_review: null,
+    status: "incomplete",
+    stale_reasons: [],
     ...overrides,
   };
 }

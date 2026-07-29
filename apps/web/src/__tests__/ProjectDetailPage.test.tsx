@@ -7,6 +7,7 @@ import { AppRoutes } from "../router/AppRoutes";
 import {
   deferred,
   errorEnvelope,
+  imageSetFixture,
   jsonResponse,
   PROJECT_ID,
   projectFixture,
@@ -27,6 +28,7 @@ function renderDetail() {
 function projectAndEmptyImages(project = projectFixture()) {
   fetchMock()
     .mockResolvedValueOnce(jsonResponse(project))
+    .mockResolvedValueOnce(jsonResponse(imageSetFixture()))
     .mockResolvedValueOnce(jsonResponse({ items: [] }));
 }
 
@@ -83,12 +85,12 @@ describe("PaintProject detail", () => {
     ).toHaveLength(2);
     expect(
       screen.getByRole("heading", {
-        name: "Primary planning image",
+        name: "Multi-role image-set workbench",
       }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", {
-        name: "Image quality assessment is not implemented yet",
+        name: "Human-guided region planning is not implemented yet",
       }),
     ).toBeInTheDocument();
     expect(screen.queryByText("PRIVATE-owner-principal")).not.toBeInTheDocument();
@@ -140,8 +142,9 @@ describe("PaintProject detail", () => {
           503,
         ),
       )
-      .mockResolvedValueOnce(jsonResponse(project));
-    fetchMock().mockResolvedValueOnce(jsonResponse({ items: [] }));
+      .mockResolvedValueOnce(jsonResponse(project))
+      .mockResolvedValueOnce(jsonResponse(imageSetFixture()))
+      .mockResolvedValueOnce(jsonResponse({ items: [] }));
     renderDetail();
 
     expect(
@@ -158,7 +161,7 @@ describe("PaintProject detail", () => {
     expect(
       await screen.findByRole("heading", { name: project.title, level: 1 }),
     ).toBeInTheDocument();
-    expect(fetchMock()).toHaveBeenCalledTimes(3);
+    expect(fetchMock()).toHaveBeenCalledTimes(4);
   });
 
   it("distinguishes an unreachable API from a database response", async () => {

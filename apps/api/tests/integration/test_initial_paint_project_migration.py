@@ -36,6 +36,7 @@ ALEMBIC_COMMAND = (
 BUSINESS_TABLES = {
     "command_idempotency_records",
     "image_assets",
+    "image_set_readiness_reviews",
     "paint_projects",
     "state_transition_events",
 }
@@ -114,6 +115,27 @@ EXPECTED_COLUMNS = {
         "created_by_actor_type",
         "created_by_actor_id",
         "created_by_actor_display_name_snapshot",
+        "created_at",
+    ),
+    "image_set_readiness_reviews": (
+        "id",
+        "owner_principal_id",
+        "paint_project_id",
+        "version",
+        "verdict",
+        "reason",
+        "primary_front_image_asset_id",
+        "primary_front_role",
+        "reference_back_image_asset_id",
+        "reference_back_role",
+        "reference_angle_image_asset_id",
+        "reference_angle_role",
+        "reference_detail_image_asset_id",
+        "reference_detail_role",
+        "image_set_fingerprint",
+        "actor_type",
+        "actor_id",
+        "actor_display_name_snapshot",
         "created_at",
     ),
 }
@@ -2591,7 +2613,7 @@ def _image_asset_parameters(
         "id": identifier,
         "paint_project_id": project_id,
         "owner_principal_id": owner_principal_id,
-        "role": "primary_mvp_input",
+        "role": "primary_front",
         "version": 1,
         "supersedes_image_asset_id": None,
         "is_current": True,
@@ -2671,7 +2693,7 @@ def _assert_image_asset_constraints(
     for case_label, overrides, expected_constraint in (
         (
             "unsupported role",
-            {"role": "reference_back"},
+            {"role": "arbitrary_role"},
             "ck_image_assets_role_allowed",
         ),
         (
@@ -2756,7 +2778,7 @@ def test_initial_paint_project_migration_round_trip_and_constraints(
 
     _run_alembic(temporary_database_url, "upgrade", "head")
     current_result = _run_alembic(temporary_database_url, "current")
-    assert "5ed9906e7d33 (head)" in current_result.stdout
+    assert "d4c8a1f7b2e9 (head)" in current_result.stdout
     check_result = _run_alembic(temporary_database_url, "check")
     assert "No new upgrade operations detected." in check_result.stdout
 

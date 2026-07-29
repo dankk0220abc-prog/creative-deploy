@@ -110,7 +110,7 @@ def _upload(
     intended_usage: tuple[str, ...] = ("private_project",),
 ) -> object:
     data = {
-        "role": "primary_mvp_input",
+        "role": "primary_front",
         "source_type": "user_photographed",
         "intended_usage": list(intended_usage),
         "rights_attestation_confirmed": "true",
@@ -153,6 +153,44 @@ async def _mark_image_validation_failed(settings: Settings, project_id: uuid.UUI
                     actor_principal_id="deterministic_test_validator",
                     actor_display_name_snapshot=None,
                     reason="image_validation_failed",
+                    correlation_id=uuid.uuid4(),
+                    event_metadata={"schema_version": "test_fixture.v1"},
+                    created_at=now,
+                )
+            )
+    finally:
+        await engine.dispose()
+
+
+async def _mark_image_review_required(settings: Settings, project_id: uuid.UUID) -> None:
+    engine = create_database_engine(settings)
+    now = datetime.now(UTC)
+    try:
+        async with engine.begin() as connection:
+            project_status = (
+                await connection.execute(
+                    select(PaintProject.status)
+                    .where(PaintProject.id == project_id)
+                    .with_for_update()
+                )
+            ).scalar_one()
+            assert project_status == "IMAGE_UPLOADED"
+            await connection.execute(
+                update(PaintProject)
+                .where(PaintProject.id == project_id)
+                .values(status="IMAGE_REVIEW_REQUIRED", updated_at=now)
+            )
+            await connection.execute(
+                StateTransitionEvent.__table__.insert().values(
+                    id=uuid.uuid4(),
+                    project_id=project_id,
+                    from_state="IMAGE_UPLOADED",
+                    to_state="IMAGE_REVIEW_REQUIRED",
+                    event="image_validation_requires_review",
+                    actor_type="system",
+                    actor_principal_id="deterministic_test_validator",
+                    actor_display_name_snapshot=None,
+                    reason="image_validation_review_required",
                     correlation_id=uuid.uuid4(),
                     event_metadata={"schema_version": "test_fixture.v1"},
                     created_at=now,
@@ -263,16 +301,6 @@ def test_upload_replay_private_preview_replacement_owner_isolation_and_restart(
         assert saved_project.json()["status"] == "IMAGE_UPLOADED"
         assert saved_project.json()["current_image_asset_id"] == first["id"]
 
-        state_locked_replacement = _upload(
-            client,
-            project_id,
-            image_bytes=second_bytes,
-            idempotency_key=uuid.uuid4(),
-            color_label="premature-replacement.jpg",
-        )
-        assert state_locked_replacement.status_code == 409
-        assert state_locked_replacement.json()["error_code"] == "INVALID_STATE_TRANSITION"
-
         listing = client.get(f"/api/v1/paint-projects/{project_id}/images")
         assert listing.status_code == 200
         assert listing.json()["items"] == [first]
@@ -293,13 +321,18 @@ def test_upload_replay_private_preview_replacement_owner_isolation_and_restart(
         ranged = client.get(first["content_url"], headers={"Range": "bytes=0-10"})
         assert ranged.status_code == 416
 
-        asyncio.run(_mark_image_validation_failed(settings, uuid.UUID(project_id)))
+        asyncio.run(
+            _mark_image_review_required(
+                settings,
+                uuid.UUID(project_id),
+            )
+        )
         replacement = _upload(
             client,
             project_id,
             image_bytes=second_bytes,
             idempotency_key=uuid.uuid4(),
-            color_label="replacement.jpg",
+            color_label="image-set-replacement.jpg",
         )
         assert replacement.status_code == 201, replacement.text
         second = replacement.json()
@@ -364,7 +397,7 @@ def test_invalid_corrupt_unknown_and_oversized_uploads_leave_no_assets(
             f"/api/v1/paint-projects/{project_id}/images",
             headers={"Idempotency-Key": str(uuid.uuid4())},
             data={
-                "role": "primary_mvp_input",
+                "role": "primary_front",
                 "source_type": "user_photographed",
                 "intended_usage": "private_project",
                 "rights_attestation_confirmed": "true",

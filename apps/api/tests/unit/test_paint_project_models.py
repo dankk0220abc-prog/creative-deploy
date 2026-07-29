@@ -20,6 +20,7 @@ from creativedeploy_api.db.models import (
     REGISTERED_MODELS,
     CommandIdempotencyRecord,
     ImageAsset,
+    ImageSetReadinessReview,
     PaintProject,
     StateTransitionEvent,
 )
@@ -40,6 +41,7 @@ EXPECTED_TABLES = frozenset(
     {
         "command_idempotency_records",
         "image_assets",
+        "image_set_readiness_reviews",
         "paint_projects",
         "state_transition_events",
     }
@@ -81,6 +83,19 @@ EXPECTED_CONSTRAINT_NAMES = frozenset(
         "ck_image_assets_upload_validation_details_is_object",
         "ck_image_assets_upload_validation_result_allowed",
         "ck_image_assets_version_positive",
+        "ck_image_set_readiness_reviews_actor_display_normalized",
+        "ck_image_set_readiness_reviews_actor_id_normalized",
+        "ck_image_set_readiness_reviews_actor_type_allowed",
+        "ck_image_set_readiness_reviews_fingerprint_format",
+        "ck_image_set_readiness_reviews_not_ready_reason_required",
+        "ck_image_set_readiness_reviews_primary_front_role",
+        "ck_image_set_readiness_reviews_ready_required_assets",
+        "ck_image_set_readiness_reviews_reason_normalized",
+        "ck_image_set_readiness_reviews_reference_angle_role",
+        "ck_image_set_readiness_reviews_reference_back_role",
+        "ck_image_set_readiness_reviews_reference_detail_role",
+        "ck_image_set_readiness_reviews_verdict_allowed",
+        "ck_image_set_readiness_reviews_version_positive",
         "ck_paint_projects_description_normalized",
         "ck_paint_projects_owner_principal_id_normalized",
         "ck_paint_projects_planning_mode_allowed",
@@ -105,9 +120,15 @@ EXPECTED_CONSTRAINT_NAMES = frozenset(
         "fk_state_transition_events_project_id_paint_projects",
         "fk_image_assets_project_owner_paint_projects",
         "fk_image_assets_supersedes_same_owner_project_role",
+        "fk_image_set_readiness_reviews_primary_front_asset",
+        "fk_image_set_readiness_reviews_project_owner_paint_projects",
+        "fk_image_set_readiness_reviews_reference_angle_asset",
+        "fk_image_set_readiness_reviews_reference_back_asset",
+        "fk_image_set_readiness_reviews_reference_detail_asset",
         "fk_paint_projects_current_image_asset_same_owner_project",
         "pk_command_idempotency_records",
         "pk_image_assets",
+        "pk_image_set_readiness_reviews",
         "pk_paint_projects",
         "pk_state_transition_events",
         "uq_command_idempotency_records_scope_key_idempotency_key",
@@ -115,6 +136,7 @@ EXPECTED_CONSTRAINT_NAMES = frozenset(
         "uq_image_assets_project_owner_id",
         "uq_image_assets_project_role_version",
         "uq_image_assets_storage_key",
+        "uq_image_set_readiness_reviews_project_version",
         "uq_paint_projects_id_owner_principal_id",
     }
 )
@@ -122,6 +144,7 @@ EXPECTED_INDEX_NAMES = frozenset(
     {
         "ix_command_idempotency_records_expires_at",
         "ix_image_assets_owner_project_created_at",
+        "ix_image_set_readiness_reviews_owner_project_created_at",
         "ix_paint_projects_owner_updated_at_id",
         "ix_state_transition_events_project_created_at_id",
         "uq_image_assets_project_role_current",
@@ -208,6 +231,7 @@ API_ROOT = Path(__file__).resolve().parents[2]
 MIGRATION_PATHS = (
     API_ROOT / "migrations" / "versions" / "a10d3d8dab38_create_paintproject_persistence_.py",
     API_ROOT / "migrations" / "versions" / "5ed9906e7d33_add_imageasset_foundation.py",
+    API_ROOT / "migrations" / "versions" / "d4c8a1f7b2e9_add_multi_role_image_set_readiness.py",
 )
 
 
@@ -314,6 +338,7 @@ def _migration_identifier_categories() -> tuple[
                 elif node.func.attr == "create_index":
                     index_names.add(node.args[0].value)
                 elif node.func.attr in {
+                    "create_check_constraint",
                     "create_foreign_key",
                     "create_unique_constraint",
                     "f",
@@ -359,12 +384,13 @@ def _migration_check_constraint_sql() -> dict[str, str]:
     return checks
 
 
-def test_registered_models_and_metadata_contain_exactly_phase_1e_1_business_tables() -> None:
+def test_registered_models_and_metadata_contain_exactly_phase_1e_2_business_tables() -> None:
     assert (
         PaintProject,
         StateTransitionEvent,
         CommandIdempotencyRecord,
         ImageAsset,
+        ImageSetReadinessReview,
     ) == REGISTERED_MODELS
     assert set(Base.metadata.tables) == EXPECTED_TABLES
     assert {model.__table__.name for model in REGISTERED_MODELS} == EXPECTED_TABLES
@@ -422,7 +448,7 @@ def test_all_database_identifiers_fit_postgresql_limit() -> None:
     identifiers = _metadata_identifiers()
 
     assert identifiers == EXPECTED_DATABASE_IDENTIFIERS
-    assert len(identifiers) == 79
+    assert len(identifiers) == 101
     assert all(
         len(identifier.encode("utf-8")) <= POSTGRESQL_IDENTIFIER_LIMIT for identifier in identifiers
     )
@@ -541,6 +567,27 @@ def test_model_column_sets_are_exact() -> None:
         "created_by_actor_type",
         "created_by_actor_id",
         "created_by_actor_display_name_snapshot",
+        "created_at",
+    )
+    assert tuple(ImageSetReadinessReview.__table__.c.keys()) == (
+        "id",
+        "owner_principal_id",
+        "paint_project_id",
+        "version",
+        "verdict",
+        "reason",
+        "primary_front_image_asset_id",
+        "primary_front_role",
+        "reference_back_image_asset_id",
+        "reference_back_role",
+        "reference_angle_image_asset_id",
+        "reference_angle_role",
+        "reference_detail_image_asset_id",
+        "reference_detail_role",
+        "image_set_fingerprint",
+        "actor_type",
+        "actor_id",
+        "actor_display_name_snapshot",
         "created_at",
     )
     all_columns = {
@@ -885,7 +932,7 @@ def fail(*args, **kwargs):
 
 sqlalchemy.ext.asyncio.create_async_engine = fail
 from creativedeploy_api.db.models import REGISTERED_MODELS
-assert len(REGISTERED_MODELS) == 4
+assert len(REGISTERED_MODELS) == 5
 """
     result = subprocess.run(
         [sys.executable, "-c", source],

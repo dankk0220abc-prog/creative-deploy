@@ -7,6 +7,9 @@ from creativedeploy_api.db.models.command_idempotency_record import (
     CommandIdempotencyRecord,
 )
 from creativedeploy_api.db.models.image_asset import ImageAsset
+from creativedeploy_api.db.models.image_set_readiness_review import (
+    ImageSetReadinessReview,
+)
 from creativedeploy_api.db.models.paint_project import PaintProject
 from creativedeploy_api.db.models.state_transition_event import StateTransitionEvent
 
@@ -15,12 +18,14 @@ REGISTERED_MODELS: Final[tuple[type[Base], ...]] = (
     StateTransitionEvent,
     CommandIdempotencyRecord,
     ImageAsset,
+    ImageSetReadinessReview,
 )
 
 __all__ = [
     "REGISTERED_MODELS",
     "CommandIdempotencyRecord",
     "ImageAsset",
+    "ImageSetReadinessReview",
     "PaintProject",
     "StateTransitionEvent",
 ]

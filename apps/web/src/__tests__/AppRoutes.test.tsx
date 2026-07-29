@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "../router/AppRoutes";
 import {
   errorEnvelope,
+  imageSetFixture,
   jsonResponse,
   PROJECT_ID,
   projectFixture,
@@ -129,6 +130,7 @@ describe("PaintPilot route tree", () => {
   it("directly loads a valid detail route from the API", async () => {
     fetchMock()
       .mockResolvedValueOnce(jsonResponse(projectFixture()))
+      .mockResolvedValueOnce(jsonResponse(imageSetFixture()))
       .mockResolvedValueOnce(jsonResponse({ items: [] }));
 
     renderRoute(`/paintpilot/projects/${PROJECT_ID}`);
@@ -145,9 +147,12 @@ describe("PaintPilot route tree", () => {
     );
     expect(navigationLink("Create project")).not.toHaveAttribute("aria-current");
     expect(document.title).toBe("Project Details — PaintPilot");
-    expect(fetchMock()).toHaveBeenCalledTimes(2);
+    expect(fetchMock()).toHaveBeenCalledTimes(3);
     expect(fetchMock().mock.calls[1]?.[0]).toBe(
-      `/api/v1/paint-projects/${PROJECT_ID}/images`,
+      `/api/v1/paint-projects/${PROJECT_ID}/image-set`,
+    );
+    expect(fetchMock().mock.calls[2]?.[0]).toBe(
+      `/api/v1/paint-projects/${PROJECT_ID}/image-set/readiness-reviews`,
     );
   });
 
@@ -255,6 +260,8 @@ describe("PaintPilot route tree", () => {
     const user = userEvent.setup();
     fetchMock()
       .mockResolvedValueOnce(jsonResponse(projectFixture()))
+      .mockResolvedValueOnce(jsonResponse(imageSetFixture()))
+      .mockResolvedValueOnce(jsonResponse({ items: [] }))
       .mockResolvedValueOnce(
         jsonResponse({ items: [], total: 0, limit: 20, offset: 0 }),
       );
