@@ -5,11 +5,13 @@ import { CreateProjectPage } from "../pages/CreateProjectPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { ProjectDetailPage } from "../pages/ProjectDetailPage";
 import { ProjectsPage } from "../pages/ProjectsPage";
+import { RegionWorkspacePage } from "../pages/RegionWorkspacePage";
 
 const appRoutes = {
   createProject: "/paintpilot/projects/new",
   paintPilotEntry: "/paintpilot",
   projectDetail: "/paintpilot/projects/:projectId",
+  projectRegions: "/paintpilot/projects/:projectId/regions",
   projects: "/paintpilot/projects",
   root: "/",
 } as const;
@@ -28,6 +30,10 @@ export function AppRoutes() {
         <Route
           element={<ProjectDetailPage />}
           path="paintpilot/projects/:projectId"
+        />
+        <Route
+          element={<RegionWorkspacePage />}
+          path="paintpilot/projects/:projectId/regions"
         />
         <Route element={<NotFoundPage />} path="*" />
       </Route>

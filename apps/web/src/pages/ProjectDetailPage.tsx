@@ -312,15 +312,19 @@ export function ProjectDetailPage() {
             </div>
             <div>
               <p className="eyebrow">Next governed boundary</p>
-              <h2 id="next-boundary-heading">
-                Human-guided region planning is not implemented yet
-              </h2>
+              <h2 id="next-boundary-heading">Human region annotation workspace</h2>
               <p>
-                Phase 1E-2 ends with a human-confirmed multi-role image set. Region
-                drawing, RegionSet creation, AI analysis, inventory matching, and
-                PaintPlan generation remain outside this workbench and require the
-                next independently reviewed and sealed phase.
+                Draw simple polygons over the current primary image, save immutable
+                RegionSet snapshots, and record a human review. Subject recognition,
+                inventory matching, and PaintPlan generation remain outside this
+                boundary.
               </p>
+              <Link
+                className="button button--primary next-boundary__action"
+                to={`/paintpilot/projects/${currentState.project.id}/regions`}
+              >
+                Open region workspace
+              </Link>
             </div>
           </aside>
         </article>

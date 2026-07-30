@@ -14,6 +14,7 @@ from creativedeploy_api.core.principal import (
 )
 from creativedeploy_api.services.image_assets import ImageAssetService
 from creativedeploy_api.services.paint_projects import PaintProjectService
+from creativedeploy_api.services.region_sets import RegionSetService
 from creativedeploy_api.storage.images import ImageStoragePort
 
 
@@ -83,4 +84,20 @@ def get_image_asset_service(
 ImageAssetServiceDependency = Annotated[
     ImageAssetService,
     Depends(get_image_asset_service),
+]
+
+
+def get_region_set_service(
+    request: Request,
+    session: DatabaseSessionDependency,
+) -> RegionSetService:
+    """Build the request-scoped RegionSet service with private source access."""
+    settings = cast(Settings, request.app.state.settings)
+    storage = cast(ImageStoragePort, request.app.state.image_storage)
+    return RegionSetService(session, storage, settings)
+
+
+RegionSetServiceDependency = Annotated[
+    RegionSetService,
+    Depends(get_region_set_service),
 ]

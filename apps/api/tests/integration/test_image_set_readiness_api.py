@@ -1186,7 +1186,7 @@ def test_phase_1e_2_downgrade_refuses_to_discard_governed_facts(
 
     with psycopg.connect(**_connection_kwargs(database_url)) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "d4c8a1f7b2e9",
+            "7f3a2b9c4d1e",
         )
         if blocking_fact == "readiness_review":
             assert connection.execute(

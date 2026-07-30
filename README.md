@@ -1,7 +1,7 @@
 # CreativeDeploy
 
 Project Status: Phase 1D `COMPLETE` — Phase 1E-1 `CLOSED` — Phase 1E-2 `CLOSED` —
-Phase 1F `NEXT` / `NOT_STARTED`
+Phase 1F `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
 
 Implementation Status:
 
@@ -35,10 +35,15 @@ Implementation Status:
 - The independently reviewed implementation is sealed by
   `cc89aa246607f7c44b4639149a3b251b803d3a80`; Phase 1E-2 is `CLOSED`
 - Overall project progress is approximately 70% (`approximately_70_percent`)
-- Phase 1F — Human-Governed Region Annotation and Review is `NEXT` / `NOT_STARTED`
+- Phase 1F — Human-Governed Region Annotation and Review is
+  `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`; it is not
+  independently approved, sealed, closed, or commit-ready
+- The Phase 1F candidate adds immutable human RegionSet snapshots, deterministic ppm Polygon
+  geometry, ImageSet-fingerprint staleness, Project-scoped save/submit/review idempotency,
+  append-only reviews, and an SVG annotation workspace
 - AI is `NOT_AUTHORIZED`; external object storage is `NOT_SELECTED`; public/signed URLs are
   `NOT_AUTHORIZED`; deletion and real authentication are `NOT_IMPLEMENTED`
-- Polygon and RegionSet are `NOT_IMPLEMENTED`
+- Automated Polygon generation and automated region analysis remain `NOT_IMPLEMENTED`
 - Local storage is development/test only and production storage is `NOT_READY`
 
 Phase 1D-2 Commit:
@@ -174,15 +179,38 @@ Phase 1E-2:
 Phase 1F:
 
 - Name: Human-Governed Region Annotation and Review
-- Status: `NEXT` / `NOT_STARTED`
-- Polygon: `NOT_IMPLEMENTED`
-- RegionSet: `NOT_IMPLEMENTED`
+- Status: `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
+- Environment-isolated continuation verdict:
+  `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
+- Historical implementation-conversation verdict: `PHASE_1F_IMPLEMENTATION_FAILED`
+- Historical incident classification: `ENVIRONMENT_ISOLATION_INVALID_ATTEMPT`
+- Historical process deviation: one final supplemental browser attempt used the wrong Vite proxy variable and
+  sent one unsuccessful Create request to the unrelated service already listening on port 8000;
+  the historical no-VisualEngineer-operation completion condition therefore was not claimed
+- The controller-authorized continuation used API `18160`, Vite `15160`, and a request-audit proxy
+  on `18161`, enforced an explicit not-port-8000 target guard, and performed no VisualEngineer
+  request, check, log, container, database, or file operation
+- The isolated PostgreSQL schema, private storage, fixtures, processes, and listeners were exactly
+  cleaned after the full real-browser journey; public CreativeDeploy business rows remained zero
+- Migration Revision: `7f3a2b9c4d1e`, parent `d4c8a1f7b2e9`
+- Polygon: human-authored simple Polygon with normalized integer ppm coordinates
+- RegionSet: immutable draft/submitted snapshots with derived approval, changes-requested,
+  superseded, and stale states
+- Review: append-only human `APPROVED` / `CHANGES_REQUESTED` against an exact submitted snapshot
+- Workbench: `/paintpilot/projects/:projectId/regions`
+- Snapshot-target remediation: exact historical source fork with current ID/version optimistic
+  precondition, Project-scoped idempotency, immutable exact-source geometry copy, and
+  current-image rebinding
+- Candidate evidence: `docs/progress/phase-1f-human-region-annotation-candidate.md`
+- This candidate is not independently approved, ready for sealing, Git-sealed, production-ready,
+  or phase-closed
 - AI: `NOT_AUTHORIZED`
 - External object storage: `NOT_SELECTED`
 - Public/signed URLs: `NOT_AUTHORIZED`
 - Deletion: `NOT_IMPLEMENTED`
 - Real authentication: `NOT_IMPLEMENTED`
-- This phase has not been implemented in the Phase 1E-2 sealing conversation
+- The configured Demo Principal is a local development/test identity, not an independent
+  enterprise approver or real authentication system
 
 CreativeDeploy 的主案例是 PaintPilot。Phase 0 已建立 Golden Case、MVP Product
 Contract、状态机、领域数据字典和 ADR。Phase 1B 提供最小、真实的本地健康检查链路；
@@ -223,6 +251,8 @@ PaintProject 后端持久化/API 闭环；Commit 10 已提交首个 PaintPilot �
   fingerprint、append-only 人工 READY / NOT READY 记录、stale/reconfirm、Project-scoped
   幂等与上传/复核竞争保护；
 - 四角色私有预览/历史/add/replace 工作台；不包含删除、AI 视角识别、质量分数或公开 URL。
+- 纯人工 SVG Polygon 绘制与编辑、ppm 整数坐标、不可变 RegionSet draft/submit 快照、
+  ImageSet fingerprint 绑定与 stale、append-only 人工区域复核、Owner 隔离、幂等和并发冲突。
 
 当前治理状态不倒填 Commit 10 创建前的批准，也不把后续复审伪装成提交前证据。治理
 reconciliation 已通过独立复审并由 `ac8630ae393cb6ca5bf3a2d1db5070531d6f3f52`
@@ -242,10 +272,11 @@ reconciliation 已通过独立复审并由 `ac8630ae393cb6ca5bf3a2d1db5070531d6f
 角色级后端门禁、前端镜像和零副作用负向测试；新的独立复审给出
 `PHASE_1E_2_WORKFLOW_GATE_REMEDIATION_PASS_READY_FOR_SEALING`，实现由
 `cc89aa246607f7c44b4639149a3b251b803d3a80` 封存，Phase 1E-2 当前为 `CLOSED`。项目总体
-进度约 70%；Phase 1F — Human-Governed Region Annotation and Review 是 `NEXT` /
-`NOT_STARTED`。当前仍没有公开认证、真实用户授权、正式图片质量评估、区域分析、Polygon
-Editor、RegionSet、AI Provider、RAG、Paint inventory、Agent 工作流、HumanApproval、CI、
-生产对象存储或生产部署能力。
+进度仍约 70%；Phase 1F — Human-Governed Region Annotation and Review 当前为
+`PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`，尚未独立批准、
+封存或关闭。当前仍没有公开认证、
+真实用户授权、正式图片质量评估、自动区域分析、AI Provider、RAG、Paint inventory、
+Agent 工作流、通用 HumanApproval、CI、生产对象存储或生产部署能力。
 
 ## Prerequisites
 
@@ -374,7 +405,9 @@ Revision `a10d3d8dab38` 仍保持不变；Phase 1E-1 implementation seal 包含�
 `paint_projects.current_image_asset_id`。Phase 1E-2 implementation seal
 `cc89aa246607f7c44b4639149a3b251b803d3a80` 包含唯一子 Revision
 `d4c8a1f7b2e9`，原位映射封存角色并添加 append-only
-`image_set_readiness_reviews`；这份 Revision 已封存。
+`image_set_readiness_reviews`；这份 Revision 已封存。Phase 1F candidate Revision
+`7f3a2b9c4d1e` 是其唯一子节点，新增四个 append-only annotation/review 表；它尚未经过
+独立复审或 Git sealing。
 
 Migration 必须由开发者明确运行；应用启动不会自动执行 Migration。以下只读或差异
 检查命令从仓库根目录运行：
@@ -423,16 +456,19 @@ implementation seal `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d` 封存；这不�
 - Phase 1D-4 当前为 `CLOSED`；Phase 1E-1 也已 `CLOSED`，implementation seal 为
   `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d`；Phase 1E-2 已由
   `cc89aa246607f7c44b4639149a3b251b803d3a80` 封存并 `CLOSED`，项目总体约 70%；
-  Phase 1F 为 `NEXT` / `NOT_STARTED`，AI 接入仍未授权；
+  Phase 1F 为
+  `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`，AI 接入仍未授权；
 - Phase 1D-2 的 F-09-01、F-09-02、F-09-03、F-09-04 已在 Commit 9 前关闭；
-- 当前封存的 Metadata 有五个基础业务表；readiness review 只能 append，PaintProject
-  仍没有 update、delete 或 Owner transfer，ImageAsset 也没有 update/delete；
+- 当前封存基线有五个业务表，Phase 1F candidate 使 Metadata 共九个业务表；
+  readiness/RegionSet review 只能 append，PaintProject 仍没有 update、delete 或 Owner
+  transfer，ImageAsset 和已封存 RegionSet 历史也没有 update/delete；
 - 配置型单 Principal 不是公共认证、多人授权或真实用户系统，production 明确拒绝它；
 - Create 幂等 key 仅在当前页面生命周期内保留；浏览器刷新不会恢复尚未确认请求的 key，
   且本阶段不自行引入 localStorage 持久化协议；
 - 项目详情中的项目字段仍只读；图片工作台只处理人选角色、attestation、私有预览、
   版本历史与 readiness review，不包含 ImageQualityAssessment、自动视角识别或质量评分；
-- Polygon 和 RegionSet 均未实现；Phase 1F 尚未开始；
+- Human Polygon/RegionSet candidate 已实现但未独立批准；自动分割、自动标签和自动区域
+  分析仍未实现；
 - 未配置 CORS，开发访问依赖 Vite Proxy；
 - 未实现图片质量评估、AI、RAG、完整 Trace、HumanApproval、后台任务或 Redis。
 

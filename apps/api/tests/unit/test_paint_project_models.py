@@ -22,6 +22,10 @@ from creativedeploy_api.db.models import (
     ImageAsset,
     ImageSetReadinessReview,
     PaintProject,
+    Region,
+    RegionSet,
+    RegionSetReview,
+    RegionVertex,
     StateTransitionEvent,
 )
 from creativedeploy_api.db.models.constants import (
@@ -43,6 +47,10 @@ EXPECTED_TABLES = frozenset(
         "image_assets",
         "image_set_readiness_reviews",
         "paint_projects",
+        "region_set_reviews",
+        "region_sets",
+        "region_vertices",
+        "regions",
         "state_transition_events",
     }
 )
@@ -106,6 +114,36 @@ EXPECTED_CONSTRAINT_NAMES = frozenset(
         "ck_paint_projects_title_normalized",
         "ck_paint_projects_title_not_blank",
         "ck_paint_projects_updated_at_not_before_created_at",
+        "ck_region_set_reviews_actor_display_normalized",
+        "ck_region_set_reviews_actor_id_normalized",
+        "ck_region_set_reviews_actor_type_allowed",
+        "ck_region_set_reviews_changes_reason_required",
+        "ck_region_set_reviews_reason_normalized",
+        "ck_region_set_reviews_verdict_allowed",
+        "ck_region_set_reviews_version_positive",
+        "ck_region_sets_counts_consistent",
+        "ck_region_sets_created_by_actor_id_normalized",
+        "ck_region_sets_created_by_actor_type_allowed",
+        "ck_region_sets_created_by_display_normalized",
+        "ck_region_sets_geometry_fingerprint_format",
+        "ck_region_sets_lifecycle_allowed",
+        "ck_region_sets_region_count_allowed",
+        "ck_region_sets_source_dimensions_allowed",
+        "ck_region_sets_source_fingerprint_format",
+        "ck_region_sets_source_primary_role",
+        "ck_region_sets_total_vertex_count_allowed",
+        "ck_region_sets_version_positive",
+        "ck_region_vertices_coordinates_allowed",
+        "ck_region_vertices_sequence_allowed",
+        "ck_regions_area_positive",
+        "ck_regions_bbox_allowed",
+        "ck_regions_kind_allowed",
+        "ck_regions_label_safe",
+        "ck_regions_normalized_label_safe",
+        "ck_regions_notes_safe",
+        "ck_regions_opacity_ppm_allowed",
+        "ck_regions_vertex_count_allowed",
+        "ck_regions_z_index_allowed",
         "ck_state_transition_events_actor_display_snapshot_normalized",
         "ck_state_transition_events_actor_principal_id_normalized",
         "ck_state_transition_events_actor_type_allowed",
@@ -126,10 +164,21 @@ EXPECTED_CONSTRAINT_NAMES = frozenset(
         "fk_image_set_readiness_reviews_reference_back_asset",
         "fk_image_set_readiness_reviews_reference_detail_asset",
         "fk_paint_projects_current_image_asset_same_owner_project",
+        "fk_region_set_reviews_region_set_same_owner_project",
+        "fk_region_sets_based_on_same_owner_project",
+        "fk_region_sets_project_owner_paint_projects",
+        "fk_region_sets_source_primary_image_asset",
+        "fk_region_sets_supersedes_same_owner_project",
+        "fk_region_vertices_region_same_set",
+        "fk_regions_region_set_same_owner_project",
         "pk_command_idempotency_records",
         "pk_image_assets",
         "pk_image_set_readiness_reviews",
         "pk_paint_projects",
+        "pk_region_set_reviews",
+        "pk_region_sets",
+        "pk_region_vertices",
+        "pk_regions",
         "pk_state_transition_events",
         "uq_command_idempotency_records_scope_key_idempotency_key",
         "uq_image_assets_id_project_owner_role",
@@ -138,6 +187,13 @@ EXPECTED_CONSTRAINT_NAMES = frozenset(
         "uq_image_assets_storage_key",
         "uq_image_set_readiness_reviews_project_version",
         "uq_paint_projects_id_owner_principal_id",
+        "uq_region_set_reviews_project_version",
+        "uq_region_set_reviews_region_set",
+        "uq_region_sets_project_owner_id",
+        "uq_region_sets_project_version",
+        "uq_regions_id_region_set",
+        "uq_regions_region_set_stable_key",
+        "uq_regions_region_set_z_index",
     }
 )
 EXPECTED_INDEX_NAMES = frozenset(
@@ -146,6 +202,10 @@ EXPECTED_INDEX_NAMES = frozenset(
         "ix_image_assets_owner_project_created_at",
         "ix_image_set_readiness_reviews_owner_project_created_at",
         "ix_paint_projects_owner_updated_at_id",
+        "ix_region_set_reviews_owner_project_created_at",
+        "ix_region_sets_owner_project_version",
+        "ix_region_vertices_region_set_region_sequence",
+        "ix_regions_region_set_z_index",
         "ix_state_transition_events_project_created_at_id",
         "uq_image_assets_project_role_current",
     }
@@ -232,6 +292,7 @@ MIGRATION_PATHS = (
     API_ROOT / "migrations" / "versions" / "a10d3d8dab38_create_paintproject_persistence_.py",
     API_ROOT / "migrations" / "versions" / "5ed9906e7d33_add_imageasset_foundation.py",
     API_ROOT / "migrations" / "versions" / "d4c8a1f7b2e9_add_multi_role_image_set_readiness.py",
+    API_ROOT / "migrations" / "versions" / "7f3a2b9c4d1e_add_human_region_annotation.py",
 )
 
 
@@ -384,13 +445,17 @@ def _migration_check_constraint_sql() -> dict[str, str]:
     return checks
 
 
-def test_registered_models_and_metadata_contain_exactly_phase_1e_2_business_tables() -> None:
+def test_registered_models_and_metadata_contain_exactly_phase_1f_business_tables() -> None:
     assert (
         PaintProject,
         StateTransitionEvent,
         CommandIdempotencyRecord,
         ImageAsset,
         ImageSetReadinessReview,
+        RegionSet,
+        Region,
+        RegionVertex,
+        RegionSetReview,
     ) == REGISTERED_MODELS
     assert set(Base.metadata.tables) == EXPECTED_TABLES
     assert {model.__table__.name for model in REGISTERED_MODELS} == EXPECTED_TABLES
@@ -448,7 +513,7 @@ def test_all_database_identifiers_fit_postgresql_limit() -> None:
     identifiers = _metadata_identifiers()
 
     assert identifiers == EXPECTED_DATABASE_IDENTIFIERS
-    assert len(identifiers) == 101
+    assert len(identifiers) == 157
     assert all(
         len(identifier.encode("utf-8")) <= POSTGRESQL_IDENTIFIER_LIMIT for identifier in identifiers
     )
@@ -932,7 +997,7 @@ def fail(*args, **kwargs):
 
 sqlalchemy.ext.asyncio.create_async_engine = fail
 from creativedeploy_api.db.models import REGISTERED_MODELS
-assert len(REGISTERED_MODELS) == 5
+assert len(REGISTERED_MODELS) == 9
 """
     result = subprocess.run(
         [sys.executable, "-c", source],

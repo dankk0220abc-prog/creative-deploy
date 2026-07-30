@@ -90,9 +90,15 @@ describe("PaintProject detail", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", {
-        name: "Human-guided region planning is not implemented yet",
+        name: "Human region annotation workspace",
       }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Open region workspace" }),
+    ).toHaveAttribute(
+      "href",
+      `/paintpilot/projects/${project.id}/regions`,
+    );
     expect(screen.queryByText("PRIVATE-owner-principal")).not.toBeInTheDocument();
   });
 

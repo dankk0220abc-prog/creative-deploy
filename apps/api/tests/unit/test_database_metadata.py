@@ -42,6 +42,10 @@ APPROVED_BUSINESS_TABLES = {
     "image_assets",
     "image_set_readiness_reviews",
     "paint_projects",
+    "region_set_reviews",
+    "region_sets",
+    "region_vertices",
+    "regions",
     "state_transition_events",
 }
 SourceDeclaration = tuple[Path, int, str, str]
@@ -370,6 +374,10 @@ assert set(Base.metadata.tables) == {
     "command_idempotency_records",
     "image_assets",
     "image_set_readiness_reviews",
+    "region_sets",
+    "regions",
+    "region_vertices",
+    "region_set_reviews",
 }
 """
     result = subprocess.run(

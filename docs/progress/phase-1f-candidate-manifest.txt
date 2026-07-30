@@ -1,0 +1,61 @@
+FORMAT	phase1f_candidate_manifest.v1
+REPOSITORY	/Users/danke/Developer/CreativeDeploy
+BRANCH	main
+BASE_HEAD	91f3135041c16c8e600d963c1341cb1af1db1458
+BASE_COMMIT_COUNT	19
+ALEMBIC_PARENT	d4c8a1f7b2e9
+ALEMBIC_CANDIDATE	7f3a2b9c4d1e
+ENTRY_COUNT_EXCLUDING_MANIFEST	35
+SELF_EXCLUDED	docs/progress/phase-1f-candidate-manifest.txt
+SELF_EXCLUSION_REASON	A file cannot contain its own stable byte size and SHA-256.
+TRACKED_PATCH_SHA256	e45c849c7debcbaa506fde9467e91203d0d1437a46a23bbb9b4192125abda68a
+PORCELAIN_V1_Z_SHA256_EXCLUDING_MANIFEST	ac17fa777d5930d6ef9c152c578c603ac4e86eaa16003b0cf0f0092fd12cbddc
+
+# Generation contract
+# 1. Candidate entries are the bytewise-sorted union of:
+#      git diff --name-only --diff-filter=ACMR
+#      git ls-files --others --exclude-standard
+# 2. Exclude only docs/progress/phase-1f-candidate-manifest.txt.
+# 3. Status M means tracked and modified; A means untracked candidate.
+# 4. Size is macOS stat -f %z. SHA-256 is shasum -a 256.
+# 5. TRACKED_PATCH_SHA256 is:
+#      git diff --binary --no-ext-diff --full-index HEAD -- . | shasum -a 256
+# 6. PORCELAIN_V1_Z_SHA256_EXCLUDING_MANIFEST is SHA-256 over the exact NUL-delimited
+#    git status --porcelain=v1 -z byte stream after removing only the manifest record.
+
+STATUS	SIZE_BYTES	SHA256	PATH
+M	22491	95ccdb92c56b21791438472b9775f16f4d67a940a332900af0c49df3e2610e76	AGENTS.md
+M	25759	223b20a08b2a2128a3d627919afaa2f2160536772a7f25a7d81f0e757a76af0a	README.md
+A	17144	b535962160ff71acd2589d1d252ca680cef519f6c39d14a0125c5e66590a1940	apps/api/migrations/versions/7f3a2b9c4d1e_add_human_region_annotation.py
+M	3451	ad7e094bdc514b34e8d463c3c1f9b1782138266ac91bc56d84b70b5e39107399	apps/api/src/creativedeploy_api/api/dependencies.py
+M	750	5156d6342d36ff7d6a07d149602bffd484b08b3cfbbd4b463c0acded477ef094	apps/api/src/creativedeploy_api/api/router.py
+A	6387	421d59cc83e8cfcdc5ff25596eb14d726c46b5e39588362d461d005bda71acb1	apps/api/src/creativedeploy_api/api/routes/region_sets.py
+M	1170	b184496b5d249c150cef52abf39b7b21338a715f49ab1b9e8455674a9858e6eb	apps/api/src/creativedeploy_api/db/models/__init__.py
+A	16543	ebed0345748b9b2890f65410fa4aa4ab866c4a9593dca7d33ace6061983cbb81	apps/api/src/creativedeploy_api/db/models/region_set.py
+M	387	87a8dc639596ac2fd758f7dca0c6285ef7fbe237f7933d2f5cfc7327c90d38fc	apps/api/src/creativedeploy_api/repositories/__init__.py
+A	10186	673a8c1853076ffac5caca8de87ef93575b8ca09b46995746e5ae71f7e9a47eb	apps/api/src/creativedeploy_api/repositories/region_sets.py
+A	9960	fcf683689df6c1cb514132481014870ea1cab0da788f7bdfe5d6254e6771b626	apps/api/src/creativedeploy_api/schemas/region_sets.py
+A	11161	29f5fcc1f9bf2409d845aba788841b06606cbbafb0163310a62a8a04f7f2d7ae	apps/api/src/creativedeploy_api/services/region_geometry.py
+A	53250	bd542a6abbd6911faebe682d95f875196381e3e51461d244dbf75af9ea609271	apps/api/src/creativedeploy_api/services/region_sets.py
+M	53949	a7674072eb86175380b03637b18446ec4905c08cf397cce24748e86771d87519	apps/api/tests/integration/test_image_set_readiness_api.py
+M	98427	92769dd5ddcd7b9f593b90f18800fd836d5e26a78b7381ac18fc4be44b166330	apps/api/tests/integration/test_initial_paint_project_migration.py
+A	39516	8194a925b624d9ec7d34acb06e77b15133a166a07b7ea6837eaf411b7432ed92	apps/api/tests/integration/test_region_set_api.py
+M	14842	77b0538f0ecfdc491c24678ad262a23b4740a042ed40ac8cc3ad3da04544afd3	apps/api/tests/unit/test_database_metadata.py
+M	38402	c8e95cbd59b71d8eee33ef6187b5d721bb9afb61a031a643101ab2a0dac7842e	apps/api/tests/unit/test_paint_project_models.py
+A	10444	de54cd140c8f3520f8b6f1d01625d143139abbae22f2b0aa99685f562ca60195	apps/api/tests/unit/test_region_geometry.py
+M	7411	219c73d5ef21239d11ea7e0b5265edd41ec55171c0afc5aa29f6fd846de8eaef	apps/web/src/__tests__/ProjectDetailPage.test.tsx
+A	16167	204d1586eb22e99a118127a826efeafc753f412b1f7fe872cf506bc6d134916c	apps/web/src/__tests__/RegionAnnotationWorkspace.test.tsx
+A	4202	20558bc75128a4083e16e24495f2eae54de541b81f24b260a283aa9644932257	apps/web/src/__tests__/regionGeometry.test.ts
+A	6499	080b5d76d9bd1811e910da9eb201bada5f2036c6dc9ed7f0bf1b919a9085600d	apps/web/src/__tests__/regionSetsApi.test.ts
+A	21072	5d13c38e942fd13ac2dbe3df7c658d5052f7191374d0ca6e4e9bc27dc03f0fba	apps/web/src/api/regionSets.ts
+A	44039	e522a01312ab9be87e40c450e0c0d176481cf5198cbcd727655d165d00ce7196	apps/web/src/components/RegionAnnotationWorkspace.tsx
+M	58854	23576c4be497b3a01637864a5cc9b36d1852b4e6dcc359d8b15269c37f861dfd	apps/web/src/index.css
+M	10862	d7991be2be4670399ec1f848f92f4a9fd0b39f4b6d3fecc18ba92cb1bae73093	apps/web/src/pages/ProjectDetailPage.tsx
+A	1571	7dced420408dc236e8c7a2a54ae15eb793bcefeaf791469fe2a624108b03dd09	apps/web/src/pages/RegionWorkspacePage.tsx
+M	1461	74e84a489e0f7e4c1aafe0679c021165212a413da24acc32a9e5e24b1c22822b	apps/web/src/router/AppRoutes.tsx
+A	2882	765d858b72ed3c80deaa3a242deb03638a5e2583a2e915b6e9f1f925a2f742d7	apps/web/src/test/regionSetFixtures.ts
+A	5295	554830c79aae24bf88ac22203f75a01f6d9ba9ce70fd74bed64c2821f714349a	apps/web/src/utils/regionGeometry.ts
+A	7115	40e9fe613918c2c23d30d3c8014d400610ae8be093d8376fd5139ff48277081d	docs/architecture/paintpilot-region-set-physical-data-dictionary-v0.1.md
+A	8275	cd1c830d835c95c34a3200f94e44eaba9d6a47d39f47badd8ae94fc80de7abea	docs/decisions/ADR-0006-human-governed-region-annotation-boundary.md
+A	32173	b6a9d3e7dccb568e542e2eb25fef8efa456f816f19b7bc8eee03935e1d9e38ca	docs/progress/phase-1f-human-region-annotation-candidate.md
+A	6524	60846e2ae2a9961d2c10dba59ebde4f1c71d31ff8599a3decb9e85561ce2913d	docs/progress/phase-1f-human-region-annotation-plan.md

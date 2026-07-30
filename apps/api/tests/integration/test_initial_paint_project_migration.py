@@ -38,6 +38,10 @@ BUSINESS_TABLES = {
     "image_assets",
     "image_set_readiness_reviews",
     "paint_projects",
+    "region_set_reviews",
+    "region_sets",
+    "region_vertices",
+    "regions",
     "state_transition_events",
 }
 EXPECTED_COLUMNS = {
@@ -2778,7 +2782,7 @@ def test_initial_paint_project_migration_round_trip_and_constraints(
 
     _run_alembic(temporary_database_url, "upgrade", "head")
     current_result = _run_alembic(temporary_database_url, "current")
-    assert "d4c8a1f7b2e9 (head)" in current_result.stdout
+    assert "7f3a2b9c4d1e (head)" in current_result.stdout
     check_result = _run_alembic(temporary_database_url, "check")
     assert "No new upgrade operations detected." in check_result.stdout
 
