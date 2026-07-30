@@ -1,10 +1,24 @@
 # Phase 1F — Human-Governed Region Annotation and Review Implementation Plan
 
 - Status:
+  `CLOSED`
+- Final independent review verdict:
+  `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_PASS_READY_FOR_SEALING`
+- Implementation seal commit: `fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b`
+- Migration head: `7f3a2b9c4d1e`
+- Current earlier-phase status: Phase 1D `COMPLETE`; Phase 1E-1 `CLOSED`; Phase 1E-2 `CLOSED`
+- Current overall checkpoint: `approximately_80_percent`
+- Next checkpoint: `80_percent_overall_product_and_deployment_readiness_review`
+- Next product phase: `NOT_SELECTED` / `NOT_STARTED`
+- AI integration: `NOT_AUTHORIZED`
+- External object storage: `NOT_SELECTED`
+- Public/signed URLs: `NOT_AUTHORIZED`
+- Deletion: `NOT_IMPLEMENTED`
+- Real authentication: `NOT_IMPLEMENTED`
+- Light, color, and PaintPlan: `NOT_IMPLEMENTED`
+- Historical candidate verdict target:
   `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
-- Candidate verdict target:
-  `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
-- Current environment-isolated continuation verdict:
+- Historical environment-isolated continuation verdict:
   `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
 - Historical implementation-conversation verdict: `PHASE_1F_IMPLEMENTATION_FAILED`
 - Historical incident classification: `ENVIRONMENT_ISOLATION_INVALID_ATTEMPT`
@@ -19,14 +33,17 @@
   Manifest, 35 paths excluding Manifest
 - Parent Revision: `d4c8a1f7b2e9`
 - Candidate Revision: `7f3a2b9c4d1e`
-- Overall checkpoint remains: `approximately_70_percent`
+- Candidate-time overall checkpoint: `approximately_70_percent`
 
 ## Governance boundary
 
-This is an implementation candidate, not independent approval, production readiness, a Git seal,
-or Phase 1F closure. The implementation conversation must not stage, commit, push, tag, or create
-a PR. A fresh read-only reviewer must evaluate the frozen candidate, followed only after PASS by
-a third independent Git-sealing task.
+This plan originated as an implementation candidate, not independent approval, production
+readiness, a Git seal, or Phase 1F closure. The implementation conversation did not stage, commit,
+push, tag, or create a PR. A fresh read-only reviewer later evaluated the frozen candidate and
+returned `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_PASS_READY_FOR_SEALING`; only afterward did the
+separate authorized sealing task create implementation seal
+`fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b` and the docs-only closure. This sequence does not
+backdate approval.
 
 The historical implementation conversation did not reach the target verdict because its
 no-VisualEngineer-operation condition could not be asserted. The later controller-authorized
@@ -37,8 +54,9 @@ no VisualEngineer request, check, log, container, database, or file operation. I
 browser journey and exact cleanup passed. This continuation does not erase or relabel the
 historical deviation; it supplies new, independently isolated evidence.
 
-Phase 1D remains `COMPLETE`; Phase 1E-1 and Phase 1E-2 remain `CLOSED`. Phase 1F does not alter
-their migrations, data contracts, or review history.
+Phase 1D remains `COMPLETE`; Phase 1E-1, Phase 1E-2, and Phase 1F are `CLOSED`. Phase 1F does not
+alter the earlier phases' migrations, data contracts, or review history. The next product phase
+remains `NOT_SELECTED` / `NOT_STARTED`.
 
 ## Authorized capability
 
@@ -92,10 +110,16 @@ their migrations, data contracts, or review history.
 | Browser | Program-generated images; restart, conflict, approval, stale, owner 404, three viewports |
 | Cleanup | Isolated schema/storage/listeners removed; public business counts restored |
 
-## Candidate handoff
+## Historical candidate handoff
 
 The candidate evidence file records the exact command ledger and browser observations. The
 manifest records every candidate path, status, byte size, and SHA-256 plus aggregate patch and
-porcelain hashes. The candidate is ready for a fresh independent focused read-only review, but is
-not independently approved, ready for sealing, Git-sealed, commit-ready, production-ready, or
-phase-closed. Neither document authorizes committing the work.
+porcelain hashes. At candidate handoff, the candidate was ready for a fresh independent focused
+read-only review but was not independently approved, ready for sealing, Git-sealed, commit-ready,
+production-ready, or phase-closed. Neither document authorized committing the work.
+
+That handoff is now complete: final independent review passed, the exact 36-file candidate was
+sealed by `fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b`, and Phase 1F is `CLOSED`. The Candidate
+Manifest remains byte-identical. Closure does not authorize AI, external object storage,
+public/signed URLs, deletion, real authentication, light/color design, PaintPlan, production
+readiness, or a next product phase.

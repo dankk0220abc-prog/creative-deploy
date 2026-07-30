@@ -1,7 +1,7 @@
 # CreativeDeploy
 
 Project Status: Phase 1D `COMPLETE` — Phase 1E-1 `CLOSED` — Phase 1E-2 `CLOSED` —
-Phase 1F `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
+Phase 1F `CLOSED`
 
 Implementation Status:
 
@@ -34,16 +34,19 @@ Implementation Status:
   `PHASE_1E_2_WORKFLOW_GATE_REMEDIATION_PASS_READY_FOR_SEALING`
 - The independently reviewed implementation is sealed by
   `cc89aa246607f7c44b4639149a3b251b803d3a80`; Phase 1E-2 is `CLOSED`
-- Overall project progress is approximately 70% (`approximately_70_percent`)
-- Phase 1F — Human-Governed Region Annotation and Review is
-  `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`; it is not
-  independently approved, sealed, closed, or commit-ready
-- The Phase 1F candidate adds immutable human RegionSet snapshots, deterministic ppm Polygon
+- Phase 1F — Human-Governed Region Annotation and Review passed final independent review with
+  `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_PASS_READY_FOR_SEALING`, is sealed by
+  `fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b`, and is `CLOSED`
+- Overall project progress is approximately 80% (`approximately_80_percent`)
+- The next checkpoint is the `80_percent_overall_product_and_deployment_readiness_review`;
+  the next product phase is `NOT_SELECTED` / `NOT_STARTED`
+- The sealed Phase 1F implementation adds immutable human RegionSet snapshots, deterministic ppm Polygon
   geometry, ImageSet-fingerprint staleness, Project-scoped save/submit/review idempotency,
   append-only reviews, and an SVG annotation workspace
 - AI is `NOT_AUTHORIZED`; external object storage is `NOT_SELECTED`; public/signed URLs are
   `NOT_AUTHORIZED`; deletion and real authentication are `NOT_IMPLEMENTED`
-- Automated Polygon generation and automated region analysis remain `NOT_IMPLEMENTED`
+- Automated Polygon generation, automated region analysis, light design, color design, and
+  PaintPlan remain `NOT_IMPLEMENTED`
 - Local storage is development/test only and production storage is `NOT_READY`
 
 Phase 1D-2 Commit:
@@ -156,7 +159,7 @@ Phase 1E-2:
 - Migration Revision: `d4c8a1f7b2e9`, parent `5ed9906e7d33`
 - Closure record:
   `docs/progress/phase-1e-2-multi-role-image-set-and-readiness-closure.md`
-- Overall project progress: `approximately_70_percent`
+- Historical Phase 1E-2 closure checkpoint: `approximately_70_percent`
 - Required roles: `primary_front`, `reference_back`, `reference_angle`
 - Optional role: `reference_detail`
 - Existing `primary_mvp_input` assets map in place to `primary_front`; identity, version,
@@ -179,8 +182,12 @@ Phase 1E-2:
 Phase 1F:
 
 - Name: Human-Governed Region Annotation and Review
-- Status: `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
-- Environment-isolated continuation verdict:
+- Status: `CLOSED`
+- Final independent review verdict:
+  `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_PASS_READY_FOR_SEALING`
+- Implementation seal commit: `fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b`
+- Closure record: `docs/progress/phase-1f-human-region-annotation-closure.md`
+- Historical environment-isolated continuation verdict:
   `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
 - Historical implementation-conversation verdict: `PHASE_1F_IMPLEMENTATION_FAILED`
 - Historical incident classification: `ENVIRONMENT_ISOLATION_INVALID_ATTEMPT`
@@ -202,13 +209,16 @@ Phase 1F:
   precondition, Project-scoped idempotency, immutable exact-source geometry copy, and
   current-image rebinding
 - Candidate evidence: `docs/progress/phase-1f-human-region-annotation-candidate.md`
-- This candidate is not independently approved, ready for sealing, Git-sealed, production-ready,
-  or phase-closed
+- Overall project progress: `approximately_80_percent`
+- Next checkpoint: `80_percent_overall_product_and_deployment_readiness_review`
+- Next product phase: `NOT_SELECTED` / `NOT_STARTED`
+- Phase closure does not claim production readiness
 - AI: `NOT_AUTHORIZED`
 - External object storage: `NOT_SELECTED`
 - Public/signed URLs: `NOT_AUTHORIZED`
 - Deletion: `NOT_IMPLEMENTED`
 - Real authentication: `NOT_IMPLEMENTED`
+- Light, color, and PaintPlan: `NOT_IMPLEMENTED`
 - The configured Demo Principal is a local development/test identity, not an independent
   enterprise approver or real authentication system
 
@@ -272,9 +282,10 @@ reconciliation 已通过独立复审并由 `ac8630ae393cb6ca5bf3a2d1db5070531d6f
 角色级后端门禁、前端镜像和零副作用负向测试；新的独立复审给出
 `PHASE_1E_2_WORKFLOW_GATE_REMEDIATION_PASS_READY_FOR_SEALING`，实现由
 `cc89aa246607f7c44b4639149a3b251b803d3a80` 封存，Phase 1E-2 当前为 `CLOSED`。项目总体
-进度仍约 70%；Phase 1F — Human-Governed Region Annotation and Review 当前为
-`PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`，尚未独立批准、
-封存或关闭。当前仍没有公开认证、
+进度现约 80%；Phase 1F — Human-Governed Region Annotation and Review 经最终独立复审
+`PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_PASS_READY_FOR_SEALING` 后，由
+`fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b` 封存并正式 `CLOSED`。下一检查点为 80%
+总体产品与部署就绪评估；下一产品 Phase 仍为 `NOT_SELECTED` / `NOT_STARTED`。当前仍没有公开认证、
 真实用户授权、正式图片质量评估、自动区域分析、AI Provider、RAG、Paint inventory、
 Agent 工作流、通用 HumanApproval、CI、生产对象存储或生产部署能力。
 
@@ -405,9 +416,10 @@ Revision `a10d3d8dab38` 仍保持不变；Phase 1E-1 implementation seal 包含�
 `paint_projects.current_image_asset_id`。Phase 1E-2 implementation seal
 `cc89aa246607f7c44b4639149a3b251b803d3a80` 包含唯一子 Revision
 `d4c8a1f7b2e9`，原位映射封存角色并添加 append-only
-`image_set_readiness_reviews`；这份 Revision 已封存。Phase 1F candidate Revision
-`7f3a2b9c4d1e` 是其唯一子节点，新增四个 append-only annotation/review 表；它尚未经过
-独立复审或 Git sealing。
+`image_set_readiness_reviews`；这份 Revision 已封存。Phase 1F implementation seal
+`fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b` 包含唯一子 Revision
+`7f3a2b9c4d1e`，新增四个 append-only annotation/review 表；其最终独立复审与 Git
+sealing 已完成，但不构成生产就绪声明。
 
 Migration 必须由开发者明确运行；应用启动不会自动执行 Migration。以下只读或差异
 检查命令从仓库根目录运行：
@@ -455,11 +467,11 @@ implementation seal `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d` 封存；这不�
   `CLOSED`；Commit 10 的提交前批准并未被倒填；
 - Phase 1D-4 当前为 `CLOSED`；Phase 1E-1 也已 `CLOSED`，implementation seal 为
   `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d`；Phase 1E-2 已由
-  `cc89aa246607f7c44b4639149a3b251b803d3a80` 封存并 `CLOSED`，项目总体约 70%；
-  Phase 1F 为
-  `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`，AI 接入仍未授权；
+  `cc89aa246607f7c44b4639149a3b251b803d3a80` 封存并 `CLOSED`；Phase 1F 已由
+  `fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b` 封存并 `CLOSED`，项目总体约 80%；
+  下一产品 Phase 为 `NOT_SELECTED` / `NOT_STARTED`，AI 接入仍未授权；
 - Phase 1D-2 的 F-09-01、F-09-02、F-09-03、F-09-04 已在 Commit 9 前关闭；
-- 当前封存基线有五个业务表，Phase 1F candidate 使 Metadata 共九个业务表；
+- 当前封存基线有九个业务表；
   readiness/RegionSet review 只能 append，PaintProject 仍没有 update、delete 或 Owner
   transfer，ImageAsset 和已封存 RegionSet 历史也没有 update/delete；
 - 配置型单 Principal 不是公共认证、多人授权或真实用户系统，production 明确拒绝它；

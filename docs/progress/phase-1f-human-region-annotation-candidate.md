@@ -2,19 +2,34 @@
 
 ## 1. Verdict
 
-- Current environment-isolated continuation verdict:
+- Current phase status: `CLOSED`
+- Final independent review verdict:
+  `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_PASS_READY_FOR_SEALING`
+- Implementation seal commit: `fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b`
+- Migration head: `7f3a2b9c4d1e`
+- Current overall project checkpoint: `approximately_80_percent`
+- Next checkpoint: `80_percent_overall_product_and_deployment_readiness_review`
+- Next product phase: `NOT_SELECTED` / `NOT_STARTED`
+- AI integration: `NOT_AUTHORIZED`
+- External object storage: `NOT_SELECTED`
+- Public/signed URLs: `NOT_AUTHORIZED`
+- Deletion: `NOT_IMPLEMENTED`
+- Real authentication: `NOT_IMPLEMENTED`
+- Light, color, and PaintPlan: `NOT_IMPLEMENTED`
+- Current earlier-phase status: Phase 1D `COMPLETE`; Phase 1E-1 `CLOSED`; Phase 1E-2 `CLOSED`
+- Historical environment-isolated continuation verdict:
   `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
-- Technical implementation status:
+- Historical technical implementation status:
   `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
-- Governance status:
+- Historical candidate-time governance status:
   `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
 - Historical implementation-conversation verdict: `PHASE_1F_IMPLEMENTATION_FAILED`
 - Historical incident classification: `ENVIRONMENT_ISOLATION_INVALID_ATTEMPT`
 - Historical blocking condition: `VISUALENGINEER_PORT_SCOPE_DEVIATION`
-- Independent approval: `NOT_PERFORMED`
-- Git seal: `NOT_CREATED`
+- Historical candidate-time independent approval: `NOT_PERFORMED`
+- Historical candidate-time Git seal: `NOT_CREATED`
 - Production readiness: `NOT_CLAIMED`
-- Overall project checkpoint: `approximately_70_percent`
+- Historical candidate-time project checkpoint: `approximately_70_percent`
 
 This work did not stage, commit, push, tag, or create a PR. The historical implementation
 conversation's unsuccessful request to an unrelated port-8000 listener remains recorded below and
@@ -495,20 +510,22 @@ E-01 remains historical review evidence and was not re-queried in this implement
 - NUL-delimited porcelain SHA-256;
 - manifest-generation algorithm and self-exclusion rule.
 
-The manifest is evidence only and is not staged.
+At candidate freeze, the Manifest was evidence only and was not staged. Final sealing later
+committed that exact byte-identical Manifest with SHA-256
+`9cb57f6a0d59976d814d9d5dd3a3ae0e8f1bfd1e67cbf3be18197161499c4fb4`.
 
-## 19. Final repository state
+## 19. Historical candidate-time final repository state
 
 - Branch/HEAD/commit count remain `main` /
   `91f3135041c16c8e600d963c1341cb1af1db1458` / `19`.
 - Staged paths: `0`.
 - New commit/tag/remote/submodule/PR: none.
 - `.env`, dependencies, lockfiles, Compose, sealed migrations, and Git history: unchanged.
-- Candidate remains an unstaged/untracked worktree for independent review.
-- Current candidate status:
+- At that time, the candidate remained an unstaged/untracked worktree for independent review.
+- Candidate-time status:
   `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`.
 
-## 20. Recommended next action
+## 20. Historical candidate-time recommended next action
 
 Open a fresh independent focused read-only security and product review against this exact manifest
 candidate. The reviewer must preserve the historical port-scope failure, separately assess the
@@ -516,3 +533,11 @@ controller-authorized isolated continuation, and must not modify the worktree. D
 stage, commit, push, tag, or create a PR in that review. A third independent Git-sealing task
 remains separately authorized work and may proceed only after a strict independent PASS. AI
 remains unauthorized.
+
+That recommended sequence is complete. The final independent review returned
+`PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_PASS_READY_FOR_SEALING`; the separate sealing task committed
+the exact 36-file candidate as `fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b`; and the later
+docs-only closure set Phase 1F to `CLOSED` at the approximately 80% checkpoint. This update does
+not rewrite the candidate-time failure, invalid attempts, remediation, review timing, or repository
+state. The next product phase remains `NOT_SELECTED` / `NOT_STARTED`, and AI remains
+`NOT_AUTHORIZED`.

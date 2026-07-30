@@ -55,16 +55,19 @@ READY / NOT READY fingerprint-bound reviews. Revision `d4c8a1f7b2e9` maps sealed
 historical revisions. The original failure remains historical evidence and is not rewritten as
 an initial pass.
 
-The overall project checkpoint is approximately 70% (`approximately_70_percent`). Phase 1F —
-Human-Governed Region Annotation and Review is
-`PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`.
-Candidate Revision `7f3a2b9c4d1e` adds immutable human RegionSet/Region/Vertex/Review persistence,
+The overall project checkpoint is approximately 80% (`approximately_80_percent`). Phase 1F —
+Human-Governed Region Annotation and Review passed final independent review with
+`PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_PASS_READY_FOR_SEALING`, was sealed by
+`fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b`, and is `CLOSED`.
+Revision `7f3a2b9c4d1e` adds immutable human RegionSet/Region/Vertex/Review persistence,
 deterministic ppm simple-Polygon validation, ImageSet-fingerprint staleness, Project-scoped
-idempotent save/submit/review commands, append-only review, and an SVG workbench. This is not
-independent approval, a Git seal, production readiness, or phase closure. AI is
+idempotent save/submit/review commands, append-only review, and an SVG workbench. The next
+checkpoint is the `80_percent_overall_product_and_deployment_readiness_review`; the next product
+phase is `NOT_SELECTED` / `NOT_STARTED`. This closure is not production readiness. AI is
 `NOT_AUTHORIZED`; external object storage is `NOT_SELECTED`; public/signed URLs are
 `NOT_AUTHORIZED`; deletion and real authentication are `NOT_IMPLEMENTED`; local storage is
-development/test only; production storage is `NOT_READY`.
+development/test only; production storage is `NOT_READY`; light, color, and PaintPlan are
+`NOT_IMPLEMENTED`.
 
 The historical implementation conversation ended `PHASE_1F_IMPLEMENTATION_FAILED` despite
 passing technical gates: one supplemental final-source browser attempt used the wrong Vite proxy
@@ -74,8 +77,9 @@ historical evidence and must not be rewritten. A later controller-authorized con
 from the corrected 35-path baseline, used API `18160`, Vite `15160`, and a request-audit proxy on
 `18161`, enforced an explicit not-port-8000 target guard, and performed no VisualEngineer request,
 check, log, container, database, or file operation. The full isolated browser journey and exact
-cleanup passed. The candidate is now ready only for a fresh independent focused read-only review;
-this is not approval or authorization to seal.
+cleanup passed. At that historical handoff, the candidate was ready only for a fresh independent
+focused read-only review; this candidate-time status was later superseded only by the final independent PASS,
+implementation seal, and docs-only closure. It is not rewritten as earlier approval.
 
 The current source and verification evidence include:
 
@@ -130,7 +134,7 @@ The current source and verification evidence include:
   owner/Project/role snapshots and upload/review race coverage;
 - a four-role workbench with required/optional labels, private previews, immutable histories,
   safe add/replace, blockers, human READY / NOT READY, retry, history, and reconfirmation.
-- a Phase 1F candidate with four append-only annotation/review tables, normalized ppm simple
+- a sealed Phase 1F implementation with four append-only annotation/review tables, normalized ppm simple
   Polygons, deterministic geometry fingerprints, source staleness, optimistic version conflicts,
   and Project-row locking for save/submit/review versus image mutation;
 - an owner-scoped RegionSet API and `/paintpilot/projects/:projectId/regions` SVG workbench with
@@ -166,8 +170,9 @@ See `docs/progress/phase-1e-1-imageasset-foundation-closure.md`.
 The user later authorized Phase 1E-2 at the checkpoint. Its implementation passed the fresh
 independent remediation review, was sealed by
 `cc89aa246607f7c44b4639149a3b251b803d3a80`, and is `CLOSED`; this does not alter the closed
-Phase 1E-1 record. Phase 1F is now an unsealed implementation candidate and remains pending a
-fresh independent read-only review.
+Phase 1E-1 record. Phase 1F later passed its final independent review, was sealed by
+`fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b`, and is `CLOSED`; this does not backdate approval
+or erase the historical candidate failures and remediation.
 
 For every subsequent Codex task:
 
@@ -186,10 +191,10 @@ For every subsequent Codex task:
 - do not integrate AI;
 - do not select external object storage, public URLs, irreversible deletion, real authentication,
   or major permission changes;
-- keep Phase 1F as
-  `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW` until a fresh
-  read-only review passes and a separate authorized task performs Git sealing; do not describe
-  it as approved or closed;
+- keep Phase 1F `CLOSED`, preserve implementation seal
+  `fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b`, and do not reopen it;
+- keep the next checkpoint as the 80% overall product and deployment readiness review; do not
+  select or start the next product phase without separate authorization;
 - do not rewrite historical snapshots into fictional pre-commit approval.
 
 Phase 1D completion closes the specified PaintProject vertical slice. The closed Phase 1E-1 work
@@ -217,7 +222,7 @@ Do not claim or imply implementation or independent approval of:
   configuration, async database engine/session, shared Metadata, Alembic, the approved three-model
   Phase 1D persistence foundation, the committed Phase 1D-2 Repository/Service/API, the sealed
   Phase 1E-1 ImageAsset foundation, the sealed Phase 1E-2 ImageSet/readiness foundation, the
-  unsealed Phase 1F RegionSet candidate, and pytest tests.
+  sealed Phase 1F RegionSet foundation, and pytest tests.
 - `apps/web`: the pnpm-managed React/Vite PaintPilot application shell, routes, API client,
   Projects/Create/Detail/Region Workspace pages and Vitest tests.
 - `docs/product`, `docs/architecture`, `docs/decisions`: approved Phase 0 baselines; do not
@@ -272,9 +277,9 @@ make migration-check
 These commands never generate or upgrade a revision. The repository preserves historical
 Revision `a10d3d8dab38`; the Phase 1E-1 implementation seal adds Revision `5ed9906e7d33` and a
 fourth business table. The Phase 1E-2 implementation seal adds child Revision `d4c8a1f7b2e9`
-and a fifth business table. Candidate child Revision `7f3a2b9c4d1e` adds four Phase 1F tables
-without changing the sealed revisions. This does not imply production storage readiness,
-independent Phase 1F approval, or phase closure.
+and a fifth business table. The Phase 1F implementation seal adds child Revision `7f3a2b9c4d1e`
+and four more tables without changing the historical revisions. This does not imply production
+storage readiness or authorize a later product phase.
 
 Backend:
 
@@ -344,8 +349,9 @@ under normal operating-system rules, unlike the standard Make targets.
   private-storage boundary, and committed Phase 1D-2 API contracts during focused review.
 - Preserve sealed Revision `d4c8a1f7b2e9`, the ImageSet/readiness implementation, and both
   historical parent revisions; never rewrite any of the three.
-- Treat candidate Revision `7f3a2b9c4d1e` and all Phase 1F paths as unsealed review material;
-  do not rewrite historical revisions or describe the candidate as approved before review.
+- Preserve sealed Phase 1F Revision `7f3a2b9c4d1e`, its implementation seal
+  `fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b`, and all historical revisions; do not rewrite the
+  candidate history as approved before its final review.
 - Preserve safe 503 responses: never expose database URLs, passwords, stack traces, or raw
   infrastructure exceptions.
 - Keep Create Project database waits finite and transaction-local. Do not remove the positive,
@@ -373,8 +379,7 @@ under normal operating-system rules, unlike the standard Make targets.
 - Preserve the independently reviewed README remediation and its seal commit
   `707bdfa3c5931867125cc9c7dc11067a86f5f343`; do not rewrite the original Phase 1D-4 failure.
 - Keep Phase 1D-3 and Phase 1D-4 `CLOSED` and Phase 1D `COMPLETE`; do not reopen Phase 1D.
-- Keep Phase 1E-1 and Phase 1E-2 `CLOSED`; keep Phase 1F
-  `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW` until
-  independent review and separately authorized sealing. Do not integrate AI or image quality
-  assessment, select external object storage, add public URLs, irreversible deletion, real
-  authentication, or major permission changes.
+- Keep Phase 1E-1, Phase 1E-2, and Phase 1F `CLOSED`; keep the next product phase
+  `NOT_SELECTED` / `NOT_STARTED`. Do not integrate AI or image quality assessment, select external
+  object storage, add public URLs, irreversible deletion, real authentication, or major permission
+  changes.
