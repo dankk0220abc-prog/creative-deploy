@@ -98,6 +98,38 @@ function renderWorkspace(projectId = PROJECT_ID) {
   );
 }
 
+function installSvgScreenTransform(
+  canvas: Element,
+  initial: { a: number; d: number; e: number; f: number },
+) {
+  let transform = initial;
+  Object.assign(canvas, {
+    createSVGPoint: vi.fn(() => {
+      const point = {
+        x: 0,
+        y: 0,
+        matrixTransform: vi.fn(
+          (matrix: { a: number; d: number; e: number; f: number }) => ({
+            x: point.x * matrix.a + matrix.e,
+            y: point.y * matrix.d + matrix.f,
+          }),
+        ),
+      };
+      return point;
+    }),
+    getScreenCTM: vi.fn(() => ({
+      inverse: () => transform,
+    })),
+    releasePointerCapture: vi.fn(),
+    setPointerCapture: vi.fn(),
+  });
+  return {
+    set(next: { a: number; d: number; e: number; f: number }) {
+      transform = next;
+    },
+  };
+}
+
 describe("Human Region Annotation Workspace", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
@@ -122,10 +154,96 @@ describe("Human Region Annotation Workspace", () => {
     expect(screen.getByRole("button", { name: "Save new draft snapshot" })).toBeEnabled();
     expect(screen.getByText(/Human-authored polygons only/i)).toBeInTheDocument();
     expect(screen.queryByText(/segmentation/i)).not.toBeInTheDocument();
+    expect(document.title).toBe("Region Annotation — PaintPilot");
+    expect(screen.getByRole("link", { name: "Projects" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByRole("link", { name: "Create project" })).not.toHaveAttribute(
+      "aria-current",
+    );
     expect(fetchMock()).toHaveBeenCalledWith(
       `/api/v1/paint-projects/${PROJECT_ID}/region-sets/workbench`,
       expect.objectContaining({ method: "GET" }),
     );
+  });
+
+  it("renders stable paint/exclude colors, governed hatch opacity, and clear selection", async () => {
+    const user = userEvent.setup();
+    const base = regionSetFixture();
+    const exclude = {
+      ...base.regions[0]!,
+      id: "abababab-abab-4bab-8bab-abababababab",
+      stable_region_key: "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd",
+      kind: "exclude" as const,
+      label: "background",
+      normalized_label: "background",
+      z_index: 1,
+      opacity_ppm: 300_000,
+    };
+    const current = regionSetFixture({
+      region_count: 2,
+      total_vertex_count: 8,
+      regions: [base.regions[0]!, exclude],
+    });
+    fetchMock().mockResolvedValue(
+      jsonResponse(
+        regionWorkbenchFixture({
+          current_region_set: current,
+          history: [],
+        }),
+      ),
+    );
+    renderWorkspace();
+
+    const overlay = await screen.findByRole("img", {
+      name: "Private primary image with region overlay",
+    });
+    const source = overlay.querySelector("image");
+    expect(source).not.toBeNull();
+    expect(source).toHaveAttribute("href", current.source_content_url);
+    const paint = screen.getByLabelText("hair region");
+    const excluded = screen.getByLabelText("background region");
+    expect(paint).toHaveAttribute("data-region-kind", "paint");
+    expect(paint.getAttribute("fill")).not.toContain("url(");
+    expect(excluded).toHaveAttribute("data-region-kind", "exclude");
+    expect(excluded.getAttribute("fill")).toContain("exclude-pattern");
+    expect(overlay).toContainElement(paint);
+    expect(paint).toHaveAttribute("stroke", "#ffffff");
+    expect(paint).not.toHaveAttribute("vector-effect");
+    expect(excluded).toHaveAttribute("stroke", "#102128");
+    expect(excluded).toHaveAttribute("fill-opacity", "1");
+
+    const pattern = overlay.querySelector(
+      `#exclude-pattern-${exclude.stable_region_key}`,
+    );
+    expect(pattern?.querySelector("rect")).toHaveAttribute("fill", "#d2a45f");
+    expect(pattern?.querySelector("rect")).toHaveAttribute("fill-opacity", "0.3");
+    expect(pattern?.querySelector("path")).toHaveAttribute("stroke-opacity", "0.3");
+
+    await user.click(
+      screen.getByRole("button", { name: /background.*exclude.*4 vertices/i }),
+    );
+    expect(excluded).toHaveAttribute("stroke", "#ffffff");
+    expect(paint).toHaveAttribute("stroke", "#102128");
+
+    fireEvent.input(screen.getByRole("slider"), { target: { value: "10" } });
+    expect(pattern?.querySelector("rect")).toHaveAttribute("fill-opacity", "0.1");
+    expect(pattern?.querySelector("path")).toHaveAttribute("stroke-opacity", "0.1");
+    expect(excluded).toHaveAttribute("stroke", "#ffffff");
+
+    // Zero is outside the persisted Region contract (10–100%), but the
+    // presentation remains defensive if an impossible/stale value reaches it.
+    const opacitySlider = screen.getByRole("slider");
+    opacitySlider.setAttribute("min", "0");
+    fireEvent.input(opacitySlider, { target: { value: "0" } });
+    expect(pattern?.querySelector("rect")).toHaveAttribute("fill-opacity", "0");
+    expect(pattern?.querySelector("path")).toHaveAttribute("stroke-opacity", "0");
+    expect(excluded).toHaveAttribute("stroke", "#ffffff");
+
+    fireEvent.input(screen.getByRole("slider"), { target: { value: "100" } });
+    expect(pattern?.querySelector("rect")).toHaveAttribute("fill-opacity", "1");
+    expect(pattern?.querySelector("path")).toHaveAttribute("stroke-opacity", "1");
   });
 
   it("draws and closes a valid polygon with normalized canvas coordinates", async () => {
@@ -135,32 +253,46 @@ describe("Human Region Annotation Workspace", () => {
     const canvas = await screen.findByRole("img", {
       name: "Private primary image with region overlay",
     });
-    vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
-      bottom: 500,
-      height: 500,
-      left: 0,
-      right: 500,
-      top: 0,
-      width: 500,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    });
-    Object.assign(canvas, {
-      releasePointerCapture: vi.fn(),
-      setPointerCapture: vi.fn(),
-    });
+    installSvgScreenTransform(canvas, { a: 2_000, d: 2_000, e: 0, f: 0 });
 
     await user.click(screen.getByRole("button", { name: "Draw polygon" }));
-    fireEvent.pointerDown(canvas, { clientX: 50, clientY: 50 });
-    fireEvent.pointerDown(canvas, { clientX: 250, clientY: 50 });
-    fireEvent.pointerDown(canvas, { clientX: 250, clientY: 250 });
-    fireEvent.pointerDown(canvas, { clientX: 50, clientY: 250 });
+    fireEvent.pointerDown(canvas, {
+      button: 0,
+      clientX: 50,
+      clientY: 50,
+      isPrimary: true,
+      pointerType: "mouse",
+    });
+    fireEvent.pointerDown(canvas, {
+      button: 0,
+      clientX: 250,
+      clientY: 50,
+      isPrimary: true,
+      pointerType: "mouse",
+    });
+    fireEvent.pointerDown(canvas, {
+      button: 0,
+      clientX: 250,
+      clientY: 250,
+      isPrimary: true,
+      pointerType: "mouse",
+    });
+    fireEvent.pointerDown(canvas, {
+      button: 0,
+      clientX: 50,
+      clientY: 250,
+      isPrimary: true,
+      pointerType: "mouse",
+    });
     await user.click(screen.getByRole("button", { name: "Close polygon" }));
 
     expect(screen.getByRole("heading", { name: "1 regions" })).toBeInTheDocument();
     expect(screen.getByLabelText("Region 1 region")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save new draft snapshot" })).toBeEnabled();
+    expect(screen.getByLabelText("Region 1 region")).toHaveAttribute(
+      "points",
+      "100000,100000 500000,100000 500000,500000 100000,500000",
+    );
 
     const vertex = screen.getByLabelText("Region 1 vertex 1");
     fireEvent.pointerDown(vertex, { pointerId: 7 });
@@ -169,6 +301,130 @@ describe("Human Region Annotation Workspace", () => {
     await user.click(screen.getByRole("button", { name: "Undo" }));
     await user.click(screen.getByRole("button", { name: "Redo" }));
     expect(screen.getByLabelText("Region 1 region")).toBeInTheDocument();
+  });
+
+  it("accepts primary touch points from the image at a 320px canvas", async () => {
+    const user = userEvent.setup();
+    fetchMock().mockResolvedValue(jsonResponse(regionWorkbenchFixture()));
+    renderWorkspace();
+    const canvas = await screen.findByRole("img", {
+      name: "Private primary image with region overlay",
+    });
+    const image = canvas.querySelector("image");
+    expect(image).not.toBeNull();
+    vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
+      bottom: 320,
+      height: 320,
+      left: 0,
+      right: 320,
+      top: 0,
+      width: 320,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    installSvgScreenTransform(canvas, { a: 3_125, d: 3_125, e: 0, f: 0 });
+
+    await user.click(screen.getByRole("button", { name: "Draw polygon" }));
+    fireEvent.pointerDown(image!, {
+      clientX: 32,
+      clientY: 32,
+      isPrimary: true,
+      pointerId: 1,
+      pointerType: "touch",
+    });
+    fireEvent.pointerDown(image!, {
+      clientX: 160,
+      clientY: 32,
+      isPrimary: true,
+      pointerId: 2,
+      pointerType: "touch",
+    });
+    fireEvent.pointerDown(image!, {
+      clientX: 160,
+      clientY: 160,
+      isPrimary: true,
+      pointerId: 3,
+      pointerType: "touch",
+    });
+
+    expect(screen.getByRole("button", { name: "Close polygon" })).toBeEnabled();
+    expect(screen.getByText("3 points")).toBeInTheDocument();
+  });
+
+  it("uses the live SVG screen transform after zoom and resize", async () => {
+    const user = userEvent.setup();
+    fetchMock().mockResolvedValue(jsonResponse(regionWorkbenchFixture()));
+    renderWorkspace();
+    const canvas = await screen.findByRole("img", {
+      name: "Private primary image with region overlay",
+    });
+    const image = canvas.querySelector("image");
+    expect(image).not.toBeNull();
+    const transform = installSvgScreenTransform(canvas, {
+      a: 2_000,
+      d: 2_000,
+      e: 0,
+      f: 0,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Draw polygon" }));
+    fireEvent.pointerDown(canvas, {
+      button: 0,
+      clientX: 50,
+      clientY: 50,
+      isPrimary: true,
+      pointerType: "mouse",
+    });
+    fireEvent.wheel(canvas, { deltaY: -100 });
+    transform.set({ a: 1_680, d: 1_680, e: 80_000, f: 80_000 });
+    fireEvent.pointerDown(image!, {
+      button: 0,
+      clientX: 100,
+      clientY: 50,
+      isPrimary: true,
+      pointerType: "mouse",
+    });
+    transform.set({ a: 1_050, d: 1_400, e: 80_000, f: 80_000 });
+    fireEvent.pointerDown(image!, {
+      button: 0,
+      clientX: 200,
+      clientY: 200,
+      isPrimary: true,
+      pointerType: "mouse",
+    });
+    await user.click(screen.getByRole("button", { name: "Close polygon" }));
+
+    expect(screen.getByLabelText("Region 1 region")).toHaveAttribute(
+      "points",
+      "100000,100000 248000,164000 290000,360000",
+    );
+  });
+
+  it("does not add a point from an explicitly interactive SVG overlay", async () => {
+    const user = userEvent.setup();
+    fetchMock().mockResolvedValue(jsonResponse(regionWorkbenchFixture()));
+    renderWorkspace();
+    const canvas = await screen.findByRole("img", {
+      name: "Private primary image with region overlay",
+    });
+    installSvgScreenTransform(canvas, { a: 2_000, d: 2_000, e: 0, f: 0 });
+    const overlay = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    overlay.setAttribute("data-region-interactive", "true");
+    canvas.append(overlay);
+
+    await user.click(screen.getByRole("button", { name: "Draw polygon" }));
+    fireEvent.pointerDown(overlay, {
+      button: 0,
+      clientX: 50,
+      clientY: 50,
+      isPrimary: true,
+      pointerType: "mouse",
+    });
+
+    expect(
+      screen.queryByRole("group", { name: "Open polygon" }),
+    ).not.toBeInTheDocument();
   });
 
   it("reorders z-index deterministically and renders the exact human review", async () => {
@@ -311,6 +567,7 @@ describe("Human Region Annotation Workspace", () => {
       screen.getByRole("button", { name: /v1.*superseded/i }),
     );
     expect(await screen.findByText(/Historical snapshot · read-only/i)).toBeVisible();
+    expect(document.title).toBe("Region History — PaintPilot");
     expect(screen.getByLabelText("Displayed RegionSet status")).toHaveTextContent(
       `v1 · ${historical.id}`,
     );
@@ -348,6 +605,7 @@ describe("Human Region Annotation Workspace", () => {
     expect(await screen.findByLabelText("Displayed RegionSet status")).toHaveTextContent(
       `v4 · ${forked.id}`,
     );
+    expect(document.title).toBe("Region Annotation — PaintPilot");
     expect(
       screen.getByRole("button", { name: "Submit saved draft" }),
     ).toBeEnabled();
@@ -463,6 +721,34 @@ describe("Human Region Annotation Workspace", () => {
         level: 1,
       }),
     ).toHaveFocus();
+    expect(document.title).toBe("Project Not Found — PaintPilot");
     expect(fetchMock()).not.toHaveBeenCalled();
+  });
+
+  it("keeps a safe owner-scoped 404 title after the asynchronous response", async () => {
+    fetchMock().mockResolvedValue(
+      jsonResponse(
+        {
+          error_code: "PAINT_PROJECT_NOT_FOUND",
+          category: "NOT_FOUND",
+          message: "The resource was not found.",
+          retryable: false,
+          request_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          current_state: null,
+          allowed_actions: [],
+          safe_details: {},
+        },
+        404,
+      ),
+    );
+    renderWorkspace();
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "This project is unavailable",
+        level: 1,
+      }),
+    ).toBeInTheDocument();
+    expect(document.title).toBe("Project Not Found — PaintPilot");
   });
 });

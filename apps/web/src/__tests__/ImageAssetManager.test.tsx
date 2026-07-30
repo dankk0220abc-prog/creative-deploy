@@ -406,6 +406,80 @@ describe("ImageSet workbench", () => {
     expect(submit).toBeDisabled();
   });
 
+  it.each([
+    [
+      "REJECTED_DIMENSIONS",
+      "shortest side is at least 768 px",
+    ],
+    ["REJECTED_TOO_LARGE", "no larger than 20 MiB"],
+    ["REJECTED_PIXEL_LIMIT", "no more than 40,000,000 total pixels"],
+    ["REJECTED_UNSUPPORTED_FORMAT", "static JPEG, PNG, or WebP"],
+    ["REJECTED_CONTENT_TYPE_MISMATCH", "mismatched file bytes"],
+    ["REJECTED_CORRUPT", "Export the image again"],
+  ])(
+    "maps server upload rejection %s to actionable safe guidance",
+    async (errorCode, expectedGuidance) => {
+      renderManager();
+      const user = userEvent.setup();
+      const backCard = (
+        await screen.findByRole("heading", { name: "Reference back" })
+      ).closest("article");
+      expect(backCard).not.toBeNull();
+      await user.click(
+        within(backCard as HTMLElement).getByRole("button", {
+          name: "Add this role",
+        }),
+      );
+      await completeDeclaration(user);
+      fetchMock().mockResolvedValueOnce(
+        jsonResponse(
+          errorEnvelope({
+            category: "VALIDATION_ERROR",
+            error_code: errorCode,
+            message: "Untrusted server prose.",
+            safe_details: { reason: errorCode.toLowerCase() },
+          }),
+          errorCode === "REJECTED_TOO_LARGE" ? 413 : 422,
+        ),
+      );
+
+      await user.click(
+        screen.getByRole("button", { name: "Store Reference back" }),
+      );
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        expectedGuidance,
+      );
+      expect(screen.getByRole("alert")).not.toHaveTextContent(
+        "Untrusted server prose",
+      );
+    },
+  );
+
+  it("keeps rights confirmation and the full upload envelope actionable", async () => {
+    renderManager();
+    const user = userEvent.setup();
+    const backCard = (
+      await screen.findByRole("heading", { name: "Reference back" })
+    ).closest("article");
+    await user.click(
+      within(backCard as HTMLElement).getByRole("button", {
+        name: "Add this role",
+      }),
+    );
+    const file = new File(["safe-image"], "reference.png", {
+      type: "image/png",
+    });
+    await user.upload(screen.getByLabelText("Image file"), file);
+    await user.click(
+      screen.getByRole("button", { name: "Store Reference back" }),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Confirm the source, rights, and intended-use declaration.",
+    );
+    expect(screen.getByText(/40,000,000 pixels and 20 MiB max/i)).toBeInTheDocument();
+  });
+
   it("requires a NOT READY reason and prevents repeated review submit", async () => {
     const pending = deferred<Response>();
     renderManager(completeImageSet());

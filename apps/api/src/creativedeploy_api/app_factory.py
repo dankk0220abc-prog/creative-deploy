@@ -7,6 +7,10 @@ from fastapi import FastAPI
 
 from creativedeploy_api.api.error_handlers import register_error_handlers
 from creativedeploy_api.api.router import api_router
+from creativedeploy_api.api.security_middleware import (
+    ExactTrustedHostMiddleware,
+    PrivateApiNoStoreMiddleware,
+)
 from creativedeploy_api.core.config import Settings, get_settings
 from creativedeploy_api.core.principal import ConfiguredDemoPrincipalAdapter
 from creativedeploy_api.db.engine import create_database_engine
@@ -40,6 +44,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = resolved_settings
     app.state.image_storage = image_storage
     app.state.principal_adapter = principal_adapter
+    app.add_middleware(
+        ExactTrustedHostMiddleware,
+        allowed_hosts=list(resolved_settings.trusted_hosts),
+    )
+    app.add_middleware(PrivateApiNoStoreMiddleware)
     register_error_handlers(app)
     app.include_router(api_router)
     return app

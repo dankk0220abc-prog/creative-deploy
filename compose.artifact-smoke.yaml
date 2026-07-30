@@ -1,0 +1,107 @@
+x-smoke-labels: &smoke-labels
+  io.creativedeploy.runtime: LOCAL_PRODUCTION_STYLE_SMOKE
+  io.creativedeploy.production: NOT_REAL_PRODUCTION
+  io.creativedeploy.run-id: ${SMOKE_RUN_ID:?SMOKE_RUN_ID is required}
+
+x-api-environment: &api-environment
+  APP_ENV: test
+  APP_NAME: CreativeDeploy API
+  APP_VERSION: 0.1.0
+  DATABASE_URL: postgresql+psycopg://${SMOKE_DATABASE_USER:?required}:${SMOKE_DATABASE_PASSWORD:?required}@postgres:5432/${SMOKE_DATABASE_NAME:?required}
+  DATABASE_HEALTH_TIMEOUT_SECONDS: "2"
+  DATABASE_LOCK_TIMEOUT_MS: "2000"
+  DATABASE_STATEMENT_TIMEOUT_MS: "5000"
+  IMAGE_STORAGE_PROVIDER: local_filesystem
+  IMAGE_STORAGE_ROOT: /var/lib/creativedeploy/private-images
+  IMAGE_UPLOAD_MAX_BYTES: "20971520"
+  IMAGE_MIN_SIDE_PX: "768"
+  IMAGE_MAX_SIDE_PX: "8192"
+  IMAGE_MAX_PIXELS: "40000000"
+  PAINTPILOT_DEMO_PRINCIPAL_ID: ${SMOKE_PRINCIPAL_ID:-phase2a1-owner-a}
+  PAINTPILOT_DEMO_PRINCIPAL_DISPLAY_NAME: ${SMOKE_PRINCIPAL_DISPLAY_NAME:-Phase 2A-1 Owner A}
+  TRUSTED_HOSTS: '["localhost","127.0.0.1"]'
+
+services:
+  postgres:
+    image: postgres:17.10-alpine3.24@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    labels: *smoke-labels
+    environment:
+      POSTGRES_USER: ${SMOKE_DATABASE_USER:?required}
+      POSTGRES_PASSWORD: ${SMOKE_DATABASE_PASSWORD:?required}
+      POSTGRES_DB: ${SMOKE_DATABASE_NAME:?required}
+    volumes:
+      - phase2a1_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      start_period: 10s
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: migration
+    labels: *smoke-labels
+    environment: *api-environment
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: runtime
+    labels: *smoke-labels
+    environment: *api-environment
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    volumes:
+      - phase2a1_private_images:/var/lib/creativedeploy/private-images
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: runtime
+      args:
+        VITE_RUNTIME_PROFILE: artifact-smoke
+    labels: *smoke-labels
+    ports:
+      - "127.0.0.1:${ARTIFACT_SMOKE_PORT:-0}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+      - /var/cache/nginx:rw,noexec,nosuid,size=32m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  phase2a1_postgres:
+    labels: *smoke-labels
+  phase2a1_private_images:
+    labels: *smoke-labels

@@ -1,0 +1,47 @@
+evidence_index_format: CreativeDeploy Phase 2A-1 remediation evidence v1
+generated_at: 2026-07-31T02:30:00+08:00
+scope_rule: all regular files in this directory except evidence-index.txt
+columns: bytes | sha256 | repository-relative-path
+6917 | aaba67de7dc3b54b2e5b786a54f92a473fd543a271d781a95501eb24969c0e61 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/01-upload-error-dom.txt
+330267 | 85a26cfc30fd7d4d15d124453e2238955374723b21c65dc1caa959882aca6d27 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/01-upload-error.jpeg
+8192 | aa6aab73482616fdf5597210e9843ce31af4551c25646fc5c3fcbc2709ef6ca8 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/02-ready-image-set-dom.txt
+453285 | f8a9ab769816bfdb50bc9322cd0c735464ea7aefaac69a80d40ca6ba3411a9e3 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/02-ready-image-set.jpeg
+3053 | 2e4ec7d533eaccb8eb3f779e30b4e67a1c045b35715d4331fda18e5e017d895e | docs/progress/evidence/phase-2a-1/remediation-final-20260731/03-live-selected-regions-dom.txt
+73083 | 25eec5c577a0deade5f47623966ef5cf3f1f8ededf9bcd795aae80b9480af9ba | docs/progress/evidence/phase-2a-1/remediation-final-20260731/03-live-selected-regions.jpeg
+1587 | b3a49f5c8519e9ee2b8e71df67797c90f969472699b20cc7824731fad37206e2 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/03-live-svg-facts.json
+3048 | 94643bb6834f9f449e95f8d5bde96241ef37583dd36637469a82dfa103a3ded9 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/04-live-paint-selected-dom.txt
+414 | 1841ca03df882d1ec55ad2988d3dc439ea831b75e11e33664b850f6d71125e4a | docs/progress/evidence/phase-2a-1/remediation-final-20260731/04-live-paint-selected-facts.json
+77381 | 70edd9ea30502d79341a0f656b5b7245dd78315904b8b6c68f2cc9d13806a4d2 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/04-live-paint-selected.jpeg
+69739 | 036d7033710cfb8cfec15fafc73e22d53a62dc4cf33f07d962639be4569a3949 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/05-live-zoom.jpeg
+3262 | b9cafadd1dc6e3a279b208f4f1f9990ac58773a3b541cd81ae9b82cf790cfd02 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/06-restart-deeplink-restored-dom.txt
+69004 | ad6ce7c17921fa4d4392b2d10d3efb9b24f4ece51c867454b054883b100d11dc | docs/progress/evidence/phase-2a-1/remediation-final-20260731/06-restart-deeplink-restored.jpeg
+73787 | e38e6f415f04ddd64811f6319ec5aa378b9d9031b157d8a6ac222f2372dfbb14 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/07-opacity-30-percent.jpeg
+255 | 6b1dfa2e6c31023838dd4f84271a97c28a7eaeb434e21650403e69173520275c | docs/progress/evidence/phase-2a-1/remediation-final-20260731/07-opacity-boundaries.json
+3251 | 0a64837a12d25d0217e04d11c67fbc79eb36d5afd04b2d36ca6d9747bfb7a6cc | docs/progress/evidence/phase-2a-1/remediation-final-20260731/07-opacity-final-dom.txt
+3749 | 5d3a56a54fbeb533ba11859943abfa650260ebcdf1e52c2108330da0d07e4d7a | docs/progress/evidence/phase-2a-1/remediation-final-20260731/08-historical-v1-readonly-dom.txt
+72946 | d129ea2c67cb08135b5ba1f74c0aa3ccd22864a87922da6ebec7fbfed2a60f37 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/08-historical-v1-readonly.jpeg
+3959 | aeb8883f6adb4042d28c707bababeacd8affac03feeaf6220e5233e4fdf683c0 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/09-submitted-v3-dom.txt
+75623 | d804f743b659edf7f08adc7d3c9502d8e17c4ee84303f34d91d3ef45a86c5920 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/09-submitted-v3.jpeg
+7150 | 02c998c0a1295b4c0fdadeefe2a6059d7a5972c7cd34d7d8492bcf4b8722ec94 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/10-live-svg-browser-raster-pixels.json
+83843 | bf29cc14e17188d5c4581752808cad30d788b92b1fdeb8f9034832055df7d9ab | docs/progress/evidence/phase-2a-1/remediation-final-20260731/10-live-svg-browser-raster.jpeg
+1106 | 191198b76af1ce92c99d0bfcd1a2f20cdba4aced83baf639a571211137bc122c | docs/progress/evidence/phase-2a-1/remediation-final-20260731/10-live-svg-computed-polygons.json
+2552 | 81a97fcf55a645b4e69871842e89f8a59f9a1b68484dab40d92ecbe3d963adcf | docs/progress/evidence/phase-2a-1/remediation-final-20260731/10-live-svg-dom-facts.json
+277753 | e0cd07f58a9d02d4a13e87e73d5caf7fc893d4ac0e66638540f8792bc7893c11 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/10-live-svg-element-crop.png
+1429 | eac03830b70aa6d8b73a93e33a7340b00b8346435448ef00f01b31e403a8ceff | docs/progress/evidence/phase-2a-1/remediation-final-20260731/10-live-svg-outerhtml.svg
+945 | dc8e835ee8b117bdebbea77ef5f94ff714106aa8aad758eadfb62ee8c1c9edb9 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/11-owner-b-safe-404-dom.txt
+33606 | 9054a6d5cfaf4b3e9cf7367f1d7073109a1bfaa7bd15d36b76db96d0cd362f35 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/11-owner-b-safe-404.jpeg
+3959 | aeb8883f6adb4042d28c707bababeacd8affac03feeaf6220e5233e4fdf683c0 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/12-owner-a-restored-dom.txt
+95764 | 8ea8d61d0b10bc985070abb21ab0f9f9b8ac4b5db2a0c5d4fe89f65af1641d2b | docs/progress/evidence/phase-2a-1/remediation-final-20260731/12-owner-a-restored.jpeg
+4210 | da38e52f6f87682071232339543819bec192fa81cd2a917ec9bfde744cdb6ae2 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/13-mobile-320-dom.txt
+4224 | fcc97f86b37a1bc997f9f1eb69b195320ecd434cedf044ecb837bfe407c894e0 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/13-mobile-320-first-point-dom.txt
+152 | 5b05d2e6433ef3d3c193654bf5b4a385af2181b9f9725492552c362cbd2bb112 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/13-mobile-320-first-point-facts.json
+34625 | 614b2b3f14cea059381e7a5fe541bed1b09f3fd6e47727fd2fbd1aa9faae6b8a | docs/progress/evidence/phase-2a-1/remediation-final-20260731/13-mobile-320-first-point.jpeg
+38193 | 2c3357bf7ab7ec3fdc4728b51d18afb8f65dcd31f3c7b97ba386f0637dc9be21 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/13-mobile-320.jpeg
+4087 | 2a7987793e58898bc8bc3fb863aa09f8aebf5f07fcfe1bb26c84a260ff4f6372 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/14-mobile-375-dom.txt
+40287 | a375485b6c14cac34c6704802d1a782d967f2eae6e34582ef96700efc874f051 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/14-mobile-375.jpeg
+4087 | 2a7987793e58898bc8bc3fb863aa09f8aebf5f07fcfe1bb26c84a260ff4f6372 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/15-mobile-390-dom.txt
+40091 | a0e4b6a16fcf3bb21eca6de1099f13a9afd976301b37dc3522b58b6203685ba4 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/15-mobile-390.jpeg
+1614 | 161bf00c35863961385793f6028109e5bd8e6346e025268d4d4e501469fdc28b | docs/progress/evidence/phase-2a-1/remediation-final-20260731/16-browser-network-summary.txt
+1459 | 07a07766e1f7c4187bdb11a2007d3b1b501b94eb6c0a2f50cfc807c14517f43f | docs/progress/evidence/phase-2a-1/remediation-final-20260731/17-http-security-probes.txt
+5105 | 11f3062319c8bab1dff2e43eaf010bb1d16f167a4fdd270494760f43b00b94ca | docs/progress/evidence/phase-2a-1/remediation-final-20260731/18-validation-and-cleanup-summary.txt
+3257 | 082f68fe0bcb04a4ed09780e29a8db6130327523d3c2233532830a45527972fe | docs/progress/evidence/phase-2a-1/remediation-final-20260731/browser-metadata.json

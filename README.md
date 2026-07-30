@@ -380,6 +380,38 @@ make web
 
 ## Quality and Tests
 
+## Local Production-Style Artifact
+
+Phase 2A-1 adds a repeatable, explicitly non-production deployment spine:
+
+```bash
+make artifact-build
+make artifact-smoke
+make supply-chain-check
+```
+
+`compose.artifact-smoke.yaml` runs the production-built Web/NGINX and API images
+against an isolated PostgreSQL database and private local volume. Only the Web
+proxy is published, on `127.0.0.1:18080` by default. The profile is labelled
+`LOCAL_PRODUCTION_STYLE_SMOKE` and `NOT_REAL_PRODUCTION`; it is not a real
+deployment, does not provide authentication or external object storage, and
+does not weaken the application's production refusal of the Demo Principal and
+local-filesystem storage.
+
+Configuration has one local-development database source of truth:
+`POSTGRES_HOST`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, and
+`POSTGRES_PORT` in the selected environment file. Settings derives
+`DATABASE_URL` from that complete set and rejects a conflicting explicit URL.
+Production uses an injected `DATABASE_URL`. Existing private `.env` files are
+never overwritten automatically; see
+`docs/runbooks/local-production-style.md` for the manual drift check and
+migration procedure.
+
+The local HTTP proxy supplies same-origin `/api/`, SPA deep-link fallback,
+private/no-store responses, immutable caching for hashed assets, a no-store
+HTML shell, host allowlisting, a request-size boundary, and baseline security
+headers. HSTS is intentionally absent because this profile has no real TLS.
+
 PostgreSQL 运行时执行完整检查：
 
 ```bash
@@ -460,7 +492,8 @@ implementation seal `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d` 封存；这不�
 
 ## Known Limitations
 
-- 仅支持本机开发，不包含 API/Web Dockerfile、CI 或生产部署；
+- Phase 2A-1 提供本地 production-style artifact 和 CI 基础，但仍不是
+  production-ready 或真实生产部署；
 - Commit 10 和 UX remediation commit 已存在，但 Commit 10 创建前没有可用的正式仓库
   approval record；后续复审不构成倒填批准；
 - Phase 1D-3 技术 remediation 与 governance reconciliation 均已封存，Phase 1D-3 当前为
@@ -479,9 +512,12 @@ implementation seal `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d` 封存；这不�
   且本阶段不自行引入 localStorage 持久化协议；
 - 项目详情中的项目字段仍只读；图片工作台只处理人选角色、attestation、私有预览、
   版本历史与 readiness review，不包含 ImageQualityAssessment、自动视角识别或质量评分；
-- Human Polygon/RegionSet candidate 已实现但未独立批准；自动分割、自动标签和自动区域
+- Human Polygon/RegionSet 已封存为 Phase 1F `CLOSED`；自动分割、自动标签和自动区域
   分析仍未实现；
-- 未配置 CORS，开发访问依赖 Vite Proxy；
+- 本地 artifact 依赖同源 NGINX `/api/` 代理，开发访问依赖 Vite Proxy；不提供跨域
+  公共 API；
+- 尚未选择真实认证 Provider、外部对象存储、域名或 TLS 终止方式；Demo Principal 和
+  local filesystem storage 均被 production 模式拒绝；
 - 未实现图片质量评估、AI、RAG、完整 Trace、HumanApproval、后台任务或 Redis。
 
 ## 素材使用边界

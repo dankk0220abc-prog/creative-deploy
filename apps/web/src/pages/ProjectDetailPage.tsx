@@ -311,13 +311,13 @@ export function ProjectDetailPage() {
               <span />
             </div>
             <div>
-              <p className="eyebrow">Next governed boundary</p>
+              <p className="eyebrow">Human-governed workspace</p>
               <h2 id="next-boundary-heading">Human region annotation workspace</h2>
               <p>
-                Draw simple polygons over the current primary image, save immutable
-                RegionSet snapshots, and record a human review. Subject recognition,
-                inventory matching, and PaintPlan generation remain outside this
-                boundary.
+                The current release supports drawing simple polygons over the primary
+                image, saving immutable RegionSet snapshots, browsing history, and
+                recording exact-snapshot human reviews. Subject recognition, inventory
+                matching, and PaintPlan generation remain outside this boundary.
               </p>
               <Link
                 className="button button--primary next-boundary__action"

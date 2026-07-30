@@ -55,6 +55,7 @@ def _response(
     return JSONResponse(
         status_code=status_code,
         content=payload.model_dump(mode="json"),
+        headers={"Cache-Control": "no-store"},
     )
 
 

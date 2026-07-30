@@ -1,12 +1,12 @@
 services:
   postgres:
-    image: postgres:17.10-alpine3.24
+    image: postgres:17.10-alpine3.24@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-creativedeploy}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-creativedeploy_dev_password}
       POSTGRES_DB: ${POSTGRES_DB:-creativedeploy}
     ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-55432}:5432"
     volumes:
       - creativedeploy_postgres_data:/var/lib/postgresql/data
     healthcheck:

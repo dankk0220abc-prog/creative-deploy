@@ -1,5 +1,6 @@
 import {
   type ChangeEvent,
+  type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent,
@@ -43,6 +44,9 @@ const regionColors = [
 ];
 
 interface RegionAnnotationWorkspaceProps {
+  onViewStateChange?: (
+    state: "current" | "error" | "historical" | "loading" | "not_found",
+  ) => void;
   projectId: string;
 }
 
@@ -142,18 +146,37 @@ function makeRegion(vertices: Point[], zIndex: number): RegionDraftInput {
 function exactPoint(
   event: Pick<ReactPointerEvent<SVGSVGElement>, "clientX" | "clientY">,
   svg: SVGSVGElement,
-  viewBox: typeof defaultViewBox,
-): Point {
-  const bounds = svg.getBoundingClientRect();
-  const x = viewBox.x + ((event.clientX - bounds.left) / bounds.width) * viewBox.width;
-  const y = viewBox.y + ((event.clientY - bounds.top) / bounds.height) * viewBox.height;
+): Point | null {
+  const screenTransform = svg.getScreenCTM();
+  if (screenTransform === null) {
+    return null;
+  }
+  const screenPoint = svg.createSVGPoint();
+  screenPoint.x = event.clientX;
+  screenPoint.y = event.clientY;
+  const canvasPoint = screenPoint.matrixTransform(screenTransform.inverse());
+  if (!Number.isFinite(canvasPoint.x) || !Number.isFinite(canvasPoint.y)) {
+    return null;
+  }
   return {
-    x_ppm: Math.max(0, Math.min(PPM_MAX, Math.round(x))),
-    y_ppm: Math.max(0, Math.min(PPM_MAX, Math.round(y))),
+    x_ppm: Math.max(0, Math.min(PPM_MAX, Math.round(canvasPoint.x))),
+    y_ppm: Math.max(0, Math.min(PPM_MAX, Math.round(canvasPoint.y))),
   };
 }
 
+function isInteractiveCanvasTarget(
+  target: EventTarget | null,
+  svg: SVGSVGElement,
+): boolean {
+  return (
+    target !== svg &&
+    target instanceof Element &&
+    target.closest('[data-region-interactive="true"]') !== null
+  );
+}
+
 export function RegionAnnotationWorkspace({
+  onViewStateChange,
   projectId,
 }: RegionAnnotationWorkspaceProps) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
@@ -253,6 +276,38 @@ export function RegionAnnotationWorkspace({
       headingRef.current.focus({ preventScroll: true });
     }
   }, [state.status]);
+
+  useLayoutEffect(() => {
+    if (state.status === "loading" || (currentRegionSet !== null && viewedRegionSet === null)) {
+      onViewStateChange?.("loading");
+      return;
+    }
+    if (state.status === "error") {
+      onViewStateChange?.(
+        state.error.kind === "not_found" ? "not_found" : "error",
+      );
+      return;
+    }
+    if (
+      workbench === null ||
+      workbench.source_content_url === null ||
+      workbench.source_image_width === null ||
+      workbench.source_image_height === null
+    ) {
+      onViewStateChange?.("error");
+      return;
+    }
+    onViewStateChange?.(
+      commandTargets.isViewingHistoricalSnapshot ? "historical" : "current",
+    );
+  }, [
+    commandTargets.isViewingHistoricalSnapshot,
+    currentRegionSet,
+    onViewStateChange,
+    state,
+    viewedRegionSet,
+    workbench,
+  ]);
 
   const commitRegions = useCallback(
     (next: RegionDraftInput[]) => {
@@ -562,11 +617,16 @@ export function RegionAnnotationWorkspace({
   }
 
   function canvasPointerDown(event: ReactPointerEvent<SVGSVGElement>) {
-    const svg = svgRef.current;
-    if (svg === null) {
+    const svg = event.currentTarget;
+    if (
+      svgRef.current !== svg ||
+      event.isPrimary === false ||
+      (event.pointerType === "mouse" && event.button !== 0)
+    ) {
       return;
     }
     if (tool === "pan") {
+      event.preventDefault();
       setPanStart({
         clientX: event.clientX,
         clientY: event.clientY,
@@ -575,14 +635,22 @@ export function RegionAnnotationWorkspace({
       svg.setPointerCapture(event.pointerId);
       return;
     }
-    if (tool === "draw" && editable && event.target === svg) {
-      setDrawing((points) => [...points, exactPoint(event, svg, viewBox)]);
+    if (
+      tool === "draw" &&
+      editable &&
+      !isInteractiveCanvasTarget(event.target, svg)
+    ) {
+      const point = exactPoint(event, svg);
+      if (point !== null) {
+        event.preventDefault();
+        setDrawing((points) => [...points, point]);
+      }
     }
   }
 
   function canvasPointerMove(event: ReactPointerEvent<SVGSVGElement>) {
-    const svg = svgRef.current;
-    if (svg === null) {
+    const svg = event.currentTarget;
+    if (svgRef.current !== svg || event.isPrimary === false) {
       return;
     }
     if (panStart !== null) {
@@ -601,7 +669,11 @@ export function RegionAnnotationWorkspace({
       return;
     }
     if (draggingVertex !== null && editable) {
-      const point = exactPoint(event, svg, viewBox);
+      const point = exactPoint(event, svg);
+      if (point === null) {
+        return;
+      }
+      event.preventDefault();
       setRegions((current) =>
         current.map((region) =>
           region.stable_region_key === draggingVertex.key
@@ -664,6 +736,14 @@ export function RegionAnnotationWorkspace({
     }));
   }
 
+  function opacityInput(event: FormEvent<HTMLInputElement>) {
+    const value = Math.round(Number(event.currentTarget.value) * 10_000);
+    updateSelected((region) => ({
+      ...region,
+      opacity_ppm: value,
+    }));
+  }
+
   function moveSelected(offset: -1 | 1) {
     const targetIndex = selectedIndex + offset;
     if (
@@ -705,6 +785,21 @@ export function RegionAnnotationWorkspace({
   }
 
   if (state.status === "error") {
+    if (state.error.kind === "not_found") {
+      return (
+        <FeedbackPanel
+          eyebrow="Region workspace not found"
+          heading="This project is unavailable"
+          headingLevel={1}
+          kind="error"
+        >
+          <p>
+            The project may not exist or may belong to another operator. The same safe
+            not-found response is used for both cases.
+          </p>
+        </FeedbackPanel>
+      );
+    }
     return (
       <FeedbackPanel
         action={{ label: "Retry workspace", onClick: load }}
@@ -878,108 +973,153 @@ export function RegionAnnotationWorkspace({
       </div>
 
       <div className="region-workspace__grid">
-        <div
-          className={`region-canvas region-canvas--${tool}`}
-          style={{
-            aspectRatio: `${presentedImageWidth} / ${presentedImageHeight}`,
-          }}
-        >
-          <svg
-            aria-label="Private primary image with region overlay"
-            onPointerDown={canvasPointerDown}
-            onPointerMove={canvasPointerMove}
-            onPointerUp={canvasPointerUp}
-            onWheel={canvasWheel}
-            preserveAspectRatio="none"
-            ref={svgRef}
-            role="img"
-            viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
+        <div className={`region-canvas region-canvas--${tool}`}>
+          <div
+            className="region-canvas__surface"
+            style={{
+              aspectRatio: `${presentedImageWidth} / ${presentedImageHeight}`,
+            }}
           >
-            <image
-              height={PPM_MAX}
-              href={presentedContentUrl}
-              pointerEvents="none"
+            <svg
+              aria-label="Private primary image with region overlay"
+              height="100%"
+              onPointerDown={canvasPointerDown}
+              onPointerMove={canvasPointerMove}
+              onPointerUp={canvasPointerUp}
+              onWheel={canvasWheel}
               preserveAspectRatio="none"
-              width={PPM_MAX}
-            />
-            {regions.map((region, regionIndex) =>
-              hiddenKeys.has(region.stable_region_key) ? null : (
-                <g
-                  key={region.stable_region_key}
-                  pointerEvents={tool === "draw" ? "none" : "auto"}
-                >
-                  <polygon
-                    aria-label={`${region.label} region`}
-                    fill={regionColors[regionIndex % regionColors.length]}
-                    fillOpacity={region.opacity_ppm / PPM_MAX}
-                    onPointerDown={(event) => {
-                      event.stopPropagation();
-                      setSelectedKey(region.stable_region_key);
-                      setSelectedVertex(null);
-                    }}
-                    points={region.vertices
-                      .map((vertex) => `${vertex.x_ppm},${vertex.y_ppm}`)
-                      .join(" ")}
-                    stroke={
-                      region.stable_region_key === selectedKey ? "#ffffff" : "#102128"
-                    }
-                    strokeWidth={Math.max(2500, viewBox.width / 260)}
-                    vectorEffect="non-scaling-stroke"
+              ref={svgRef}
+              role="img"
+              viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
+              width="100%"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <image
+                aria-hidden="true"
+                height={PPM_MAX}
+                href={presentedContentUrl}
+                preserveAspectRatio="none"
+                width={PPM_MAX}
+                x="0"
+                y="0"
+              />
+              <defs>
+                {regions.map((region, regionIndex) =>
+                  region.kind === "exclude" ? (
+                    <pattern
+                      height="24000"
+                      id={`exclude-pattern-${region.stable_region_key}`}
+                      key={region.stable_region_key}
+                      patternUnits="userSpaceOnUse"
+                      width="24000"
+                    >
+                      <rect
+                        fill={regionColors[regionIndex % regionColors.length]}
+                        fillOpacity={region.opacity_ppm / PPM_MAX}
+                        height="24000"
+                        width="24000"
+                      />
+                      <path
+                        d="M -6000 6000 L 6000 -6000 M 0 24000 L 24000 0 M 18000 30000 L 30000 18000"
+                        stroke="#102128"
+                        strokeOpacity={region.opacity_ppm / PPM_MAX}
+                        strokeWidth="5000"
+                      />
+                    </pattern>
+                  ) : null,
+                )}
+              </defs>
+              {regions.map((region, regionIndex) =>
+                hiddenKeys.has(region.stable_region_key) ? null : (
+                  <g
+                    key={region.stable_region_key}
+                    pointerEvents={tool === "draw" ? "none" : "auto"}
+                  >
+                    <polygon
+                      aria-label={`${region.label} region`}
+                      data-region-interactive="true"
+                      data-region-kind={region.kind}
+                      data-selected={region.stable_region_key === selectedKey}
+                      fill={
+                        region.kind === "exclude"
+                          ? `url(#exclude-pattern-${region.stable_region_key})`
+                          : regionColors[regionIndex % regionColors.length]
+                      }
+                      fillOpacity={
+                        region.kind === "exclude"
+                          ? 1
+                          : region.opacity_ppm / PPM_MAX
+                      }
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                        setSelectedKey(region.stable_region_key);
+                        setSelectedVertex(null);
+                      }}
+                      points={region.vertices
+                        .map((vertex) => `${vertex.x_ppm},${vertex.y_ppm}`)
+                        .join(" ")}
+                      stroke={
+                        region.stable_region_key === selectedKey ? "#ffffff" : "#102128"
+                      }
+                      strokeWidth={Math.max(2500, viewBox.width / 260)}
+                    />
+                    {tool === "edit" &&
+                    editable &&
+                    region.stable_region_key === selectedKey
+                      ? region.vertices.map((vertex, index) => (
+                          <circle
+                            aria-label={`${region.label} vertex ${index + 1}`}
+                            cx={vertex.x_ppm}
+                            cy={vertex.y_ppm}
+                            data-region-interactive="true"
+                            fill={selectedVertex === index ? "#d2a45f" : "#ffffff"}
+                            key={`${region.stable_region_key}:${index}`}
+                            onPointerDown={(event) => {
+                              event.stopPropagation();
+                              setSelectedVertex(index);
+                              dragStartSnapshotRef.current =
+                                snapshotFingerprint(regions);
+                              setDraggingVertex({
+                                key: region.stable_region_key,
+                                index,
+                              });
+                              svgRef.current?.setPointerCapture(event.pointerId);
+                            }}
+                            r={Math.max(7000, viewBox.width / 95)}
+                            stroke="#102128"
+                            strokeWidth={2500}
+                          />
+                        ))
+                      : null}
+                  </g>
+                ),
+              )}
+              {drawing.length > 0 ? (
+                <g pointerEvents="none">
+                  <polyline
+                    fill="none"
+                    points={drawing.map((point) => `${point.x_ppm},${point.y_ppm}`).join(" ")}
+                    stroke="#ffffff"
+                    strokeDasharray="12000 9000"
+                    strokeWidth={Math.max(3500, viewBox.width / 220)}
                   />
-                  {tool === "edit" &&
-                  editable &&
-                  region.stable_region_key === selectedKey
-                    ? region.vertices.map((vertex, index) => (
-                        <circle
-                          aria-label={`${region.label} vertex ${index + 1}`}
-                          cx={vertex.x_ppm}
-                          cy={vertex.y_ppm}
-                          fill={selectedVertex === index ? "#d2a45f" : "#ffffff"}
-                          key={`${region.stable_region_key}:${index}`}
-                          onPointerDown={(event) => {
-                            event.stopPropagation();
-                            setSelectedVertex(index);
-                            dragStartSnapshotRef.current =
-                              snapshotFingerprint(regions);
-                            setDraggingVertex({
-                              key: region.stable_region_key,
-                              index,
-                            });
-                            svgRef.current?.setPointerCapture(event.pointerId);
-                          }}
-                          r={Math.max(7000, viewBox.width / 95)}
-                          stroke="#102128"
-                          strokeWidth={2500}
-                          vectorEffect="non-scaling-stroke"
-                        />
-                      ))
-                    : null}
+                  {drawing.map((point, index) => (
+                    <circle
+                      cx={point.x_ppm}
+                      cy={point.y_ppm}
+                      fill="#d2a45f"
+                      key={`${point.x_ppm}:${point.y_ppm}:${index}`}
+                      r={Math.max(7000, viewBox.width / 95)}
+                    />
+                  ))}
                 </g>
-              ),
-            )}
-            {drawing.length > 0 ? (
-              <g pointerEvents="none">
-                <polyline
-                  fill="none"
-                  points={drawing.map((point) => `${point.x_ppm},${point.y_ppm}`).join(" ")}
-                  stroke="#ffffff"
-                  strokeDasharray="12000 9000"
-                  strokeWidth={Math.max(3500, viewBox.width / 220)}
-                />
-                {drawing.map((point, index) => (
-                  <circle
-                    cx={point.x_ppm}
-                    cy={point.y_ppm}
-                    fill="#d2a45f"
-                    key={`${point.x_ppm}:${point.y_ppm}:${index}`}
-                    r={Math.max(7000, viewBox.width / 95)}
-                  />
-                ))}
-              </g>
-            ) : null}
-          </svg>
+              ) : null}
+            </svg>
+          </div>
           <p className="region-canvas__mobile-note">
-            On a narrow screen, use Pan and Fit image to inspect the full canvas.
+            <strong>Small-screen editing is limited.</strong> Use Pan and Fit image to
+            inspect the complete canvas; saved Polygon data and history remain
+            available. Use a larger screen for precise vertex placement.
           </p>
         </div>
 
@@ -1091,7 +1231,7 @@ export function RegionAnnotationWorkspace({
                   disabled={!editable}
                   max="100"
                   min="10"
-                  onChange={(event) => fieldChange("opacity_ppm", event)}
+                  onInput={opacityInput}
                   step="1"
                   type="range"
                   value={selected.opacity_ppm / 10_000}

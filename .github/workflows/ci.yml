@@ -1,0 +1,66 @@
+name: Candidate CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: candidate-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17.10-alpine3.24@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+        env:
+          POSTGRES_USER: creativedeploy_ci_${{ github.run_id }}_${{ github.run_attempt }}
+          POSTGRES_PASSWORD: synthetic_ci_${{ github.run_id }}_${{ github.run_attempt }}_password
+          POSTGRES_DB: creativedeploy_ci_${{ github.run_id }}_${{ github.run_attempt }}
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      RUN_ID: ci_${{ github.run_id }}_${{ github.run_attempt }}_${{ github.job }}
+      APP_ENV: test
+      DATABASE_URL: postgresql+psycopg://creativedeploy_ci_${{ github.run_id }}_${{ github.run_attempt }}:synthetic_ci_${{ github.run_id }}_${{ github.run_attempt }}_password@127.0.0.1:55432/creativedeploy_ci_${{ github.run_id }}_${{ github.run_attempt }}
+      IMAGE_STORAGE_PROVIDER: local_filesystem
+      IMAGE_STORAGE_ROOT: /tmp/creativedeploy-ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}-private-images
+      PAINTPILOT_DEMO_PRINCIPAL_ID: ci-demo-principal
+      PAINTPILOT_DEMO_PRINCIPAL_DISPLAY_NAME: CI Demo Principal
+      TRUSTED_HOSTS: '["localhost","127.0.0.1","testserver"]'
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          version: 0.11.30
+          enable-cache: true
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24.17.0
+          cache: pnpm
+
+      - run: corepack enable
+      - run: corepack prepare pnpm@11.14.0 --activate
+      - run: uv sync --project apps/api --all-groups --locked
+      - run: pnpm install --frozen-lockfile
+      - run: make check ENV_FILE=.env.example
+      - run: make migration-current migration-heads migration-history migration-check ENV_FILE=.env.example
+      - run: make artifact-test
+      - run: make artifact-build
+      - run: make artifact-smoke
+      - run: make supply-chain-check

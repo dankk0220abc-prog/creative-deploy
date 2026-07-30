@@ -15,12 +15,15 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "alembic>=1.18.5,<1.19.0",
     "httpx>=0.28.1,<0.29.0",
     "mypy>=2.3.0,<3.0.0",
+    "pip-audit>=2.10.1,<2.11.0",
     "pytest>=9.1.1,<10.0.0",
     "pytest-cov>=7.1.0,<8.0.0",
     "ruff>=0.15.22,<0.16.0",
+]
+migration = [
+    "alembic>=1.18.5,<1.19.0",
 ]
 
 [build-system]

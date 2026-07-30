@@ -950,7 +950,7 @@ def temporary_database() -> Iterator[TemporaryDatabase]:
 def test_temporary_database_name_validation_is_strict() -> None:
     safe_name = "creativedeploy_migration_test_0123456789abcdef"
     safe_owner_role = "creativedeploy_migration_owner_0123456789abcdef"
-    safe_token = "0123456789abcdef0123456789abcdef"
+    safe_token = "0123456789abcdef0123456789abcdef"  # gitleaks:allow
     _validate_temporary_database_name(
         safe_name,
         development_database="creativedeploy",

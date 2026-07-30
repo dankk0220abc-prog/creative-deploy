@@ -10,6 +10,7 @@ import { isPaintProjectId } from "../api/paintProjects";
 
 const PROJECTS_PATH = "/paintpilot/projects";
 const CREATE_PROJECT_PATH = "/paintpilot/projects/new";
+const isArtifactSmoke = import.meta.env.VITE_RUNTIME_PROFILE === "artifact-smoke";
 
 function navigationClassName(isActive: boolean): string {
   return isActive ? "shell-nav__link shell-nav__link--active" : "shell-nav__link";
@@ -29,6 +30,19 @@ function isProjectDetailPath(pathname: string): boolean {
   );
 }
 
+function isRegionWorkspacePath(pathname: string): boolean {
+  const normalizedPathname = normalizePathname(pathname);
+  const prefix = `${PROJECTS_PATH}/`;
+  if (!normalizedPathname.startsWith(prefix) || !normalizedPathname.endsWith("/regions")) {
+    return false;
+  }
+  const projectId = normalizedPathname.slice(
+    prefix.length,
+    -"/regions".length,
+  );
+  return projectId.length > 0 && !projectId.includes("/");
+}
+
 function titleForPath(pathname: string): string {
   const normalizedPathname = normalizePathname(pathname);
   if (normalizedPathname === PROJECTS_PATH) {
@@ -36,6 +50,15 @@ function titleForPath(pathname: string): string {
   }
   if (normalizedPathname === CREATE_PROJECT_PATH) {
     return "Create Project — PaintPilot";
+  }
+  if (isRegionWorkspacePath(normalizedPathname)) {
+    const projectId = normalizedPathname.slice(
+      PROJECTS_PATH.length + 1,
+      -"/regions".length,
+    );
+    return isPaintProjectId(projectId)
+      ? "Loading Region Workspace — PaintPilot"
+      : "Project Not Found — PaintPilot";
   }
   if (isProjectDetailPath(normalizedPathname)) {
     const projectId = normalizedPathname.slice(PROJECTS_PATH.length + 1);
@@ -68,7 +91,8 @@ export function AppShell() {
   const normalizedPathname = normalizePathname(location.pathname);
   const projectsIsCurrent =
     normalizedPathname === PROJECTS_PATH ||
-    isProjectDetailPath(normalizedPathname);
+    isProjectDetailPath(normalizedPathname) ||
+    isRegionWorkspacePath(normalizedPathname);
   const createProjectIsCurrent = normalizedPathname === CREATE_PROJECT_PATH;
 
   useLayoutEffect(() => {
@@ -176,6 +200,11 @@ export function AppShell() {
             operator, not public authentication.
           </span>
         </div>
+        {isArtifactSmoke ? (
+          <p className="workspace-footer__runtime-label">
+            LOCAL_PRODUCTION_STYLE_SMOKE · NOT_REAL_PRODUCTION
+          </p>
+        ) : null}
       </footer>
     </div>
   );

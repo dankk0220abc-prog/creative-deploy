@@ -1,0 +1,117 @@
+manifest_format: CreativeDeploy Phase 2A-1 remediation Candidate v2
+generated_at: 2026-07-31
+repository: /Users/danke/Developer/CreativeDeploy
+baseline_branch: main
+baseline_head: f0563dc1c5800f9d1ec35efaac77d169ab08c6da
+baseline_tree: 6a3a4b6d8ca2a73f4e62c4948f39239535e9949b
+baseline_commit_count: 21
+total_git_status_entries_including_manifest: 95
+candidate_payload_entry_count_excluding_manifest: 94
+tracked_modified_count: 24
+untracked_leaf_count_including_manifest: 71
+staged_path_count: 0
+manifest_file: docs/progress/phase-2a-1-candidate-manifest.txt
+manifest_self_hash_policy: excluded from payload entries to avoid recursive hashing; report manifest file SHA-256 externally
+scope_rule: exact git status --porcelain=v1 -z --untracked-files=all leaf paths, excluding only manifest_file
+columns: git_status | bytes | sha256 | repository-relative-path
+tracked_binary_patch_sha256: 4f2e6f6e566e132bcb477e140794f24660d628bccb8f9a683f3e55d7fa5cbdc7
+porcelain_v1_z_exact_byte_sha256: edabcdac0b7723f0b512b3b01544c9392684140d08c489f399cbbfacc184a59a
+migration_aggregate_sha256: b2b93eb84aa22792c5d645ca69e478f88270639d1af6c5e4ef71856903343188
+api_lockfile_sha256: 098bf7f8a84c5afe4334e3c1fba72746fc5c4fbb8c389a1a840543b28ff98e21  # gitleaks:allow
+web_lockfile_sha256: c7a6e2eb86d8feb722b1e2fffcafa0db40dc7448a5860fed8066ba62eb7354a9
+evidence_index_sha256: a7d10066803c494875fb80d9c36b2296bc040af6a47852ef4cf4ef413bcd4f0a
+candidate_entries_payload_sha256: 7a80b7c7b78c0e37ebe057737a2d645ef03323b08731a6076d81d6a45a3e2119
+?? | 262 | 38377c479867c9c5972864dd2ade1de4f67cb3b99ff5a78c5b9754e47936d42e | .dockerignore
+ M | 1474 | f43db239660e9c3ae16d328606a1da75f22e3f9b8c73893f5277a625fac5f05c | .env.example
+?? | 2509 | 46ac20b775bf89c397bb3ae25cde9671e53c9fc8fe2b6c9ce13737dc576092c5 | .github/workflows/ci.yml
+ M | 24271 | 14b9442051ee5e6bcc4e783824e26733ed53e895fb9422d08221540900c7d6a5 | AGENTS.md
+ M | 7339 | 302e9de1177d5bb1c0b8ff33e6949793ded99966f753b69509a1b58a2b35161a | Makefile
+ M | 28273 | 6016cab549e91a9d07910a1dc3c3c3ea60ce0042eb6bd837cda5110465c7635b | README.md
+?? | 2110 | 9ddb1b784b4a60289affc7e4f3f02efc481f1200c84df3c44984cdbbf5283389 | apps/api/Dockerfile
+ M | 1338 | a6c57b781330afa4478090c000a49dc74c9950d0b01918e3deb85c1c145edb0e | apps/api/pyproject.toml
+ M | 8134 | b8ad249a5e91890b983cac3a6c55268afb249394fc70ac53811fa8743ea607e1 | apps/api/src/creativedeploy_api/api/error_handlers.py
+?? | 3679 | 61ded3bb6296efe9d89c33654602b3fb54b8cd35e64702b10dba505d92a465b5 | apps/api/src/creativedeploy_api/api/security_middleware.py
+ M | 2060 | b4127c72623cb48faf05817a01c924e4eeb0af0a0631683cd143ab67dfde0e20 | apps/api/src/creativedeploy_api/app_factory.py
+ M | 11670 | 1cbf8e630a198a6dfd4c16935928f701ee166ead2799a0fa5bc3a7229a1c016c | apps/api/src/creativedeploy_api/core/config.py
+?? | 651 | edb10bf57f307aee67cf95a723e420a614c502f099211a90541163a1d02e1cdb | apps/api/src/creativedeploy_api/core/config_audit.py
+?? | 818 | 2cb906d86faf1104811f32014241a7b163ab09330fd2a49758cd79ec25157b0a | apps/api/src/creativedeploy_api/core/database_probe.py
+ M | 434 | 9893185e7ad72f2f3d35d2f526f9e2388eca18ef41c4b6f365f0cf673cc5370c | apps/api/src/creativedeploy_api/db/engine.py
+ M | 98445 | bb89a46ab44f6f9112401f00989bcf8953a7336f367fb6faed30da4890959801 | apps/api/tests/integration/test_initial_paint_project_migration.py
+ M | 14785 | 3a4ae73ddbb34abeef46e31890858ad466b4e365738e2cce08417d5ee1fba26c | apps/api/tests/unit/test_health_endpoints.py
+ M | 10985 | e5f13700b30ee76d14177fa851959f01741464576ead063806ef0354f29b6f3f | apps/api/tests/unit/test_paint_project_principal_and_schemas.py
+ M | 14169 | 1e0120f4fc454a82e4f3605dcd10d077eaf233e027f503bfd8037af90f984c38 | apps/api/tests/unit/test_paint_project_routes.py
+ M | 130505 | 098bf7f8a84c5afe4334e3c1fba72746fc5c4fbb8c389a1a840543b28ff98e21 | apps/api/uv.lock
+?? | 1047 | 3fe8271a5aad0dcc18006eec46e2eab8bdefd5fc5e3daa3f5c5981d735d04fe3 | apps/web/Dockerfile
+ M | 20003 | 915da1804c545f5cc18e004438956574ead5b0c0cf33ab104f62cfce1353a82a | apps/web/src/__tests__/ImageAssetManager.test.tsx
+ M | 25706 | 94837b4a6ec6a9d960bf8e151fa5b978020f840bb1c349a9282f51d7445f8140 | apps/web/src/__tests__/RegionAnnotationWorkspace.test.tsx
+ M | 6843 | 47406040781332791b20be92858fc3dea63a88effc5a9aef4d219e25526eab44 | apps/web/src/components/AppShell.tsx
+ M | 34779 | 6f2935877fd9ff91d4cdffc5d43e7178212558845cd79e40a27a9ac8e513eb91 | apps/web/src/components/ImageAssetManager.tsx
+ M | 48598 | 3188cedd8d16dab35e063a10e511af9a8eaa6b5b63d3c54c306dbf52e7a71e42 | apps/web/src/components/RegionAnnotationWorkspace.tsx
+ M | 59307 | 5f723002f9da6f09cad14d53f75fca6a5a3072c011faddc3e63b1b0722d9e862 | apps/web/src/index.css
+ M | 10925 | 2ec090d5df65ec099aa76abbb244f041a92157286ba9497e6926f7efb91895b0 | apps/web/src/pages/ProjectDetailPage.tsx
+ M | 8848 | 292bddc279813cf69da178fe2a161e684edf025253ceb49493b3df7388ac9e2e | apps/web/src/pages/ProjectsPage.tsx
+ M | 2617 | 375c90471456062e5718659c8ae0a60410f24ab20313282ecf02ed1c19f652cf | apps/web/src/pages/RegionWorkspacePage.tsx
+?? | 127 | b8d0230cea623eed89f9b6465506a53dd6381004c8642180a6f6eb3d204df2ec | apps/web/src/vite-env.d.ts
+?? | 3070 | d692800c1dfc5443da6a24097ca72c6c60503b5bb9b0d0ecc06f363fc8a0099e | compose.artifact-smoke.yaml
+ M | 697 | 0154f0851c89f6e0f806d8b2a84fe5bcb82a5e588e6a9fe533fe93ac25d076a1 | compose.yaml
+?? | 3052 | f973d867b291f4873ca93f9f18f15a1cac6a15986fe4b45262aec77b37a3cd08 | deploy/nginx.conf
+?? | 506 | 6e59ebc81c6596df7ec21497eae7dbb9e5f0b91d77402f0bbcc3a4a535fed1ea | deploy/security-headers.conf
+?? | 3331 | a381455ffa487b2a99fd67d847af51d50a4a275b3389a4abb7550a19110ed821 | docs/decisions/ADR-0007-local-production-artifact-and-runtime-boundary.md
+?? | 110390 | c47f41a4398f3860ac70c14037abfc5842272d011935ad13f3c8834b2d1c0f49 | docs/progress/evidence/phase-2a-1/exact-rendering-path.png
+?? | 45631 | 84aeee32f9bc56f9202c3c7392937bd9903d46ffd39fd7fcb66228fe6823cd22 | docs/progress/evidence/phase-2a-1/iab-desktop-canvas.png
+?? | 146148 | 4619494d2e4a51b3d11d690707d0aae2ee50be06fca4fc9dc34ebf4ecd3ee2ed | docs/progress/evidence/phase-2a-1/iab-desktop-full.png
+?? | 100546 | 28959c8a5f5ff43ffaa9b41aa0d35b846b08b3590e5196904d57cded14ccd117 | docs/progress/evidence/phase-2a-1/iab-historical-full.png
+?? | 118799 | 1d7b5d08b5229802e8e7bfae6ebfd23d54977905d368f0fa8563c4d15b3e5dc7 | docs/progress/evidence/phase-2a-1/iab-mobile-full.png
+?? | 116397 | d6339fde452d31c23d10b38f2d4e9a312dfaa5fc0354cf0c9cb95032db23ad06 | docs/progress/evidence/phase-2a-1/iab-tablet-full.png
+?? | 6917 | aaba67de7dc3b54b2e5b786a54f92a473fd543a271d781a95501eb24969c0e61 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/01-upload-error-dom.txt
+?? | 330267 | 85a26cfc30fd7d4d15d124453e2238955374723b21c65dc1caa959882aca6d27 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/01-upload-error.jpeg
+?? | 8192 | aa6aab73482616fdf5597210e9843ce31af4551c25646fc5c3fcbc2709ef6ca8 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/02-ready-image-set-dom.txt
+?? | 453285 | f8a9ab769816bfdb50bc9322cd0c735464ea7aefaac69a80d40ca6ba3411a9e3 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/02-ready-image-set.jpeg
+?? | 3053 | 2e4ec7d533eaccb8eb3f779e30b4e67a1c045b35715d4331fda18e5e017d895e | docs/progress/evidence/phase-2a-1/remediation-final-20260731/03-live-selected-regions-dom.txt
+?? | 73083 | 25eec5c577a0deade5f47623966ef5cf3f1f8ededf9bcd795aae80b9480af9ba | docs/progress/evidence/phase-2a-1/remediation-final-20260731/03-live-selected-regions.jpeg
+?? | 1587 | b3a49f5c8519e9ee2b8e71df67797c90f969472699b20cc7824731fad37206e2 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/03-live-svg-facts.json
+?? | 3048 | 94643bb6834f9f449e95f8d5bde96241ef37583dd36637469a82dfa103a3ded9 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/04-live-paint-selected-dom.txt
+?? | 414 | 1841ca03df882d1ec55ad2988d3dc439ea831b75e11e33664b850f6d71125e4a | docs/progress/evidence/phase-2a-1/remediation-final-20260731/04-live-paint-selected-facts.json
+?? | 77381 | 70edd9ea30502d79341a0f656b5b7245dd78315904b8b6c68f2cc9d13806a4d2 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/04-live-paint-selected.jpeg
+?? | 69739 | 036d7033710cfb8cfec15fafc73e22d53a62dc4cf33f07d962639be4569a3949 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/05-live-zoom.jpeg
+?? | 3262 | b9cafadd1dc6e3a279b208f4f1f9990ac58773a3b541cd81ae9b82cf790cfd02 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/06-restart-deeplink-restored-dom.txt
+?? | 69004 | ad6ce7c17921fa4d4392b2d10d3efb9b24f4ece51c867454b054883b100d11dc | docs/progress/evidence/phase-2a-1/remediation-final-20260731/06-restart-deeplink-restored.jpeg
+?? | 73787 | e38e6f415f04ddd64811f6319ec5aa378b9d9031b157d8a6ac222f2372dfbb14 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/07-opacity-30-percent.jpeg
+?? | 255 | 6b1dfa2e6c31023838dd4f84271a97c28a7eaeb434e21650403e69173520275c | docs/progress/evidence/phase-2a-1/remediation-final-20260731/07-opacity-boundaries.json
+?? | 3251 | 0a64837a12d25d0217e04d11c67fbc79eb36d5afd04b2d36ca6d9747bfb7a6cc | docs/progress/evidence/phase-2a-1/remediation-final-20260731/07-opacity-final-dom.txt
+?? | 3749 | 5d3a56a54fbeb533ba11859943abfa650260ebcdf1e52c2108330da0d07e4d7a | docs/progress/evidence/phase-2a-1/remediation-final-20260731/08-historical-v1-readonly-dom.txt
+?? | 72946 | d129ea2c67cb08135b5ba1f74c0aa3ccd22864a87922da6ebec7fbfed2a60f37 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/08-historical-v1-readonly.jpeg
+?? | 3959 | aeb8883f6adb4042d28c707bababeacd8affac03feeaf6220e5233e4fdf683c0 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/09-submitted-v3-dom.txt
+?? | 75623 | d804f743b659edf7f08adc7d3c9502d8e17c4ee84303f34d91d3ef45a86c5920 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/09-submitted-v3.jpeg
+?? | 7150 | 02c998c0a1295b4c0fdadeefe2a6059d7a5972c7cd34d7d8492bcf4b8722ec94 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/10-live-svg-browser-raster-pixels.json
+?? | 83843 | bf29cc14e17188d5c4581752808cad30d788b92b1fdeb8f9034832055df7d9ab | docs/progress/evidence/phase-2a-1/remediation-final-20260731/10-live-svg-browser-raster.jpeg
+?? | 1106 | 191198b76af1ce92c99d0bfcd1a2f20cdba4aced83baf639a571211137bc122c | docs/progress/evidence/phase-2a-1/remediation-final-20260731/10-live-svg-computed-polygons.json
+?? | 2552 | 81a97fcf55a645b4e69871842e89f8a59f9a1b68484dab40d92ecbe3d963adcf | docs/progress/evidence/phase-2a-1/remediation-final-20260731/10-live-svg-dom-facts.json
+?? | 277753 | e0cd07f58a9d02d4a13e87e73d5caf7fc893d4ac0e66638540f8792bc7893c11 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/10-live-svg-element-crop.png
+?? | 1429 | eac03830b70aa6d8b73a93e33a7340b00b8346435448ef00f01b31e403a8ceff | docs/progress/evidence/phase-2a-1/remediation-final-20260731/10-live-svg-outerhtml.svg
+?? | 945 | dc8e835ee8b117bdebbea77ef5f94ff714106aa8aad758eadfb62ee8c1c9edb9 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/11-owner-b-safe-404-dom.txt
+?? | 33606 | 9054a6d5cfaf4b3e9cf7367f1d7073109a1bfaa7bd15d36b76db96d0cd362f35 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/11-owner-b-safe-404.jpeg
+?? | 3959 | aeb8883f6adb4042d28c707bababeacd8affac03feeaf6220e5233e4fdf683c0 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/12-owner-a-restored-dom.txt
+?? | 95764 | 8ea8d61d0b10bc985070abb21ab0f9f9b8ac4b5db2a0c5d4fe89f65af1641d2b | docs/progress/evidence/phase-2a-1/remediation-final-20260731/12-owner-a-restored.jpeg
+?? | 4210 | da38e52f6f87682071232339543819bec192fa81cd2a917ec9bfde744cdb6ae2 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/13-mobile-320-dom.txt
+?? | 4224 | fcc97f86b37a1bc997f9f1eb69b195320ecd434cedf044ecb837bfe407c894e0 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/13-mobile-320-first-point-dom.txt
+?? | 152 | 5b05d2e6433ef3d3c193654bf5b4a385af2181b9f9725492552c362cbd2bb112 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/13-mobile-320-first-point-facts.json
+?? | 34625 | 614b2b3f14cea059381e7a5fe541bed1b09f3fd6e47727fd2fbd1aa9faae6b8a | docs/progress/evidence/phase-2a-1/remediation-final-20260731/13-mobile-320-first-point.jpeg
+?? | 38193 | 2c3357bf7ab7ec3fdc4728b51d18afb8f65dcd31f3c7b97ba386f0637dc9be21 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/13-mobile-320.jpeg
+?? | 4087 | 2a7987793e58898bc8bc3fb863aa09f8aebf5f07fcfe1bb26c84a260ff4f6372 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/14-mobile-375-dom.txt
+?? | 40287 | a375485b6c14cac34c6704802d1a782d967f2eae6e34582ef96700efc874f051 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/14-mobile-375.jpeg
+?? | 4087 | 2a7987793e58898bc8bc3fb863aa09f8aebf5f07fcfe1bb26c84a260ff4f6372 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/15-mobile-390-dom.txt
+?? | 40091 | a0e4b6a16fcf3bb21eca6de1099f13a9afd976301b37dc3522b58b6203685ba4 | docs/progress/evidence/phase-2a-1/remediation-final-20260731/15-mobile-390.jpeg
+?? | 1614 | 161bf00c35863961385793f6028109e5bd8e6346e025268d4d4e501469fdc28b | docs/progress/evidence/phase-2a-1/remediation-final-20260731/16-browser-network-summary.txt
+?? | 1459 | 07a07766e1f7c4187bdb11a2007d3b1b501b94eb6c0a2f50cfc807c14517f43f | docs/progress/evidence/phase-2a-1/remediation-final-20260731/17-http-security-probes.txt
+?? | 5105 | 11f3062319c8bab1dff2e43eaf010bb1d16f167a4fdd270494760f43b00b94ca | docs/progress/evidence/phase-2a-1/remediation-final-20260731/18-validation-and-cleanup-summary.txt
+?? | 3257 | 082f68fe0bcb04a4ed09780e29a8db6130327523d3c2233532830a45527972fe | docs/progress/evidence/phase-2a-1/remediation-final-20260731/browser-metadata.json
+?? | 7250 | a7d10066803c494875fb80d9c36b2296bc040af6a47852ef4cf4ef413bcd4f0a | docs/progress/evidence/phase-2a-1/remediation-final-20260731/evidence-index.txt
+?? | 18450 | d39363c021889df2c0f6c6b59e300248aa84c18236b69e2f926cfdef46129ee8 | docs/progress/phase-2a-1-local-production-spine-candidate.md
+?? | 3212 | 57de89a2b384270879cd075a84bfd09dda203afc9a0edd7f2765c03433b1e960 | docs/progress/phase-2a-1-local-production-spine-plan.md
+?? | 5663 | 873cfc16d170af16a8ae39d05e73b1bb1d49260525c6db2cf62dc28b6b4aa409 | docs/runbooks/local-production-style.md
+?? | 1061 | 97b2c6a9eb771633796caa76be172cb8e6ef55344dfbf98cfeb806ef00d0e857 | scripts/secret_scan.sh
+?? | 5281 | 25c33a187a716cf91ad0d78e5526f2c08e189ff88f581db65e683bc80fdafcb1 | scripts/validate_artifact_config.py
+?? | 8184 | 3c15fbf9bd7df75bb315b586a82fcd44605db00f131941e35fafdba76b44eff7 | scripts/verify_artifact_smoke.sh
+?? | 2243 | 684a0473c3612f90cc38fc33d556098d43bd0f06dc8e964e6e195be99befe219 | scripts/verify_attempt_isolation.sh
+?? | 2449 | e9eab526caf28b8f8a30baa7eec40e32dc1feef140d31b5fbd80b1c6d489f605 | scripts/verify_immutable_references.py

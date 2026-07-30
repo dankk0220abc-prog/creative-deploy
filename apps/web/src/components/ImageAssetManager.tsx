@@ -146,7 +146,25 @@ function commandErrorMessage(error: ImageAssetApiError): string {
     return "The saved command or current image set changed. Refresh before starting a new command.";
   }
   if (error.kind === "validation") {
-    return "The submitted file, declaration, or review does not meet the contract.";
+    if (error.errorCode === "REJECTED_DIMENSIONS") {
+      return "Choose an image whose shortest side is at least 768 px and whose longest side is no more than 8192 px, then upload it again.";
+    }
+    if (error.errorCode === "REJECTED_TOO_LARGE") {
+      return "Choose an image no larger than 20 MiB, then upload the smaller file.";
+    }
+    if (error.errorCode === "REJECTED_PIXEL_LIMIT") {
+      return "Choose an image with no more than 40,000,000 total pixels, then upload it again.";
+    }
+    if (
+      error.errorCode === "REJECTED_UNSUPPORTED_FORMAT" ||
+      error.errorCode === "REJECTED_CONTENT_TYPE_MISMATCH"
+    ) {
+      return "Choose a static JPEG, PNG, or WebP file. GIF, SVG, animated WebP, renamed extensions, and mismatched file bytes are not accepted.";
+    }
+    if (error.errorCode === "REJECTED_CORRUPT") {
+      return "Export the image again as a complete static JPEG, PNG, or WebP file, then retry.";
+    }
+    return "Check the file and declaration: use a static JPEG, PNG, or WebP; keep it within 20 MiB, 768–8192 px, and 40,000,000 pixels; choose an intended use; and confirm the rights statement before retrying.";
   }
   if (error.kind === "not_found") {
     return "The project is no longer available to the current operator.";
@@ -707,8 +725,8 @@ export function ImageAssetManager({
                     type="file"
                   />
                   <p>
-                    JPEG, PNG, or non-animated WebP · 768–8192 px per side · 20 MiB
-                    max.
+                    Static JPEG, PNG, or WebP · shortest side at least 768 px ·
+                    longest side at most 8192 px · 40,000,000 pixels and 20 MiB max.
                   </p>
                 </div>
 

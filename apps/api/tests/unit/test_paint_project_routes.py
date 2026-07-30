@@ -130,6 +130,7 @@ def test_post_returns_201_server_fields_and_request_correlation() -> None:
         )
 
     assert response.status_code == 201
+    assert response.headers["cache-control"] == "no-store"
     assert response.json() == service.project.model_dump(mode="json")
     assert response.headers.get("Idempotent-Replayed") is None
     assert service.create_arguments is not None
@@ -166,6 +167,7 @@ def test_list_defaults_and_detail_delegate_without_sql_logic() -> None:
         detail_response = client.get(f"/api/v1/paint-projects/{service.project.id}")
 
     assert list_response.status_code == 200
+    assert list_response.headers["cache-control"] == "no-store"
     assert list_response.json() == {
         "items": [service.project.model_dump(mode="json")],
         "total": 1,
@@ -235,6 +237,7 @@ def test_validation_errors_use_safe_field_level_contract(
 
     body = response.json()
     assert response.status_code == 422
+    assert response.headers["cache-control"] == "no-store"
     assert body["error_code"] == "REQUEST_VALIDATION_FAILED"
     assert body["category"] == "VALIDATION_ERROR"
     assert body["retryable"] is False
@@ -253,6 +256,7 @@ def test_typed_application_errors_map_to_404_and_409() -> None:
         not_found = client.get(f"/api/v1/paint-projects/{uuid4()}")
 
     assert not_found.status_code == 404
+    assert not_found.headers["cache-control"] == "no-store"
     assert not_found.json()["error_code"] == "PAINT_PROJECT_NOT_FOUND"
     assert not_found.json()["category"] == "NOT_FOUND"
 
@@ -379,6 +383,7 @@ def test_non_retryable_sqlalchemy_failures_are_safe_500(
         response = client.get("/api/v1/paint-projects")
 
     assert response.status_code == 500
+    assert response.headers["cache-control"] == "no-store"
     assert response.json()["error_code"] == "INTERNAL_ERROR"
     assert response.json()["retryable"] is False
     combined = f"{response.text}\n{caplog.text}".lower()
@@ -398,6 +403,7 @@ def test_unexpected_error_is_safe_non_retryable_500(
         internal_failure = client.get("/api/v1/paint-projects")
 
     assert internal_failure.status_code == 500
+    assert internal_failure.headers["cache-control"] == "no-store"
     assert internal_failure.json()["error_code"] == "INTERNAL_ERROR"
     assert internal_failure.json()["retryable"] is False
     assert "synthetic-internal-detail" not in internal_failure.text

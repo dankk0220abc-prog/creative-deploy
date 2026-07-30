@@ -1,0 +1,40 @@
+COMMAND
+curl --silent --show-error --dump-header - --output /dev/null --write-out 'exit=0 http_code=%{http_code}\n' http://127.0.0.1:55001/api/v1/paint-projects/8bafe331-4eeb-4436-a830-93d464e439cd/region-sets/workbench
+
+RESULT
+HTTP/1.1 200 OK
+Server: nginx
+Content-Type: application/json
+Content-Length: 4863
+Connection: keep-alive
+Cache-Control: no-store
+exit=0 http_code=200
+
+COMMAND
+curl --silent --show-error --dump-header - --output /dev/null --write-out 'exit=0 http_code=%{http_code}\n' http://127.0.0.1:55001/api/v1/not-a-route
+
+RESULT
+HTTP/1.1 404 Not Found
+Server: nginx
+Content-Type: application/json
+Content-Length: 22
+Connection: keep-alive
+Cache-Control: no-store
+exit=0 http_code=404
+
+COMMAND
+curl --silent --show-error --dump-header - --output /dev/null --write-out 'exit=0 http_code=%{http_code}\n' --header 'Host: evil.synthetic.invalid' http://127.0.0.1:55001/api/v1/health/live
+
+RESULT
+HTTP/1.1 400 Bad Request
+Server: nginx
+Content-Type: text/html
+Content-Length: 150
+Connection: close
+X-Content-Type-Options: nosniff
+Referrer-Policy: no-referrer
+X-Frame-Options: DENY
+Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+Content-Security-Policy: default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'
+Cache-Control: no-store
+exit=0 http_code=400

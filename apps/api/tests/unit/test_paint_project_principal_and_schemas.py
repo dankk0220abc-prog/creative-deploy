@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from creativedeploy_api.app_factory import create_app
@@ -118,6 +119,20 @@ def test_shared_test_settings_are_explicit_and_start_health_capable_app(
     assert test_settings.paintpilot_demo_principal_id == "test-demo-owner"
     assert test_settings.paintpilot_demo_principal_display_name == "Test Demo Owner"
     assert app.state.principal_adapter.resolve().principal_id == "test-demo-owner"
+
+
+def test_untrusted_host_is_rejected_before_api_routing(
+    test_settings: Settings,
+) -> None:
+    client = TestClient(create_app(test_settings))
+
+    response = client.get(
+        "/api/v1/health/live",
+        headers={"Host": "attacker.invalid"},
+    )
+
+    assert response.status_code == 400
+    assert response.text == "Invalid host header"
 
 
 @pytest.mark.parametrize("app_env", ["", " ", "unknown", "Production"])

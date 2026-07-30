@@ -1,0 +1,22 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- banner:
+  - generic "CreativeDeploy, PaintPilot workspace":
+    - generic: CreativeDeploy
+    - generic: P
+    - text: PaintPilot
+  - navigation "PaintPilot navigation":
+    - link "Projects":
+      - /url: /paintpilot/projects
+    - link "Create project":
+      - /url: /paintpilot/projects/new
+- main:
+  - link "← Back to project":
+    - /url: /paintpilot/projects/8bafe331-4eeb-4436-a830-93d464e439cd
+  - paragraph: Region workspace not found
+  - heading "This project is unavailable" [active] [level=1]
+  - paragraph: The project may not exist or may belong to another operator. The same safe not-found response is used for both cases.
+- contentinfo:
+  - generic: Planning-only workspace
+  - generic: Guidance is not a verified repaint outcome. Access uses one configured demo operator, not public authentication.
+  - paragraph: LOCAL_PRODUCTION_STYLE_SMOKE · NOT_REAL_PRODUCTION

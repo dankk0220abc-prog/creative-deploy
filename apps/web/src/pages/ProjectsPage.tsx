@@ -270,10 +270,10 @@ export function ProjectsPage() {
             <strong>Current release boundary</strong>
             <p>
               Project cards remain metadata-only. Open a project detail to manage its
-              private immutable multi-role image set and human readiness history. Image
-              quality assessment, automated viewpoint analysis, Polygon editing, inventory,
-              knowledge retrieval, and paint-plan generation are not implemented in this
-              phase.
+              private immutable multi-role image set, human readiness history, and
+              versioned Polygon workspace. Automated image quality assessment, viewpoint
+              analysis, inventory, knowledge retrieval, and paint-plan generation remain
+              outside the current release.
             </p>
           </div>
         </aside>

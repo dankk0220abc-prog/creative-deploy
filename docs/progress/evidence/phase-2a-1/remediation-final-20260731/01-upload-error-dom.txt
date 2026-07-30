@@ -1,0 +1,147 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- banner:
+  - generic "CreativeDeploy, PaintPilot workspace":
+    - generic: CreativeDeploy
+    - generic: P
+    - text: PaintPilot
+  - navigation "PaintPilot navigation":
+    - link "Projects":
+      - /url: /paintpilot/projects
+    - link "Create project":
+      - /url: /paintpilot/projects/new
+- main:
+  - link "← Back to projects":
+    - /url: /paintpilot/projects
+  - status:
+    - generic: ✓
+    - text: Project created and saved. This detail view is reading the persisted API record.
+  - article:
+    - paragraph: PaintProject · Read only
+    - heading "Phase 2A-1 Browser Evidence" [level=1]
+    - paragraph: Synthetic isolated final remediation validation
+    - 'generic "Workflow status: Draft"':
+      - generic: •
+      - text: Draft
+    - region "Project overview":
+      - paragraph: Persisted project facts
+      - heading "Project overview" [level=2]
+      - term: Target style
+      - definition: Cel Shading · Current release
+      - term: Planning mode
+      - definition: Planning-only demo
+      - term: Workflow status
+      - definition: DRAFT
+      - term: Access scope
+      - definition: Current configured demo operator
+      - term: Created
+      - definition:
+        - time: 2026年7月31日 00:47
+      - term: Updated
+      - definition:
+        - time: 2026年7月31日 00:47
+      - term: Project ID
+      - definition: 8bafe331-4eeb-4436-a830-93d464e439cd
+    - region "Multi-role image-set workbench":
+      - paragraph: Phase 1E-2 · Governed private image set
+      - heading "Multi-role image-set workbench" [level=2]
+      - generic: 4 formal roles
+      - paragraph: Upload checks, role completeness, rights records, byte distinctness, and private-object availability are deterministic. READY and NOT READY are human decisions. No AI analysis, angle recognition, quality score, legal verification, public URL, or deletion is provided.
+      - region "Incomplete — human readiness not confirmed":
+        - paragraph: Current image-set state
+        - heading "Incomplete — human readiness not confirmed" [level=3]
+      - article "Primary front":
+        - paragraph: Required role
+        - heading "Primary front" [level=3]
+        - generic: Missing
+        - paragraph: The formal front view and Phase 1E-1 compatible primary image.
+        - generic: +
+        - paragraph: No current asset
+        - button "Add this role" [pressed]
+      - article "Reference back":
+        - paragraph: Required role
+        - heading "Reference back" [level=3]
+        - generic: Missing
+        - paragraph: A distinct back reference for later human-guided planning.
+        - generic: +
+        - paragraph: No current asset
+        - button "Add this role"
+      - article "Reference angle":
+        - paragraph: Required role
+        - heading "Reference angle" [level=3]
+        - generic: Missing
+        - paragraph: A distinct angled reference for later human-guided planning.
+        - generic: +
+        - paragraph: No current asset
+        - button "Add this role"
+      - article "Reference detail":
+        - paragraph: Optional role
+        - heading "Reference detail" [level=3]
+        - generic: Missing
+        - paragraph: An optional detail reference; it does not block minimum readiness.
+        - generic: +
+        - paragraph: No current asset
+        - button "Add this role"
+      - form "Add Primary front":
+        - paragraph: Fill role
+        - heading "Add Primary front" [level=3]
+        - paragraph: A successful replacement creates a new immutable version. Every old row, file, and rights declaration remains retained.
+        - generic: Image file
+        - button "Image file"
+        - paragraph: Static JPEG, PNG, or WebP · shortest side at least 768 px · longest side at most 8192 px · 40,000,000 pixels and 20 MiB max.
+        - generic: Image source
+        - combobox "Image source":
+          - option "Provided by me" [selected]
+          - option "Photographed by me"
+          - option "Provided by another source"
+        - group "Intended use":
+          - generic: Intended use
+          - checkbox "Private project planning" [checked]
+          - generic: Private project planning
+          - checkbox "Portfolio demonstration"
+          - generic: Portfolio demonstration
+          - checkbox "Public repository"
+          - generic: Public repository
+        - checkbox "I confirm that the source above is accurate, that I have the rights or permission needed for the selected uses, and that this declaration will be bound to this immutable image version." [checked]
+        - generic: I confirm that the source above is accurate, that I have the rights or permission needed for the selected uses, and that this declaration will be bound to this immutable image version.
+        - alert: Choose a JPEG, PNG, or WebP image.
+        - button "Store Primary front" [active]
+      - region "Readiness checklist":
+        - paragraph: Deterministic, non-AI prerequisites
+        - heading "Readiness checklist" [level=3]
+        - list:
+          - generic: "!"
+          - generic: All required roles present
+          - generic: "!"
+          - generic: Deterministic upload checks accepted
+          - generic: "!"
+          - generic: Rights attestations complete
+          - generic: "!"
+          - generic: Required images have distinct content
+          - generic: "!"
+          - generic: Private objects available and intact
+          - generic: "!"
+          - generic: Latest review matches this image set
+      - region "Readiness review":
+        - paragraph: Human decision · append-only
+        - heading "Readiness review" [level=3]
+        - paragraph: No human readiness review has been saved for this project.
+        - group "Human verdict":
+          - generic: Human verdict
+          - radio "READY" [checked]
+          - generic: READY
+          - radio "NOT READY"
+          - generic: NOT READY
+        - generic: Reason (optional)
+        - textbox "Reason (optional)"
+        - button "Confirm READY" [disabled]
+    - complementary "Human region annotation workspace":
+      - paragraph: Human-governed workspace
+      - heading "Human region annotation workspace" [level=2]
+      - paragraph: The current release supports drawing simple polygons over the primary image, saving immutable RegionSet snapshots, browsing history, and recording exact-snapshot human reviews. Subject recognition, inventory matching, and PaintPlan generation remain outside this boundary.
+      - link "Open region workspace":
+        - /url: /paintpilot/projects/8bafe331-4eeb-4436-a830-93d464e439cd/regions
+- contentinfo:
+  - generic: Planning-only workspace
+  - generic: Guidance is not a verified repaint outcome. Access uses one configured demo operator, not public authentication.
+  - paragraph: LOCAL_PRODUCTION_STYLE_SMOKE · NOT_REAL_PRODUCTION

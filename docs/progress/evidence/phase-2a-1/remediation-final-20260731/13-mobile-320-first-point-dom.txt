@@ -1,0 +1,101 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- banner:
+  - generic "CreativeDeploy, PaintPilot workspace":
+    - generic: CreativeDeploy
+    - generic: P
+    - text: PaintPilot
+  - navigation "PaintPilot navigation":
+    - link "Projects":
+      - /url: /paintpilot/projects
+    - link "Create project":
+      - /url: /paintpilot/projects/new
+- main:
+  - link "← Back to project":
+    - /url: /paintpilot/projects/8bafe331-4eeb-4436-a830-93d464e439cd
+  - region "Region annotation workspace":
+    - paragraph: Phase 1F · human-governed
+    - heading "Region annotation workspace" [level=1]
+    - paragraph: Draw and review simple polygons by hand. Coordinates are saved as normalized integers, and every save creates a new immutable snapshot.
+    - generic "Displayed RegionSet status":
+      - generic: v4 · 2b40269d-3234-41a3-a7f8-032824377272
+      - strong: draft
+    - generic: Human-authored polygons only. This workspace does not generate regions, recognize subjects, match inventory, or create paint plans.
+    - status: Draft v4 created from historical v2.
+    - generic "Annotation tools":
+      - group "Canvas tool":
+        - button "Edit vertices"
+        - button "Draw polygon" [active] [pressed]
+        - button "Pan"
+      - group "Edit history":
+        - button "Undo" [disabled]
+        - button "Redo" [disabled]
+        - button "Fit image"
+      - group "Open polygon":
+        - generic: 1 points
+        - button "Close polygon" [disabled]
+        - button "Cancel"
+    - img "Private primary image with region overlay":
+      - generic "Paint area region"
+      - generic "Keep clear region"
+    - paragraph:
+      - strong: Small-screen editing is limited.
+      - text: Use Pan and Fit image to inspect the complete canvas; saved Polygon data and history remain available. Use a larger screen for precise vertex placement.
+    - complementary "Region inspector":
+      - paragraph: Snapshot contents
+      - heading "2 regions" [level=2]
+      - list "Regions in back-to-front order":
+        - button "Paint area paint · 3 vertices":
+          - strong: Paint area
+          - generic: paint · 3 vertices
+        - button "Hide Paint area": Hide
+        - button "Keep clear exclude · 3 vertices":
+          - strong: Keep clear
+          - generic: exclude · 3 vertices
+        - button "Hide Keep clear": Hide
+      - text: Label
+      - textbox "Label": Paint area
+      - text: Kind
+      - combobox "Kind":
+        - option "Paint" [selected]
+        - option "Exclude"
+      - text: Opacity · 30%
+      - slider "Opacity · 30%": "30"
+      - text: Notes
+      - textbox "Notes": Browser-drawn paint polygon.
+      - button "Move backward" [disabled]
+      - button "Move forward"
+      - button "Insert after vertex" [disabled]
+      - button "Delete vertex" [disabled]
+      - button "Delete region"
+      - button "Save new draft snapshot"
+      - button "Submit saved draft"
+    - region "RegionSet history":
+      - paragraph: Append-only record
+      - heading "RegionSet history" [level=2]
+      - button "Refresh workbench"
+      - list:
+        - button "v4 draft 2 regions · 6 vertices 2026年7月31日 01:13":
+          - strong: v4
+          - generic: draft
+          - generic: 2 regions · 6 vertices
+          - time: 2026年7月31日 01:13
+        - button "v3 submitted 2 regions · 6 vertices 2026年7月31日 01:03":
+          - strong: v3
+          - generic: submitted
+          - generic: 2 regions · 6 vertices
+          - time: 2026年7月31日 01:03
+        - button "v2 superseded 2 regions · 6 vertices 2026年7月31日 01:03":
+          - strong: v2
+          - generic: superseded
+          - generic: 2 regions · 6 vertices
+          - time: 2026年7月31日 01:03
+        - button "v1 superseded 2 regions · 6 vertices 2026年7月31日 00:56":
+          - strong: v1
+          - generic: superseded
+          - generic: 2 regions · 6 vertices
+          - time: 2026年7月31日 00:56
+- contentinfo:
+  - generic: Planning-only workspace
+  - generic: Guidance is not a verified repaint outcome. Access uses one configured demo operator, not public authentication.
+  - paragraph: LOCAL_PRODUCTION_STYLE_SMOKE · NOT_REAL_PRODUCTION

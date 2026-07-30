@@ -308,6 +308,22 @@ Full quality gate, with PostgreSQL already running:
 make check
 ```
 
+Local production-style artifact gates:
+
+```bash
+make artifact-build
+make artifact-smoke
+make supply-chain-check
+```
+
+The artifact smoke profile is always `LOCAL_PRODUCTION_STYLE_SMOKE` and
+`NOT_REAL_PRODUCTION`. It may use the configured Demo Principal and isolated
+local storage only with `APP_ENV=test`; never relabel it as production, add a
+real domain or fake TLS, or weaken the production refusal of those adapters.
+Only its Web/NGINX port may be published to loopback. Keep `/api/` same-origin,
+preserve SPA fallback, host allowlisting, private-asset no-store, the exact
+upload-size boundary, and the HTTP-only no-HSTS rule.
+
 ## Frontend Environment Boundary
 
 Run standard frontend tasks through the Make targets above. Every pnpm Recipe must invoke
@@ -383,3 +399,11 @@ under normal operating-system rules, unlike the standard Make targets.
   `NOT_SELECTED` / `NOT_STARTED`. Do not integrate AI or image quality assessment, select external
   object storage, add public URLs, irreversible deletion, real authentication, or major permission
   changes.
+- Phase 2A-1 is a production spine candidate, not production readiness. Keep its API/Web
+  Dockerfiles multi-stage and non-root, exclude `.env` and private/test data from build contexts,
+  keep the single Candidate CI workflow lockfile-driven, and never make CI depend on a private
+  developer environment file or real Secret.
+- Local development uses the complete `POSTGRES_*` set in the selected environment file as its
+  database source of truth. Do not silently accept a conflicting `DATABASE_URL`, partially defined
+  PostgreSQL settings, a wildcard trusted host, or automatic replacement of a user's private
+  `.env`.

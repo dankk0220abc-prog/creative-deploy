@@ -1,0 +1,106 @@
+{
+  "captured_at_utc": "2026-07-30T17:17:29.881Z",
+  "browser": {
+    "name": "Codex In-app Browser",
+    "type": "iab",
+    "engine_user_agent_from_exact_web_access_log": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+    "engine_version": "Chrome 150.0.0.0",
+    "version_source": "exact artifact project nginx access log",
+    "controlled_tab_count": 1
+  },
+  "urls": {
+    "initial": "http://127.0.0.1:55000/",
+    "post_rebuild_deep_link": "http://127.0.0.1:55001/paintpilot/projects/8bafe331-4eeb-4436-a830-93d464e439cd/regions",
+    "final": "http://127.0.0.1:55001/paintpilot/projects/8bafe331-4eeb-4436-a830-93d464e439cd/regions"
+  },
+  "project": {
+    "id": "8bafe331-4eeb-4436-a830-93d464e439cd",
+    "primary_image_asset_id": "41719f13-e7a5-4c43-95c8-50e1f108d63e",
+    "current_region_set": {
+      "id": "2b40269d-3234-41a3-a7f8-032824377272",
+      "version": 4,
+      "lifecycle": "draft"
+    },
+    "submitted_region_set": {
+      "id": "3cfd692a-b3e5-4b23-9a64-f6befb07b9be",
+      "version": 3,
+      "lifecycle": "submitted"
+    }
+  },
+  "synthetic_fixture_sha256": {
+    "primary-front.png": "e4f4161284e68f2d1a0794b69b48b6b0c2605f974ca763a33dbf81e324d67db2",
+    "reference-back.png": "1422e455186960dc4f946b394b5757db4b111050b3c2ab16fde80d950eced7f1",
+    "reference-angle.png": "5fbf37d05532843baed0bdccb4f097de29355bc4afbcbc1080985fd613537b07"
+  },
+  "viewports": [
+    {
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "width": 1280,
+      "height": 1400,
+      "capture_height": 974
+    },
+    {
+      "width": 320,
+      "height": 844,
+      "scroll_width": 320
+    },
+    {
+      "width": 375,
+      "height": 844,
+      "scroll_width": 375
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "scroll_width": 390
+    }
+  ],
+  "live_svg": {
+    "view_box": "0 0 1000000 1000000",
+    "width_attribute": "100%",
+    "height_attribute": "100%",
+    "polygon_count": 2,
+    "paint_opacity_ppm": 300000,
+    "exclude_pattern_opacity": 0.5,
+    "selected_paint_stroke": "#ffffff",
+    "vector_effect": null,
+    "browser_raster": "10-live-svg-browser-raster.jpeg",
+    "element_crop": "10-live-svg-element-crop.png",
+    "pixel_samples": "10-live-svg-browser-raster-pixels.json"
+  },
+  "expected_http_events": [
+    {
+      "status": 201,
+      "event": "RegionSet save"
+    },
+    {
+      "status": 201,
+      "event": "RegionSet submit"
+    },
+    {
+      "status": 201,
+      "event": "historical draft fork"
+    },
+    {
+      "status": 404,
+      "event": "Owner B safe denial"
+    },
+    {
+      "status": 404,
+      "event": "explicit unknown API route probe"
+    },
+    {
+      "status": 400,
+      "event": "explicit invalid Host probe"
+    }
+  ],
+  "console_warning_or_error_count": 0,
+  "unexplained_network_failure_count": 0,
+  "screenshot_clip_note": "The browser clip/full-page modes altered responsive layout. Those attempts were quarantined; the accepted element raster is a deterministic crop from the complete unmodified 1280px viewport browser screenshot, with source hash and crop coordinates recorded.",
+  "api_and_web_restart_verified": true,
+  "owner_b_safe_404_verified": true,
+  "owner_a_restore_verified": true
+}

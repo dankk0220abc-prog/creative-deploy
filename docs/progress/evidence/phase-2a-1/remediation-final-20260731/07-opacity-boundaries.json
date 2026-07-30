@@ -1,0 +1,16 @@
+{
+  "minimum": {
+    "fillOpacity": "0.1",
+    "label": "Opacity · 10%",
+    "value": "10"
+  },
+  "maximum": {
+    "fillOpacity": "1",
+    "label": "Opacity · 100%",
+    "value": "100"
+  },
+  "final": {
+    "fillOpacity": "0.3",
+    "value": "30"
+  }
+}

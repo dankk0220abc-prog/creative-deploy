@@ -1,0 +1,109 @@
+Phase 2A-1 final remediation validation and cleanup summary
+Date: 2026-07-31
+Repository: /Users/danke/Developer/CreativeDeploy
+Baseline HEAD: f0563dc1c5800f9d1ec35efaac77d169ab08c6da
+Classification: implementation evidence, not independent approval or Git sealing
+
+VALID CANONICAL RESULTS
+
+1. make check ENV_FILE=.env.example
+   exit: 0
+   Ruff: PASS, 73 files formatted
+   mypy: PASS, 50 source files
+   API unit: 249 passed, 1 known Starlette TestClient/httpx warning
+   PostgreSQL integration: 53 passed, 1 known Starlette TestClient/httpx warning
+   Web: 13 files, 153 passed
+   Vite: 93 modules, build PASS
+
+2. make migration-current migration-heads migration-history migration-check
+   exit: 0
+   current/head: 7f3a2b9c4d1e
+   history: 4 revisions
+   check: No new upgrade operations detected
+
+3. RUN_ID=remed_20260731_a1 make artifact-build
+   exit: 0
+   migrate/api/web images: built
+
+4. RUN_ID=remed_20260731_a1 make artifact-smoke
+   exit: 0
+   200/201/404/422/413 API and proxy responses: no-store
+   invalid Host: stable 400 and no-store
+   production without explicit DATABASE_URL: failed closed
+   migration image: alembic and psycopg present; pytest, pip-audit, Ruff, and mypy absent
+   PostgreSQL stopped: readiness 503; liveness 200
+   exact attempt cleanup: PASS
+
+5. RUN_ID=remed_20260731_a1 make supply-chain-check
+   exit: 0
+   Gitleaks: no leaks
+   pip-audit: no known vulnerabilities; unpublished local package skipped
+   pnpm production audit: no known vulnerabilities
+   immutable references: PASS, 3 Actions and 8 container references
+
+6. RUN_ID=focused_f009 make artifact-isolation-test
+   exit: 0
+   two distinct attempts: created
+   cleanup A while B remained: PASS
+   exact cleanup of A and B: PASS
+
+7. git diff --check
+   exit: 0
+
+PRESERVED INVALID ATTEMPTS
+
+- Private .env selected by the default Make path contains a partial legacy
+  POSTGRES_* set. The command failed closed; .env was not edited. The complete
+  affected chain was run with ENV_FILE=.env.example.
+- ENV_FILE=/dev/null was rejected because the Make precondition requires an
+  existing regular file.
+- An empty isolated environment with an intentionally unusable DATABASE_URL
+  passed configuration validation and then failed the real database probe.
+- The first valid-root check found two Ruff format defects. Both files were
+  formatted and the complete root check reran.
+- One full web-suite run observed a transient unrelated CreateProjectPage
+  fetch-count race. The focused full web suite immediately passed 153/153 and
+  the complete root check then passed.
+- The first defensive 0% presentation assertion was clamped to the product
+  input minimum of 10% by the native range control. The test now lowers only
+  the test DOM minimum to inject impossible/stale presentation data without
+  changing the production 10–100% contract; the full web suite and complete
+  root check reran and passed.
+- The first artifact smoke reached the production-startup negative test but
+  passed an inherited empty DATABASE_URL, so the expected policy message did
+  not match. The probe now unsets DATABASE_URL inside the container and emits
+  an explicit mismatch error; the complete smoke reran and passed.
+- The first pnpm audit attempt ended with ECONNRESET. The complete supply-chain
+  gate reran and passed.
+- Browser clip/full-page screenshot modes changed the responsive layout or
+  clipped the SVG. These outputs were moved to the attempt-unique temporary
+  invalid-evidence directory and are not Candidate proof.
+- The first evidence-index generator wrote its temporary output inside the
+  indexed directory, so the temporary path appeared in the index. That index
+  was rejected; generation now occurs outside the evidence directory and the
+  complete index was regenerated.
+- The first final-document Gitleaks scan reported two generic-api-key matches
+  on the labelled API lockfile SHA-256 in the Candidate and Manifest. They are
+  hashes, not credentials; only those exact lines received an inline
+  gitleaks:allow annotation before the complete supply-chain gate reran.
+- The first final diagnostic-directory cleanup command was rejected by the
+  execution safety policy before it ran. The two already-resolved absolute
+  directories were then removed individually with exact find-depth deletion.
+
+EXACT CLEANUP AND PRIVATE FILE INTEGRITY
+
+- Exact final task containers: 0
+- Exact final task volumes: 0
+- Exact final task networks: 0
+- Exact final task locally built images: 0
+- Exact Gitleaks task container: 0
+- Exact isolation-test A/B containers: 0
+- Listeners on task ports 55000, 55001, and 55002: 0
+- Private .env SHA-256: unchanged from the captured baseline
+- Private .env byte size: unchanged from the captured baseline
+- Quarantined Safari evidence: exactly two invalid files, outside repository,
+  retained under the attempt-unique temporary directory
+- Gitleaks diagnostic snapshot/report directories: 0
+- Reviewer evidence directory: preserved
+- No global Docker catalog, reserved API listener, sibling-project resource,
+  unrelated listener, or user browser tab was accessed or modified

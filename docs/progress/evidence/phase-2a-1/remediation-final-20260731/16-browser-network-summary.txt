@@ -1,0 +1,33 @@
+SOURCE
+exact project: creativedeploy-phase2a1-remed_20260731_a1
+command: docker compose --project-name creativedeploy-phase2a1-remed_20260731_a1 --file compose.artifact-smoke.yaml logs --no-color --tail 500 web
+exit code: 0
+
+BROWSER IDENTITY
+Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36
+
+EXACT RELEVANT ACCESS-LOG EVENTS
+2026-07-30T17:02:40Z GET deep-link page -> 200
+2026-07-30T17:02:40Z GET built JavaScript -> 200
+2026-07-30T17:02:40Z GET built CSS -> 200
+2026-07-30T17:02:40Z GET RegionSet workbench after API/Web restart -> 200
+2026-07-30T17:02:40Z GET private primary-image content -> 200
+2026-07-30T17:03:23Z POST RegionSet save -> 201
+2026-07-30T17:03:23Z GET refreshed RegionSet workbench -> 200
+2026-07-30T17:03:31Z GET historical RegionSet v1 -> 200
+2026-07-30T17:03:46Z POST RegionSet submit -> 201
+2026-07-30T17:03:46Z GET refreshed submitted workbench -> 200
+2026-07-30T17:12:22Z GET Owner B RegionSet workbench -> 404 (expected safe denial)
+2026-07-30T17:12:55Z GET Owner A restored RegionSet workbench -> 200
+2026-07-30T17:12:55Z GET Owner A restored private image -> 200
+2026-07-30T17:13:37Z GET historical RegionSet v2 -> 200
+2026-07-30T17:13:44Z POST historical-draft fork -> 201
+
+EXPLAINED NON-2XX PROBES
+2026-07-30T17:12:22Z 404 was the required Owner B safe-denial check.
+2026-07-30T17:15:52Z 404 was the explicit unknown-API-route cache-header probe.
+2026-07-30T17:15:55Z 400 was the explicit invalid-Host rejection probe.
+
+DIAGNOSTIC VERDICT
+browser console errors/warnings: 0
+unexplained browser network failures: 0

@@ -1,0 +1,47 @@
+{
+  "images": [
+    {
+      "height": "1000000",
+      "href": "/api/v1/paint-projects/8bafe331-4eeb-4436-a830-93d464e439cd/images/41719f13-e7a5-4c43-95c8-50e1f108d63e/content",
+      "width": "1000000"
+    }
+  ],
+  "patterns": [
+    {
+      "html": "<pattern height=\"24000\" id=\"exclude-pattern-1d3ce2b9-5f60-47d1-8dd5-c2065d39bb65\" patternUnits=\"userSpaceOnUse\" width=\"24000\"><rect fill=\"#d2a45f\" fill-opacity=\"0.5\" height=\"24000\" width=\"24000\"></rect><path d=\"M -6000 6000 L 6000 -6000 M 0 24000 L 24000 0 M 18000 30000 L 30000 18000\" stroke=\"#102128\" stroke-opacity=\"0.5\" stroke-width=\"5000\"></path></pattern>",
+      "id": "exclude-pattern-1d3ce2b9-5f60-47d1-8dd5-c2065d39bb65"
+    }
+  ],
+  "polygonCount": 2,
+  "polygons": [
+    {
+      "aria": "Paint area region",
+      "fill": "#63b3a6",
+      "fillOpacity": "0.5",
+      "interactive": "true",
+      "points": "314638,974352 564586,909261 842307,746533",
+      "stroke": "#102128",
+      "strokeOpacity": null,
+      "strokeWidth": "4576.923076923077",
+      "vectorEffect": null
+    },
+    {
+      "aria": "Keep clear region",
+      "fill": "url(#exclude-pattern-1d3ce2b9-5f60-47d1-8dd5-c2065d39bb65)",
+      "fillOpacity": "1",
+      "interactive": "true",
+      "points": "148005,121657 425726,154203 286866,398295",
+      "stroke": "#ffffff",
+      "strokeOpacity": null,
+      "strokeWidth": "4576.923076923077",
+      "vectorEffect": null
+    }
+  ],
+  "rect": {
+    "height": 731.28125,
+    "width": 856.9765625,
+    "x": 25,
+    "y": -95.953125
+  },
+  "viewBox": "-95000 -95000 1190000 1190000"
+}
