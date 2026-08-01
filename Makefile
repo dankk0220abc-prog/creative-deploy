@@ -22,6 +22,27 @@ WEB_COMMAND_ENV := env \
 	-u IMAGE_MIN_SIDE_PX \
 	-u IMAGE_MAX_SIDE_PX \
 	-u IMAGE_MAX_PIXELS \
+	-u IDENTITY_PROVIDER \
+	-u OIDC_ISSUER \
+	-u OIDC_DISCOVERY_URL \
+	-u OIDC_BACKCHANNEL_BASE_URL \
+	-u OIDC_CLIENT_ID \
+	-u OIDC_CLIENT_SECRET \
+	-u OIDC_REDIRECT_URI \
+	-u OIDC_HTTP_TIMEOUT_SECONDS \
+	-u OIDC_ID_TOKEN_MAX_AGE_SECONDS \
+	-u OIDC_CLOCK_SKEW_SECONDS \
+	-u OIDC_LOGIN_TTL_SECONDS \
+	-u AUTH_SESSION_TTL_SECONDS \
+	-u S3_ENDPOINT_URL \
+	-u S3_REGION \
+	-u S3_BUCKET \
+	-u S3_ACCESS_KEY_ID \
+	-u S3_SECRET_ACCESS_KEY \
+	-u S3_FORCE_PATH_STYLE \
+	-u S3_ALLOW_INSECURE_HTTP \
+	-u S3_CREATE_BUCKET \
+	-u S3_STAGING_ROOT \
 	-u PAINTPILOT_DEMO_PRINCIPAL_ID \
 	-u PAINTPILOT_DEMO_PRINCIPAL_DISPLAY_NAME \
 	-u POSTGRES_HOST \
@@ -45,6 +66,27 @@ API_UNIT_COMMAND_ENV := env \
 	-u IMAGE_MIN_SIDE_PX \
 	-u IMAGE_MAX_SIDE_PX \
 	-u IMAGE_MAX_PIXELS \
+	-u IDENTITY_PROVIDER \
+	-u OIDC_ISSUER \
+	-u OIDC_DISCOVERY_URL \
+	-u OIDC_BACKCHANNEL_BASE_URL \
+	-u OIDC_CLIENT_ID \
+	-u OIDC_CLIENT_SECRET \
+	-u OIDC_REDIRECT_URI \
+	-u OIDC_HTTP_TIMEOUT_SECONDS \
+	-u OIDC_ID_TOKEN_MAX_AGE_SECONDS \
+	-u OIDC_CLOCK_SKEW_SECONDS \
+	-u OIDC_LOGIN_TTL_SECONDS \
+	-u AUTH_SESSION_TTL_SECONDS \
+	-u S3_ENDPOINT_URL \
+	-u S3_REGION \
+	-u S3_BUCKET \
+	-u S3_ACCESS_KEY_ID \
+	-u S3_SECRET_ACCESS_KEY \
+	-u S3_FORCE_PATH_STYLE \
+	-u S3_ALLOW_INSECURE_HTTP \
+	-u S3_CREATE_BUCKET \
+	-u S3_STAGING_ROOT \
 	-u PAINTPILOT_DEMO_PRINCIPAL_ID \
 	-u PAINTPILOT_DEMO_PRINCIPAL_DISPLAY_NAME \
 	-u POSTGRES_HOST \
@@ -59,19 +101,34 @@ API_UNIT_COMMAND_ENV := env \
 	migration-current migration-heads migration-history migration-check \
 	check require-env config-check ensure-db validate-run-id artifact-config artifact-build \
 	artifact-test artifact-isolation-test \
-	artifact-smoke-up artifact-smoke-down artifact-smoke secret-scan audit-api audit-web \
+	artifact-smoke-up artifact-smoke-down artifact-smoke database-role-provision \
+	image-storage-migrate secret-scan audit-api audit-web \
 	immutable-reference-check supply-chain-check
 
 ARTIFACT_COMPOSE := compose.artifact-smoke.yaml
 ATTEMPT_ID ?=
 RUN_ID ?= $(if $(strip $(ATTEMPT_ID)),$(ATTEMPT_ID),local_$(shell date -u +%Y%m%d%H%M%S)_$(shell uuidgen | tr '[:upper:]' '[:lower:]' | tr -d '-' | cut -c1-12))
-ARTIFACT_PROJECT := creativedeploy-phase2a1-$(RUN_ID)
-SMOKE_DATABASE_ID := phase2a1_$(RUN_ID)
+ARTIFACT_PROJECT := creativedeploy-phase2b1-$(RUN_ID)
+SMOKE_DATABASE_ID := phase2b1_$(RUN_ID)
+ifeq ($(origin ARTIFACT_SMOKE_PORT), undefined)
+ARTIFACT_SMOKE_PORT := $(shell /usr/bin/python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+endif
 ARTIFACT_COMPOSE_ENV := \
 	SMOKE_RUN_ID=$(RUN_ID) \
-	SMOKE_DATABASE_USER=$(SMOKE_DATABASE_ID) \
-	SMOKE_DATABASE_PASSWORD=synthetic_$(RUN_ID)_password \
-	SMOKE_DATABASE_NAME=$(SMOKE_DATABASE_ID)
+	ARTIFACT_SMOKE_PORT=$(ARTIFACT_SMOKE_PORT) \
+	SMOKE_DATABASE_ADMIN_USER=$(SMOKE_DATABASE_ID)_admin \
+	SMOKE_DATABASE_ADMIN_PASSWORD=synthetic_admin_$(RUN_ID)_password \
+	SMOKE_DATABASE_MIGRATOR_USER=$(SMOKE_DATABASE_ID)_migrator \
+	SMOKE_DATABASE_MIGRATOR_PASSWORD=synthetic_migrator_$(RUN_ID)_password \
+	SMOKE_DATABASE_RUNTIME_USER=$(SMOKE_DATABASE_ID)_runtime \
+	SMOKE_DATABASE_RUNTIME_PASSWORD=synthetic_runtime_$(RUN_ID)_password \
+	SMOKE_DATABASE_NAME=$(SMOKE_DATABASE_ID) \
+	SMOKE_OIDC_CLIENT_ID=phase2b1-smoke-client \
+	SMOKE_OIDC_CLIENT_SECRET=synthetic_oidc_$(RUN_ID)_secret \
+	SMOKE_OIDC_USERS_JSON='[{"subject":"owner-a","name":"Phase 2B-1 Owner A","email":"owner-a@example.test"},{"subject":"owner-b","name":"Phase 2B-1 Owner B","email":"owner-b@example.test"},{"subject":"reviewer-c","name":"Phase 2B-1 Reviewer","email":"reviewer-c@example.test"}]' \
+	SMOKE_S3_BUCKET=phase2b1-private-images \
+	SMOKE_S3_ACCESS_KEY_ID=phase2b1minio \
+	SMOKE_S3_SECRET_ACCESS_KEY=synthetic_minio_$(RUN_ID)_secret
 
 bootstrap-env:
 	@if [ -e "$(ENV_FILE)" ]; then \
@@ -192,7 +249,15 @@ artifact-smoke-down: validate-run-id
 		down --volumes --remove-orphans --rmi local
 
 artifact-smoke: artifact-config
-	RUN_ID=$(RUN_ID) ./scripts/verify_artifact_smoke.sh
+	RUN_ID=$(RUN_ID) ARTIFACT_SMOKE_PORT=$(ARTIFACT_SMOKE_PORT) ./scripts/verify_artifact_smoke.sh
+
+database-role-provision: require-env
+	$(BACKEND_ENV_FILE) uv run --project $(PYTHON_PROJECT) \
+		python -m creativedeploy_api.tools.provision_database_roles
+
+image-storage-migrate: require-env
+	$(BACKEND_ENV_FILE) uv run --project $(PYTHON_PROJECT) \
+		python -m creativedeploy_api.tools.migrate_image_storage
 
 artifact-isolation-test: validate-run-id
 	RUN_ID=$(RUN_ID) ./scripts/verify_attempt_isolation.sh

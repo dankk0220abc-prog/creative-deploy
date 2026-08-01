@@ -37,7 +37,7 @@ REQUIRED_IMAGE_ROLES = (
     IMAGE_ROLE_REFERENCE_ANGLE,
 )
 IMAGE_LIFECYCLE_STATUSES = ("current", "superseded")
-IMAGE_STORAGE_PROVIDERS = ("local_filesystem",)
+IMAGE_STORAGE_PROVIDERS = ("local_filesystem", "s3")
 IMAGE_FORMATS = ("jpeg", "png", "webp")
 IMAGE_UPLOAD_VALIDATION_RESULTS = ("accepted",)
 IMAGE_SOURCE_TYPES = ("user_provided", "user_photographed", "user_provided_other")

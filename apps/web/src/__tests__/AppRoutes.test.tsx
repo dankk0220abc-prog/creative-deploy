@@ -127,6 +127,26 @@ describe("PaintPilot route tree", () => {
     expect(fetchMock()).not.toHaveBeenCalled();
   });
 
+  it("renders a fail-closed identity-provider error with an explicit retry", () => {
+    renderRoute(
+      "/paintpilot/login?auth_error=identity_provider_unavailable&return_to=%2Fpaintpilot%2Fprojects",
+    );
+
+    expect(
+      screen.getByRole("heading", {
+        name: "PaintPilot could not reach the identity provider",
+        level: 1,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Try sign in again" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/No Demo Principal, request header, email/),
+    ).toBeInTheDocument();
+    expect(fetchMock()).not.toHaveBeenCalled();
+  });
+
   it("directly loads a valid detail route from the API", async () => {
     fetchMock()
       .mockResolvedValueOnce(jsonResponse(projectFixture()))

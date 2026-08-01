@@ -274,6 +274,7 @@ class RegionWorkbenchRead(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     paint_project_id: UUID
+    access_role: Literal["owner", "reviewer"]
     image_set_status: Literal["incomplete", "ready", "stale", "not_ready"]
     current_image_set_fingerprint: Annotated[
         str,

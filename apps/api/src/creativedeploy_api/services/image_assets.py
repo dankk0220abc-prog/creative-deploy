@@ -20,6 +20,7 @@ from creativedeploy_api.db.models import (
     CommandIdempotencyRecord,
     ImageAsset,
     ImageSetReadinessReview,
+    PaintProject,
     StateTransitionEvent,
 )
 from creativedeploy_api.db.models.constants import IDEMPOTENCY_STATUS_COMPLETED
@@ -31,6 +32,7 @@ from creativedeploy_api.db.models.image_asset import (
     IMAGE_ROLES,
     REQUIRED_IMAGE_ROLES,
 )
+from creativedeploy_api.repositories.identity import SqlAlchemyIdentityRepository
 from creativedeploy_api.repositories.image_assets import SqlAlchemyImageAssetRepository
 from creativedeploy_api.schemas.errors import ErrorCategory
 from creativedeploy_api.schemas.image_assets import (
@@ -537,6 +539,7 @@ class ImageAssetService:
         self._session = session
         self._storage = storage
         self._repository = repository or SqlAlchemyImageAssetRepository(session)
+        self._identity_repository = SqlAlchemyIdentityRepository(session)
         self._lock_timeout_ms = settings.database_lock_timeout_ms
         self._statement_timeout_ms = settings.database_statement_timeout_ms
         self._limits = ImageValidationLimits(
@@ -701,19 +704,32 @@ class ImageAssetService:
             stale_reasons=stale_reasons,
         )
 
-    async def _require_owned_project(
+    async def _require_project_access(
         self,
         *,
         project_id: uuid.UUID,
         principal: PrincipalContext,
-    ) -> None:
-        async with self._session.begin():
+        for_update: bool = False,
+        owner_only: bool = False,
+    ) -> PaintProject:
+        if principal.user_id is None:
             project = await self._repository.get_owned_project(
                 project_id=project_id,
                 owner_principal_id=principal.principal_id,
+                for_update=for_update,
             )
             if project is None:
                 raise PaintProjectNotFoundError
+            return project
+        access = await self._identity_repository.resolve_project_access(
+            project_id=project_id,
+            principal_id=principal.principal_id,
+            user_id=principal.user_id,
+            for_update=for_update,
+        )
+        if access is None or (owner_only and not access.is_owner):
+            raise PaintProjectNotFoundError
+        return access.project
 
     async def _preflight_image_mutation(
         self,
@@ -729,13 +745,12 @@ class ImageAssetService:
                 lock_timeout_ms=self._lock_timeout_ms,
                 statement_timeout_ms=self._statement_timeout_ms,
             )
-            project = await self._repository.get_owned_project(
+            project = await self._require_project_access(
                 project_id=project_id,
-                owner_principal_id=principal.principal_id,
+                principal=principal,
                 for_update=True,
+                owner_only=True,
             )
-            if project is None:
-                raise PaintProjectNotFoundError
             existing = await self._repository.get_upload_command(
                 scope_key=image_scope_key(principal.principal_id, project_id),
                 idempotency_key=idempotency_key,
@@ -936,7 +951,7 @@ class ImageAssetService:
                             supersedes_image_asset_id=None if current is None else current.id,
                             is_current=True,
                             lifecycle_status="current",
-                            storage_provider="local_filesystem",
+                            storage_provider=self._storage.provider_name,
                             storage_key=stored.key,
                             original_filename=original_filename,
                             declared_content_type=declared_content_type,
@@ -1057,15 +1072,13 @@ class ImageAssetService:
     ) -> ImageAssetListResponse:
         """List only the current owner's project image history."""
         async with self._session.begin():
-            project = await self._repository.get_owned_project(
+            project = await self._require_project_access(
                 project_id=project_id,
-                owner_principal_id=principal.principal_id,
+                principal=principal,
             )
-            if project is None:
-                raise PaintProjectNotFoundError
             assets = await self._repository.list_owned_assets(
                 project_id=project_id,
-                owner_principal_id=principal.principal_id,
+                owner_principal_id=project.owner_principal_id,
             )
         return ImageAssetListResponse(items=[_image_read(asset) for asset in assets])
 
@@ -1077,19 +1090,17 @@ class ImageAssetService:
     ) -> ImageSetRead:
         """Read one complete owner-scoped ImageSet and deterministic readiness state."""
         async with self._session.begin():
-            project = await self._repository.get_owned_project(
+            project = await self._require_project_access(
                 project_id=project_id,
-                owner_principal_id=principal.principal_id,
+                principal=principal,
             )
-            if project is None:
-                raise PaintProjectNotFoundError
             assets = await self._repository.list_owned_assets(
                 project_id=project_id,
-                owner_principal_id=principal.principal_id,
+                owner_principal_id=project.owner_principal_id,
             )
             reviews = await self._repository.list_readiness_reviews(
                 project_id=project_id,
-                owner_principal_id=principal.principal_id,
+                owner_principal_id=project.owner_principal_id,
             )
         return self._image_set_read(
             project_id=project_id,
@@ -1114,16 +1125,14 @@ class ImageAssetService:
                 lock_timeout_ms=self._lock_timeout_ms,
                 statement_timeout_ms=self._statement_timeout_ms,
             )
-            project = await self._repository.get_owned_project(
+            project = await self._require_project_access(
                 project_id=project_id,
-                owner_principal_id=principal.principal_id,
+                principal=principal,
                 for_update=True,
             )
-            if project is None:
-                raise PaintProjectNotFoundError
             current_assets = await self._repository.list_current_for_update(
                 project_id=project_id,
-                owner_principal_id=principal.principal_id,
+                owner_principal_id=project.owner_principal_id,
             )
             facts = self._image_set_facts(
                 project_id=project_id,
@@ -1156,7 +1165,7 @@ class ImageAssetService:
                 review_id = uuid.uuid4()
                 review = ImageSetReadinessReview(
                     id=review_id,
-                    owner_principal_id=principal.principal_id,
+                    owner_principal_id=project.owner_principal_id,
                     paint_project_id=project_id,
                     version=version,
                     verdict=payload.verdict,
@@ -1235,15 +1244,13 @@ class ImageAssetService:
     ) -> ReadinessReviewHistoryResponse:
         """Read immutable readiness history without disclosing other owners."""
         async with self._session.begin():
-            project = await self._repository.get_owned_project(
+            project = await self._require_project_access(
                 project_id=project_id,
-                owner_principal_id=principal.principal_id,
+                principal=principal,
             )
-            if project is None:
-                raise PaintProjectNotFoundError
             reviews = await self._repository.list_readiness_reviews(
                 project_id=project_id,
-                owner_principal_id=principal.principal_id,
+                owner_principal_id=project.owner_principal_id,
             )
         return ReadinessReviewHistoryResponse(items=[_review_read(review) for review in reviews])
 
@@ -1256,10 +1263,14 @@ class ImageAssetService:
     ) -> ImageAssetRead:
         """Read one owner-scoped immutable asset."""
         async with self._session.begin():
+            project = await self._require_project_access(
+                project_id=project_id,
+                principal=principal,
+            )
             asset = await self._repository.get_owned_asset(
                 project_id=project_id,
                 image_asset_id=image_asset_id,
-                owner_principal_id=principal.principal_id,
+                owner_principal_id=project.owner_principal_id,
             )
             if asset is None:
                 raise ImageAssetNotFoundError
@@ -1274,10 +1285,14 @@ class ImageAssetService:
     ) -> PrivateImageContent:
         """Authorize first, then verify and open the private immutable bytes."""
         async with self._session.begin():
+            project = await self._require_project_access(
+                project_id=project_id,
+                principal=principal,
+            )
             asset = await self._repository.get_owned_asset(
                 project_id=project_id,
                 image_asset_id=image_asset_id,
-                owner_principal_id=principal.principal_id,
+                owner_principal_id=project.owner_principal_id,
             )
             if asset is None:
                 raise ImageAssetNotFoundError

@@ -1,3 +1,5 @@
+import { fetchWithCsrf } from "./auth";
+
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const sha256Pattern = /^[0-9a-f]{64}$/;
@@ -97,6 +99,7 @@ export interface RegionSet extends RegionSetHistoryItem {
 
 export interface RegionWorkbench {
   paint_project_id: string;
+  access_role: "owner" | "reviewer";
   image_set_status: "incomplete" | "ready" | "stale" | "not_ready";
   current_image_set_fingerprint: string;
   source_primary_image_asset_id: string | null;
@@ -219,6 +222,7 @@ const regionSetKeys = Object.freeze([
 
 const workbenchKeys = Object.freeze([
   "paint_project_id",
+  "access_role",
   "image_set_status",
   "current_image_set_fingerprint",
   "source_primary_image_asset_id",
@@ -429,6 +433,7 @@ export function isRegionWorkbench(value: unknown): value is RegionWorkbench {
     isPlainObject(value) &&
     hasExactKeys(value, workbenchKeys) &&
     isUuid(value.paint_project_id) &&
+    isEnum(value.access_role, ["owner", "reviewer"] as const) &&
     isEnum(value.image_set_status, [
       "incomplete",
       "ready",
@@ -526,7 +531,7 @@ async function requestJson<T>(
 ): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(input, init);
+    response = await fetchWithCsrf(input, init);
   } catch {
     if (init.signal?.aborted) {
       throw new RegionSetApiError("aborted", "The region request was cancelled.");

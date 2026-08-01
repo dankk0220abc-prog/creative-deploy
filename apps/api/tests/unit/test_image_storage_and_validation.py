@@ -394,17 +394,15 @@ def test_original_filename_is_display_only_and_never_a_storage_key() -> None:
 
 
 def test_production_local_storage_configuration_fails_closed(tmp_path: Path) -> None:
-    settings = Settings(
-        app_env="production",
-        database_url="postgresql+psycopg://test:test@127.0.0.1:1/test",
-        paintpilot_demo_principal_id="owner",
-        paintpilot_demo_principal_display_name="Owner",
-        image_storage_root=tmp_path,
-        _env_file=None,
-    )
-
-    with pytest.raises(ValueError, match="NOT_FOR_PRODUCTION_OBJECT_STORAGE"):
-        settings.require_local_image_storage()
+    with pytest.raises(ValidationError, match="Production requires the OIDC"):
+        Settings(
+            app_env="production",
+            database_url="postgresql+psycopg://test:test@127.0.0.1:1/test",
+            paintpilot_demo_principal_id="owner",
+            paintpilot_demo_principal_display_name="Owner",
+            image_storage_root=tmp_path,
+            _env_file=None,
+        )
 
 
 @pytest.mark.parametrize(

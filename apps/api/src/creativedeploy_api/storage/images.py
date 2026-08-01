@@ -45,6 +45,13 @@ class StorageCompensationRefusedError(ImageStorageError):
     """Receipt, object identity, or database references made deletion unsafe."""
 
 
+class PrivateObjectStat(Protocol):
+    """Only the provider-neutral byte-size fact consumed by application services."""
+
+    @property
+    def st_size(self) -> int: ...
+
+
 @dataclass(frozen=True, slots=True)
 class StagedUpload:
     """One exact temporary object created by this request."""
@@ -61,14 +68,19 @@ class StoragePublishReceipt:
     key: str
     byte_size: int
     expected_sha256: str
-    filesystem_device: int
-    inode: int
-    link_count: int
+    provider_name: str = "local_filesystem"
+    filesystem_device: int | None = None
+    inode: int | None = None
+    link_count: int | None = None
+    etag: str | None = None
+    version_id: str | None = None
     created_by_this_call: bool = True
 
 
 class ImageStoragePort(Protocol):
     """Provider-neutral image-storage operations required by the service."""
+
+    provider_name: str
 
     async def stage_upload(self, upload: UploadFile, *, max_bytes: int) -> StagedUpload: ...
 
@@ -81,7 +93,7 @@ class ImageStoragePort(Protocol):
 
     def open_private(self, key: str) -> BinaryIO: ...
 
-    def stat(self, key: str) -> os.stat_result: ...
+    def stat(self, key: str) -> PrivateObjectStat: ...
 
     def exists(self, key: str) -> bool: ...
 

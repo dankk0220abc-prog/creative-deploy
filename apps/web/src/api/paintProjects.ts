@@ -1,3 +1,5 @@
+import { fetchWithCsrf } from "./auth";
+
 export const PAINT_PROJECTS_PATH = "/api/v1/paint-projects";
 
 export const workflowStatuses = [
@@ -23,6 +25,7 @@ export type WorkflowStatus = (typeof workflowStatuses)[number];
 
 export interface PaintProject {
   id: string;
+  access_role: "owner" | "reviewer";
   owner_principal_id: string;
   title: string;
   description: string | null;
@@ -122,6 +125,7 @@ const workflowStatusSet = new Set<string>(workflowStatuses);
 const errorCategorySet = new Set<string>(errorCategories);
 const paintProjectKeys = Object.freeze([
   "id",
+  "access_role",
   "owner_principal_id",
   "title",
   "description",
@@ -205,6 +209,7 @@ function isPaintProject(value: unknown): value is PaintProject {
   return (
     typeof value.id === "string" &&
     isPaintProjectId(value.id) &&
+    (value.access_role === "owner" || value.access_role === "reviewer") &&
     isNormalizedString(value.owner_principal_id, 1, 128) &&
     isNormalizedString(value.title, 1, 80) &&
     descriptionIsValid &&
@@ -367,7 +372,7 @@ async function fetchJson(
 ): Promise<unknown> {
   let response: Response;
   try {
-    response = await fetch(input, init);
+    response = await fetchWithCsrf(input, init);
   } catch {
     if (init.signal?.aborted) {
       throw new PaintProjectApiError("aborted", "The project request was cancelled.");

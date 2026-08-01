@@ -78,7 +78,9 @@ describe("PaintProject detail", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Cel Shading · Current release")).toBeInTheDocument();
     expect(screen.getByText("Planning-only demo")).toBeInTheDocument();
-    expect(screen.getByText("Current configured demo operator")).toBeInTheDocument();
+    expect(
+      screen.getByText("Owner · full governed project control"),
+    ).toBeInTheDocument();
     expect(screen.getByText(project.id)).toBeInTheDocument();
     expect(
       view.container.querySelectorAll(`time[datetime="${project.created_at}"]`),

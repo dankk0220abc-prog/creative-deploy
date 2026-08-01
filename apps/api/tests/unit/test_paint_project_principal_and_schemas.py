@@ -142,10 +142,8 @@ def test_blank_or_unknown_app_env_is_rejected(app_env: str) -> None:
 
 
 def test_production_rejects_demo_adapter_even_when_demo_values_are_present() -> None:
-    settings = _explicit_settings(app_env="production")
-
-    with pytest.raises(ValueError, match="unavailable in production"):
-        create_app(settings)
+    with pytest.raises(ValidationError, match="Production requires the OIDC"):
+        _explicit_settings(app_env="production")
 
 
 @pytest.mark.parametrize(
@@ -274,6 +272,7 @@ def test_read_schema_accepts_the_phase_1e_1_current_image_contract() -> None:
 
     assert set(project.model_dump()) == {
         "id",
+        "access_role",
         "owner_principal_id",
         "title",
         "description",

@@ -27,15 +27,26 @@ def main() -> None:
         flags=re.MULTILINE,
     )
     all_uses = re.findall(r"^\s*-\s+uses:\s+(\S+)", workflow, flags=re.MULTILINE)
-    require(action_lines and len(action_lines) == len(all_uses), "action version comments missing")
+    require(
+        action_lines and len(action_lines) == len(all_uses),
+        "action version comments missing",
+    )
     for reference, readable_version in action_lines:
-        require(ACTION_REFERENCE.fullmatch(reference) is not None, f"mutable action {reference}")
-        require(readable_version.startswith("v"), f"invalid action version {readable_version}")
+        require(
+            ACTION_REFERENCE.fullmatch(reference) is not None,
+            f"mutable action {reference}",
+        )
+        require(
+            readable_version.startswith("v"),
+            f"invalid action version {readable_version}",
+        )
 
     docker_references: list[str] = []
     for path in ("apps/api/Dockerfile", "apps/web/Dockerfile"):
         docker_references.extend(
-            re.findall(r"^ARG\s+[A-Z0-9_]+_IMAGE=(\S+)$", read(path), flags=re.MULTILINE)
+            re.findall(
+                r"^ARG\s+[A-Z0-9_]+_IMAGE=(\S+)$", read(path), flags=re.MULTILINE
+            )
         )
     for path in ("compose.yaml", "compose.artifact-smoke.yaml"):
         docker_references.extend(
@@ -51,7 +62,9 @@ def main() -> None:
     docker_references.extend(
         re.findall(r"^\s+image:\s+(\S+)$", workflow, flags=re.MULTILINE)
     )
-    require(len(docker_references) == 8, "unexpected executable container reference count")
+    require(
+        len(docker_references) == 9, "unexpected executable container reference count"
+    )
     for reference in docker_references:
         require(
             SHA256_REFERENCE.fullmatch(reference) is not None,

@@ -21,6 +21,7 @@ export function projectFixture(
 ): PaintProject {
   return {
     id: PROJECT_ID,
+    access_role: "owner",
     owner_principal_id: "local-demo-owner",
     title: "Cel-shaded garage kit",
     description: "A controlled planning study for a graphic two-shadow finish.",

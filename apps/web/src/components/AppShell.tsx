@@ -6,7 +6,9 @@ import {
 } from "react";
 import { Link, Outlet, useLocation } from "react-router";
 
+import { loginUrl } from "../api/auth";
 import { isPaintProjectId } from "../api/paintProjects";
+import { useAuth } from "../auth/AuthContext";
 
 const PROJECTS_PATH = "/paintpilot/projects";
 const CREATE_PROJECT_PATH = "/paintpilot/projects/new";
@@ -84,6 +86,7 @@ function focusPageHeading(main: HTMLElement | null): void {
 }
 
 export function AppShell() {
+  const { logout, state: authState } = useAuth();
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
   const previousRouteRef = useRef<string | null>(null);
@@ -166,6 +169,22 @@ export function AppShell() {
             >
               Create project
             </Link>
+            {authState.status === "authenticated" ? (
+              <span className="shell-nav__identity">
+                <span>{authState.user.display_name}</span>
+                <button
+                  className="shell-nav__logout"
+                  onClick={() => void logout()}
+                  type="button"
+                >
+                  Log out
+                </button>
+              </span>
+            ) : (
+              <a className="shell-nav__link" href={loginUrl(location.pathname)}>
+                Sign in
+              </a>
+            )}
           </nav>
         </div>
       </header>
@@ -196,8 +215,8 @@ export function AppShell() {
         <div>
           <span className="workspace-footer__label">Planning-only workspace</span>
           <span>
-            Guidance is not a verified repaint outcome. Access uses one configured demo
-            operator, not public authentication.
+            Guidance is not a verified repaint outcome. Access is enforced by a
+            server-side OIDC session and project membership.
           </span>
         </div>
         {isArtifactSmoke ? (

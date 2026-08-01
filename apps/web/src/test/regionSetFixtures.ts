@@ -86,6 +86,7 @@ export function regionWorkbenchFixture(
 ): RegionWorkbench {
   return {
     paint_project_id: PROJECT_ID,
+    access_role: "owner",
     image_set_status: "ready",
     current_image_set_fingerprint: REGION_SHA,
     source_primary_image_asset_id: REGION_IMAGE_ID,

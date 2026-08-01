@@ -71,6 +71,55 @@ source/test directories. The migration image contains Alembic and psycopg but
 not pytest, pip-audit, Ruff, or mypy. Both runtime containers execute as
 non-root.
 
+## Phase 2B-1 Identity, Storage, and Database Roles
+
+The Phase 2B-1 smoke profile adds a repository-owned synthetic OIDC Provider,
+private MinIO, and distinct PostgreSQL roles. They are local/CI test
+infrastructure, not real production accounts.
+
+The production API configuration requires:
+
+```dotenv
+APP_ENV=production
+DATABASE_URL=postgresql+psycopg://<runtime-role>:<secret>@<host>/<database>
+IDENTITY_PROVIDER=oidc
+OIDC_ISSUER=https://<provider-issuer>
+OIDC_CLIENT_ID=<confidential-client-id>
+OIDC_CLIENT_SECRET=<secret>
+OIDC_REDIRECT_URI=https://<application-host>/api/v1/auth/callback
+IMAGE_STORAGE_PROVIDER=s3
+S3_ENDPOINT_URL=https://<private-s3-endpoint>
+S3_REGION=<region>
+S3_BUCKET=<private-bucket>
+S3_ACCESS_KEY_ID=<access-key>
+S3_SECRET_ACCESS_KEY=<secret>
+S3_CREATE_BUCKET=false
+S3_ALLOW_INSECURE_HTTP=false
+```
+
+Do not place production values in `.env`, Compose, command history, evidence,
+or Git. Inject them through the selected deployment secret manager. Production
+refuses Demo identity, local storage, HTTP OIDC/S3 endpoints, local OIDC
+backchannel rewriting, and application bucket creation.
+
+Provision roles once with an administrative database connection supplied only
+to the provisioning process:
+
+```bash
+DATABASE_URL='postgresql+psycopg://<admin>:<secret>@<host>/<database>' \
+DATABASE_MIGRATOR_ROLE='<migrator-role>' \
+DATABASE_MIGRATOR_PASSWORD='<secret>' \
+DATABASE_RUNTIME_ROLE='<runtime-role>' \
+DATABASE_RUNTIME_PASSWORD='<secret>' \
+CREATIVEDEPLOY_ENV_FILE=/dev/null \
+uv run --project apps/api \
+python -m creativedeploy_api.tools.provision_database_roles
+```
+
+Then run Alembic with the migrator URL and the API with the runtime URL. Never
+run the API as the admin or migrator. The runtime role has table DML and
+sequence usage only; the artifact gate verifies that runtime DDL is refused.
+
 ## Integrated Smoke
 
 The canonical self-cleaning gate is:
@@ -82,6 +131,16 @@ RUN_ID=review_20260731_a1 make artifact-smoke
 It verifies:
 
 - the Web proxy, API readiness, and PostgreSQL;
+- real Authorization Code + S256 PKCE against the synthetic OIDC Provider;
+- one-time state/callback consumption, nonce, stable issuer+subject identity,
+  session rotation, logout, and CSRF rejection;
+- anonymous refusal, Owner A/Owner B isolation, assigned reviewer access,
+  repeated membership idempotency, and immediate removal;
+- private MinIO ACL/policy, conditional upload, API-only streaming/checksum,
+  bucket unauthenticated refusal, and absence of provider/public/signed URLs;
+- separate admin/migrator/runtime credentials, migrator-owned schema, runtime
+  DML, and runtime DDL refusal;
+- API/IdP/Web/MinIO restart recovery and database-degraded behavior;
 - SPA deep-link fallback and same-origin `/api/`;
 - HTML no-store and hashed-asset immutable caching;
 - CSP, frame protection, `nosniff`, referrer and permissions policies;
@@ -90,7 +149,8 @@ It verifies:
 - exact oversized-request rejection and unknown-Host rejection;
 - no-store headers on ordinary API success, validation, not-found, proxy-limit,
   and invalid-Host responses;
-- production startup refusal of Demo Principal/local storage;
+- production startup refusal of Demo Principal/local storage and incomplete
+  OIDC/S3 configuration;
 - production refusal of derived `POSTGRES_*` when explicit `DATABASE_URL` is
   absent;
 - migration-image dependency minimization;
@@ -120,14 +180,70 @@ RUN_ID=browser_20260731_a1 make artifact-smoke-down
 
 Do not use this profile for real data.
 
+## Migration and Rollback
+
+Revision `2b1c4d5e6f70` is the sole head and child of `7f3a2b9c4d1e`.
+Use the migrator URL:
+
+```bash
+CREATIVEDEPLOY_ENV_FILE=/dev/null \
+DATABASE_URL='postgresql+psycopg://<migrator>:<secret>@<host>/<database>' \
+uv run --project apps/api alembic -c apps/api/alembic.ini heads
+
+CREATIVEDEPLOY_ENV_FILE=/dev/null \
+DATABASE_URL='postgresql+psycopg://<migrator>:<secret>@<host>/<database>' \
+uv run --project apps/api alembic -c apps/api/alembic.ini upgrade head
+
+CREATIVEDEPLOY_ENV_FILE=/dev/null \
+DATABASE_URL='postgresql+psycopg://<migrator>:<secret>@<host>/<database>' \
+uv run --project apps/api alembic -c apps/api/alembic.ini current
+
+CREATIVEDEPLOY_ENV_FILE=/dev/null \
+DATABASE_URL='postgresql+psycopg://<migrator>:<secret>@<host>/<database>' \
+uv run --project apps/api alembic -c apps/api/alembic.ini check
+```
+
+Before any downgrade, take an independently verified database backup and
+confirm the rollback objective. `alembic downgrade 7f3a2b9c4d1e` succeeds only
+when all Phase 2B-1 identity/session/membership tables are empty and no
+ImageAsset references S3. Otherwise it fails closed with SQLSTATE `55000`; do
+not bypass that guard or delete governed facts in this Phase.
+
+## Non-Destructive Local-to-S3 Copy
+
+Configure the source local root, destination S3 values, and a database URL.
+Dry-run is the default:
+
+```bash
+CREATIVEDEPLOY_ENV_FILE=<complete-private-env-file> \
+uv run --project apps/api \
+python -m creativedeploy_api.tools.migrate_image_storage
+```
+
+After reviewing the exact verified count, execute with an optional positive
+limit:
+
+```bash
+CREATIVEDEPLOY_ENV_FILE=<complete-private-env-file> \
+uv run --project apps/api \
+python -m creativedeploy_api.tools.migrate_image_storage --execute --limit 100
+```
+
+The tool recomputes source size/SHA-256, conditionally copies or resumes an
+exact destination, verifies it, and updates only an unchanged matching row.
+It never deletes a source object. Do not add deletion, retention, or lifecycle
+policy to this procedure.
+
 ## Health and Troubleshooting
 
 - `GET /health/live` is NGINX-local and proves the proxy process serves.
 - `GET /health/ready` is proxied to the API and requires PostgreSQL.
 - A 503 readiness with 200 liveness is the intended degraded state.
 - An unknown Host is rejected by the default NGINX server.
-- A production import failure mentioning unavailable adapters is expected until
-  real authentication and storage decisions are implemented.
+- An explicit login-page identity-provider-unavailable state is expected while
+  the configured IdP is down; it must not fall back to Demo identity.
+- A production startup failure is expected when any required OIDC, S3, or
+  explicit database setting is absent or insecure.
 - Registry or package-index EOF/TLS failures are environmental
   `INVALID_ATTEMPT`s. Preserve the first result and re-run the full affected
   gate after connectivity returns.
@@ -152,7 +268,10 @@ Secret.
 
 ## Production Gaps Requiring User Decisions
 
-Do not deploy publicly until the user selects real authentication and identity
-ownership, external private-object storage, domain/TLS termination, secrets
-management, deployment ownership, backups/restore, monitoring, and retention.
-AI remains unauthorized.
+Phase 2B-1 implements provider-neutral OIDC and private S3-compatible
+boundaries; it does not select or configure real providers. Do not deploy
+publicly until the user selects identity/client ownership, private object
+storage and IAM, domain/TLS termination, secrets management, deployment
+ownership, backups/restore, monitoring, retention, and incident response.
+Independent security review and Git sealing are still required. AI remains
+unauthorized.

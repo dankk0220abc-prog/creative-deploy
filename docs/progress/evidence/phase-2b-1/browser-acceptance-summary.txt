@@ -1,0 +1,80 @@
+PHASE 2B-1 REAL BROWSER ACCEPTANCE SUMMARY
+date: 2026-07-31
+repository: /Users/danke/Developer/CreativeDeploy
+run_id: phase2b1_browser_12
+runtime: in-app Chrome-compatible Browser -> loopback Web/NGINX -> API -> PostgreSQL/MinIO/OIDC
+classification: IMPLEMENTER EVIDENCE; NOT INDEPENDENT APPROVAL
+
+SYNTHETIC ACTORS
+- Owner A: provider subject owner-a
+- Owner B: provider subject owner-b
+- Reviewer C: provider subject reviewer-c
+
+SYNTHETIC DATA
+- one project titled "Browser governed private project"
+- one program-generated 768x768 JPEG
+- explicit synthetic rights attestation
+- no private user photo, real account, or real secret
+
+VERIFIED JOURNEY
+1. Owner A authenticated through the real local OIDC form/callback.
+2. Owner A created the project and uploaded the synthetic image.
+3. The image rendered through /api/v1/paint-projects/<project>/images/<image>/content.
+4. The DOM exposed no MinIO/S3 bucket, key, credential, or signed/public URL.
+5. Owner B direct navigation returned the same product "project unavailable" state and an empty list.
+6. Reviewer C before assignment received the same unavailable state.
+7. Owner A explicitly opened reviewer management and assigned Reviewer C.
+8. Reviewer C then saw access role "reviewer", the project, and the private preview.
+9. Reviewer C had zero upload controls and zero reviewer-management controls.
+10. Owner A removed the membership; a new Reviewer C login immediately received unavailable.
+11. Same-session immediate revocation is proven by the artifact smoke API path.
+12. API, OIDC Provider, Web, and MinIO were restarted; session, project, and object recovered.
+13. With the IdP stopped, the login page displayed an explicit provider-unavailable state and retry.
+14. No Demo identity, header identity, email identity, or client role was substituted.
+15. After IdP restart, retry returned to the real local authorization form.
+16. Browser console warning/error set: [].
+
+EXCLUDED/INVALID ATTEMPTS
+- Direct post-logout object navigation was blocked by the browser runtime with ERR_BLOCKED_BY_CLIENT.
+  It is not counted as an application result. The final artifact curl probe independently returned 401.
+- The first Compose restart command omitted required smoke variables and was rejected before restart.
+  Exact container restart was rerun and verified through changed start times and restored health.
+- The first temporary-image cleanup command was rejected by tool safety before execution.
+  Exact unlink and RUN_ID-scoped Compose teardown succeeded.
+
+CLEANUP
+- exact phase2b1_browser_12 containers, network, volumes, and local images removed
+- exact generated JPEG removed
+- no unrelated process, port, Docker object, database, or file touched
+
+RESULT
+PASS AS IMPLEMENTER BROWSER EVIDENCE
+NOT A SECURITY REVIEW OR PRODUCTION-READINESS APPROVAL
+
+FINAL REMEDIATION ADDENDUM
+date: 2026-08-01
+run_id: phase2b1_remediation_browser_03
+classification: IMPLEMENTER REMEDIATION EVIDENCE; NOT INDEPENDENT APPROVAL
+
+- Owner A authenticated, created the isolated project, and uploaded the repository-owned
+  synthetic 1320x1656 primary-front JPEG with rights attestation.
+- Reviewer C received the safe unavailable response before assignment.
+- Owner A assigned Reviewer C; the reviewer saw the private API-served image and had
+  zero upload inputs and zero reviewer-management controls.
+- API, OIDC, Web, and MinIO were restarted together. The reviewer session, project,
+  membership, and private image recovered; the image completed at 1320x1656.
+- Owner A revoked Reviewer C; the next reviewer login immediately received the same
+  unavailable response.
+- Owner B received the same safe unavailable response.
+- Explicit browser logout returned the anonymous sign-in UI. Expired-session refusal is
+  covered by phase2b1_remediation_artifact_02.
+- Browser console warning/error set: [].
+- The exact browser Compose stack, database, roles, volume objects, network, and local
+  images were removed by RUN_ID-scoped teardown.
+
+One link locator correctly refused to act when it matched two create-project links;
+a fresh snapshot supported a unique accessible-name locator. Two post-restart locator
+evaluations exceeded the browser client deadline without mutating state; a bounded
+page-scoped DOM read confirmed the loaded private image. Neither is counted as PASS.
+
+RESULT: PASS AS IMPLEMENTER REMEDIATION BROWSER EVIDENCE

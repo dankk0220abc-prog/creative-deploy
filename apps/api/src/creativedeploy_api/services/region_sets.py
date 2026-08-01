@@ -28,6 +28,7 @@ from creativedeploy_api.db.models.image_asset import (
     IMAGE_ROLE_PRIMARY,
     REQUIRED_IMAGE_ROLES,
 )
+from creativedeploy_api.repositories.identity import SqlAlchemyIdentityRepository
 from creativedeploy_api.repositories.region_sets import SqlAlchemyRegionSetRepository
 from creativedeploy_api.schemas.errors import ErrorCategory
 from creativedeploy_api.schemas.region_sets import (
@@ -353,6 +354,7 @@ class RegionSetService:
         self._session = session
         self._storage = storage
         self._repository = repository or SqlAlchemyRegionSetRepository(session)
+        self._identity_repository = SqlAlchemyIdentityRepository(session)
         self._lock_timeout_ms = settings.database_lock_timeout_ms
         self._statement_timeout_ms = settings.database_statement_timeout_ms
 
@@ -606,34 +608,46 @@ class RegionSetService:
         project_id: uuid.UUID,
         principal: PrincipalContext,
         for_update: bool,
+        owner_only: bool = False,
     ) -> tuple[
         CurrentImageSet,
         list[RegionSet],
         list[RegionSetReview],
     ]:
-        project = await self._repository.get_owned_project(
-            project_id=project_id,
-            owner_principal_id=principal.principal_id,
-            for_update=for_update,
-        )
-        if project is None:
-            raise PaintProjectNotFoundError
+        if principal.user_id is None:
+            project = await self._repository.get_owned_project(
+                project_id=project_id,
+                owner_principal_id=principal.principal_id,
+                for_update=for_update,
+            )
+            if project is None:
+                raise PaintProjectNotFoundError
+        else:
+            access = await self._identity_repository.resolve_project_access(
+                project_id=project_id,
+                principal_id=principal.principal_id,
+                user_id=principal.user_id,
+                for_update=for_update,
+            )
+            if access is None or (owner_only and not access.is_owner):
+                raise PaintProjectNotFoundError
+            project = access.project
         assets = await self._repository.list_current_assets(
             project_id=project_id,
-            owner_principal_id=principal.principal_id,
+            owner_principal_id=project.owner_principal_id,
             for_update=for_update,
         )
         readiness = await self._repository.list_readiness_reviews(
             project_id=project_id,
-            owner_principal_id=principal.principal_id,
+            owner_principal_id=project.owner_principal_id,
         )
         region_sets = await self._repository.list_region_sets(
             project_id=project_id,
-            owner_principal_id=principal.principal_id,
+            owner_principal_id=project.owner_principal_id,
         )
         reviews = await self._repository.list_reviews(
             project_id=project_id,
-            owner_principal_id=principal.principal_id,
+            owner_principal_id=project.owner_principal_id,
         )
         return (
             self._current_image_set(
@@ -657,6 +671,17 @@ class RegionSetService:
                 principal=principal,
                 for_update=False,
             )
+            access_role = "owner"
+            if principal.user_id is not None:
+                access = await self._identity_repository.resolve_project_access(
+                    project_id=project_id,
+                    principal_id=principal.principal_id,
+                    user_id=principal.user_id,
+                    for_update=False,
+                )
+                if access is None:
+                    raise PaintProjectNotFoundError
+                access_role = access.role
             reviews_by_set = self._reviews_by_region_set(reviews)
             history = [
                 self._history_item(
@@ -691,6 +716,7 @@ class RegionSetService:
         return RegionWorkbenchRead.model_validate(
             {
                 "paint_project_id": project_id,
+                "access_role": access_role,
                 "image_set_status": current_image_set.status,
                 "current_image_set_fingerprint": current_image_set.fingerprint,
                 "source_primary_image_asset_id": None if primary is None else primary.id,
@@ -770,6 +796,7 @@ class RegionSetService:
                 project_id=project_id,
                 principal=principal,
                 for_update=True,
+                owner_only=True,
             )
             claim = await self._repository.claim_command(
                 record_id=uuid.uuid4(),
@@ -927,6 +954,7 @@ class RegionSetService:
                 project_id=project_id,
                 principal=principal,
                 for_update=True,
+                owner_only=True,
             )
             source = next(
                 (item for item in region_sets if item.id == source_region_set_id),
@@ -1125,6 +1153,7 @@ class RegionSetService:
                 project_id=project_id,
                 principal=principal,
                 for_update=True,
+                owner_only=True,
             )
             source = next((item for item in region_sets if item.id == region_set_id), None)
             if source is None:
@@ -1262,7 +1291,7 @@ class RegionSetService:
                 raise RegionSetLifecycleConflictError
             review = RegionSetReview(
                 id=uuid.uuid4(),
-                owner_principal_id=principal.principal_id,
+                owner_principal_id=target.owner_principal_id,
                 paint_project_id=project_id,
                 region_set_id=target.id,
                 version=await self._repository.next_review_version(project_id=project_id),

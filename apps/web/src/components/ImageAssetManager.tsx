@@ -77,6 +77,7 @@ const checklistLabels = {
 } as const;
 
 interface ImageAssetManagerProps {
+  canManageImages?: boolean;
   onProjectChanged: () => void;
   project: PaintProject;
 }
@@ -223,6 +224,7 @@ function imageMutationLockMessage(
 }
 
 export function ImageAssetManager({
+  canManageImages = true,
   onProjectChanged,
   project,
 }: ImageAssetManagerProps) {
@@ -286,7 +288,8 @@ export function ImageAssetManager({
           selectedRole,
           selectedSlot.current !== null,
         );
-  const uploadAllowed = selectedMutation?.allowed ?? false;
+  const uploadAllowed =
+    canManageImages && (selectedMutation?.allowed ?? false);
 
   const reloadWorkbench = useCallback(() => {
     setState({ status: "loading" });
@@ -649,7 +652,7 @@ export function ImageAssetManager({
                   </details>
                 ) : null}
 
-                {mutation.allowed ? (
+                {canManageImages && mutation.allowed ? (
                   <button
                     aria-pressed={selectedRole === slot.role}
                     className="button button--secondary image-role-card__action"
@@ -673,7 +676,16 @@ export function ImageAssetManager({
             })}
           </div>
 
-          {!uploadAllowed ? (
+          {!canManageImages ? (
+            <aside className="image-assets__locked" role="note">
+              <p className="eyebrow">Reviewer access</p>
+              <h3>Image uploads and replacements are owner-only</h3>
+              <p>
+                Private originals, immutable history, readiness checks, and human
+                review remain available to you.
+              </p>
+            </aside>
+          ) : !uploadAllowed ? (
             <aside className="image-assets__locked" role="note">
               <p className="eyebrow">Workflow-controlled</p>
               <h3>

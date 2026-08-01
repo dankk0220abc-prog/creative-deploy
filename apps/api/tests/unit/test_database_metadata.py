@@ -38,15 +38,20 @@ APPROVED_NAMING_CONVENTION = {
     "pk": "pk_%(table_name)s",
 }
 APPROVED_BUSINESS_TABLES = {
+    "auth_sessions",
     "command_idempotency_records",
+    "external_identities",
     "image_assets",
     "image_set_readiness_reviews",
+    "oidc_login_flows",
     "paint_projects",
+    "project_memberships",
     "region_set_reviews",
     "region_sets",
     "region_vertices",
     "regions",
     "state_transition_events",
+    "user_accounts",
 }
 SourceDeclaration = tuple[Path, int, str, str]
 
@@ -369,6 +374,7 @@ def fail(*args, **kwargs):
 sqlalchemy.ext.asyncio.create_async_engine = fail
 from creativedeploy_api.db.base import Base
 assert set(Base.metadata.tables) == {
+    "auth_sessions",
     "paint_projects",
     "state_transition_events",
     "command_idempotency_records",
@@ -378,6 +384,10 @@ assert set(Base.metadata.tables) == {
     "regions",
     "region_vertices",
     "region_set_reviews",
+    "external_identities",
+    "oidc_login_flows",
+    "project_memberships",
+    "user_accounts",
 }
 """
     result = subprocess.run(

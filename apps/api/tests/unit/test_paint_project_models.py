@@ -18,15 +18,20 @@ from sqlalchemy.schema import Table, UniqueConstraint
 from creativedeploy_api.db import Base
 from creativedeploy_api.db.models import (
     REGISTERED_MODELS,
+    AuthSession,
     CommandIdempotencyRecord,
+    ExternalIdentity,
     ImageAsset,
     ImageSetReadinessReview,
+    OidcLoginFlow,
     PaintProject,
+    ProjectMembership,
     Region,
     RegionSet,
     RegionSetReview,
     RegionVertex,
     StateTransitionEvent,
+    UserAccount,
 )
 from creativedeploy_api.db.models.constants import (
     ACTOR_TYPES,
@@ -43,20 +48,34 @@ from creativedeploy_api.db.models.constants import (
 
 EXPECTED_TABLES = frozenset(
     {
+        "auth_sessions",
         "command_idempotency_records",
+        "external_identities",
         "image_assets",
         "image_set_readiness_reviews",
         "paint_projects",
+        "oidc_login_flows",
+        "project_memberships",
         "region_set_reviews",
         "region_sets",
         "region_vertices",
         "regions",
         "state_transition_events",
+        "user_accounts",
     }
 )
 EXPECTED_CONSTRAINT_NAMES = frozenset(
     {
         "ck_command_idempotency_records_command_type_format",
+        "ck_auth_sessions_expiry_after_creation",
+        "ck_auth_sessions_last_seen_not_before_creation",
+        "ck_external_identities_issuer_normalized",
+        "ck_external_identities_subject_normalized",
+        "ck_oidc_login_flows_expiry_after_creation",
+        "ck_project_memberships_role_allowed",
+        "ck_user_accounts_display_name_normalized",
+        "ck_user_accounts_email_normalized",
+        "ck_user_accounts_updated_at_not_before_created_at",
         "ck_command_idempotency_records_execution_status_allowed",
         "ck_command_idempotency_records_execution_status_format",
         "ck_command_idempotency_records_expiry_after_creation",
@@ -156,6 +175,8 @@ EXPECTED_CONSTRAINT_NAMES = frozenset(
         "ck_state_transition_events_to_state_allowed",
         "ck_state_transition_events_user_display_name_required",
         "fk_state_transition_events_project_id_paint_projects",
+        "fk_auth_sessions_user_id_user_accounts",
+        "fk_external_identities_user_id_user_accounts",
         "fk_image_assets_project_owner_paint_projects",
         "fk_image_assets_supersedes_same_owner_project_role",
         "fk_image_set_readiness_reviews_primary_front_asset",
@@ -164,6 +185,9 @@ EXPECTED_CONSTRAINT_NAMES = frozenset(
         "fk_image_set_readiness_reviews_reference_back_asset",
         "fk_image_set_readiness_reviews_reference_detail_asset",
         "fk_paint_projects_current_image_asset_same_owner_project",
+        "fk_project_memberships_assigned_by_user_accounts",
+        "fk_project_memberships_project_paint_projects",
+        "fk_project_memberships_user_user_accounts",
         "fk_region_set_reviews_region_set_same_owner_project",
         "fk_region_sets_based_on_same_owner_project",
         "fk_region_sets_project_owner_paint_projects",
@@ -172,21 +196,30 @@ EXPECTED_CONSTRAINT_NAMES = frozenset(
         "fk_region_vertices_region_same_set",
         "fk_regions_region_set_same_owner_project",
         "pk_command_idempotency_records",
+        "pk_auth_sessions",
+        "pk_external_identities",
         "pk_image_assets",
         "pk_image_set_readiness_reviews",
         "pk_paint_projects",
+        "pk_oidc_login_flows",
+        "pk_project_memberships",
         "pk_region_set_reviews",
         "pk_region_sets",
         "pk_region_vertices",
         "pk_regions",
         "pk_state_transition_events",
+        "pk_user_accounts",
+        "uq_auth_sessions_token_hash",
         "uq_command_idempotency_records_scope_key_idempotency_key",
+        "uq_external_identities_issuer_subject",
         "uq_image_assets_id_project_owner_role",
         "uq_image_assets_project_owner_id",
         "uq_image_assets_project_role_version",
         "uq_image_assets_storage_key",
         "uq_image_set_readiness_reviews_project_version",
         "uq_paint_projects_id_owner_principal_id",
+        "uq_oidc_login_flows_state_hash",
+        "uq_project_memberships_project_user",
         "uq_region_set_reviews_project_version",
         "uq_region_set_reviews_region_set",
         "uq_region_sets_project_owner_id",
@@ -198,10 +231,14 @@ EXPECTED_CONSTRAINT_NAMES = frozenset(
 )
 EXPECTED_INDEX_NAMES = frozenset(
     {
+        "ix_auth_sessions_user_expires_at",
         "ix_command_idempotency_records_expires_at",
+        "ix_external_identities_user_id",
         "ix_image_assets_owner_project_created_at",
         "ix_image_set_readiness_reviews_owner_project_created_at",
         "ix_paint_projects_owner_updated_at_id",
+        "ix_oidc_login_flows_expires_at",
+        "ix_project_memberships_user_project",
         "ix_region_set_reviews_owner_project_created_at",
         "ix_region_sets_owner_project_version",
         "ix_region_vertices_region_set_region_sequence",
@@ -293,6 +330,10 @@ MIGRATION_PATHS = (
     API_ROOT / "migrations" / "versions" / "5ed9906e7d33_add_imageasset_foundation.py",
     API_ROOT / "migrations" / "versions" / "d4c8a1f7b2e9_add_multi_role_image_set_readiness.py",
     API_ROOT / "migrations" / "versions" / "7f3a2b9c4d1e_add_human_region_annotation.py",
+    API_ROOT
+    / "migrations"
+    / "versions"
+    / "2b1c4d5e6f70_add_governed_identity_and_private_storage.py",
 )
 
 
@@ -452,6 +493,11 @@ def test_registered_models_and_metadata_contain_exactly_phase_1f_business_tables
         CommandIdempotencyRecord,
         ImageAsset,
         ImageSetReadinessReview,
+        UserAccount,
+        ExternalIdentity,
+        ProjectMembership,
+        OidcLoginFlow,
+        AuthSession,
         RegionSet,
         Region,
         RegionVertex,
@@ -513,7 +559,7 @@ def test_all_database_identifiers_fit_postgresql_limit() -> None:
     identifiers = _metadata_identifiers()
 
     assert identifiers == EXPECTED_DATABASE_IDENTIFIERS
-    assert len(identifiers) == 157
+    assert len(identifiers) == 189
     assert all(
         len(identifier.encode("utf-8")) <= POSTGRESQL_IDENTIFIER_LIMIT for identifier in identifiers
     )
@@ -997,7 +1043,7 @@ def fail(*args, **kwargs):
 
 sqlalchemy.ext.asyncio.create_async_engine = fail
 from creativedeploy_api.db.models import REGISTERED_MODELS
-assert len(REGISTERED_MODELS) == 9
+assert len(REGISTERED_MODELS) == 14
 """
     result = subprocess.run(
         [sys.executable, "-c", source],

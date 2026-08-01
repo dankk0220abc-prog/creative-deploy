@@ -57,6 +57,7 @@ class PaintProjectRead(BaseModel):
     )
 
     id: UUID
+    access_role: Literal["owner", "reviewer"] = "owner"
     owner_principal_id: Annotated[str, Field(min_length=1, max_length=128)]
     title: Annotated[str, Field(min_length=1, max_length=80)]
     description: Annotated[str, Field(min_length=1, max_length=500)] | None

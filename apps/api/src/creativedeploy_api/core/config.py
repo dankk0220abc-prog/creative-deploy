@@ -5,6 +5,7 @@ from functools import lru_cache
 from ipaddress import ip_address
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import urlparse
 
 from pydantic import Field, SecretStr, StringConstraints, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -18,15 +19,21 @@ DEFAULT_ENV_FILE = (
     .resolve(strict=False)
 )
 DEFAULT_IMAGE_STORAGE_ROOT = REPOSITORY_ROOT / ".local" / "private-image-storage"
+DEFAULT_S3_STAGING_ROOT = REPOSITORY_ROOT / ".local" / "s3-upload-staging"
 DEFAULT_DATABASE_LOCK_TIMEOUT_MS = 2_000
 DEFAULT_DATABASE_STATEMENT_TIMEOUT_MS = 5_000
 MAX_DATABASE_TRANSACTION_TIMEOUT_MS = 60_000
+DEFAULT_OIDC_ID_TOKEN_MAX_AGE_SECONDS = 300
+MAX_OIDC_ID_TOKEN_MAX_AGE_SECONDS = 900
+DEFAULT_OIDC_CLOCK_SKEW_SECONDS = 30
+MAX_OIDC_CLOCK_SKEW_SECONDS = 60
 DEFAULT_IMAGE_MAX_BYTES = 20 * 1024 * 1024
 DEFAULT_IMAGE_MIN_SIDE_PX = 768
 DEFAULT_IMAGE_MAX_SIDE_PX = 8_192
 DEFAULT_IMAGE_MAX_PIXELS = 40_000_000
 AppEnvironment = Literal["development", "test", "production"]
-ImageStorageProvider = Literal["local_filesystem"]
+ImageStorageProvider = Literal["local_filesystem", "s3"]
+IdentityProvider = Literal["configured_demo", "oidc"]
 PrincipalIdSetting = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=128),
@@ -143,8 +150,37 @@ class Settings(BaseSettings):
     )
     paintpilot_demo_principal_id: PrincipalIdSetting | None = None
     paintpilot_demo_principal_display_name: PrincipalDisplayNameSetting | None = None
+    identity_provider: IdentityProvider = "configured_demo"
+    oidc_issuer: str | None = None
+    oidc_discovery_url: str | None = None
+    oidc_backchannel_base_url: str | None = None
+    oidc_client_id: str | None = None
+    oidc_client_secret: SecretStr | None = None
+    oidc_redirect_uri: str | None = None
+    oidc_http_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    oidc_id_token_max_age_seconds: int = Field(
+        default=DEFAULT_OIDC_ID_TOKEN_MAX_AGE_SECONDS,
+        ge=60,
+        le=MAX_OIDC_ID_TOKEN_MAX_AGE_SECONDS,
+    )
+    oidc_clock_skew_seconds: int = Field(
+        default=DEFAULT_OIDC_CLOCK_SKEW_SECONDS,
+        ge=0,
+        le=MAX_OIDC_CLOCK_SKEW_SECONDS,
+    )
+    auth_session_ttl_seconds: int = Field(default=28_800, ge=300, le=86_400)
+    oidc_login_ttl_seconds: int = Field(default=300, ge=60, le=600)
     image_storage_provider: ImageStorageProvider = "local_filesystem"
     image_storage_root: Path = DEFAULT_IMAGE_STORAGE_ROOT
+    s3_endpoint_url: str | None = None
+    s3_region: str | None = None
+    s3_bucket: str | None = None
+    s3_access_key_id: SecretStr | None = None
+    s3_secret_access_key: SecretStr | None = None
+    s3_force_path_style: bool = True
+    s3_allow_insecure_http: bool = False
+    s3_create_bucket: bool = False
+    s3_staging_root: Path = DEFAULT_S3_STAGING_ROOT
     image_upload_max_bytes: int = Field(
         default=DEFAULT_IMAGE_MAX_BYTES,
         gt=0,
@@ -226,6 +262,10 @@ class Settings(BaseSettings):
         if len(set(normalized_hosts)) != len(normalized_hosts):
             raise ValueError("TRUSTED_HOSTS must not contain duplicate normalized hosts.")
         self.trusted_hosts = normalized_hosts
+        if self.app_env == "production" and self.identity_provider != "oidc":
+            raise ValueError("Production requires the OIDC identity provider.")
+        if self.app_env == "production" and self.image_storage_provider != "s3":
+            raise ValueError("Production requires the S3 private-object storage provider.")
         return self
 
     @property
@@ -245,6 +285,8 @@ class Settings(BaseSettings):
             raise ValueError("APP_ENV must be explicitly configured.")
         if self.app_env == "production":
             raise ValueError("The configured Demo Principal Adapter is unavailable in production.")
+        if self.identity_provider != "configured_demo":
+            raise ValueError("The configured Demo Principal Adapter is not selected.")
         if self.paintpilot_demo_principal_id is None:
             raise ValueError("PAINTPILOT_DEMO_PRINCIPAL_ID must be explicitly configured.")
         if self.paintpilot_demo_principal_display_name is None:
@@ -255,6 +297,67 @@ class Settings(BaseSettings):
             self.paintpilot_demo_principal_id,
             self.paintpilot_demo_principal_display_name,
         )
+
+    def require_oidc_client(self) -> tuple[str, str, str, str, str]:
+        """Return the complete provider-neutral confidential OIDC client configuration."""
+        if self.app_env is None:
+            raise ValueError("APP_ENV must be explicitly configured.")
+        if self.identity_provider != "oidc":
+            raise ValueError("The OIDC identity provider is not selected.")
+        values = {
+            "OIDC_ISSUER": self.oidc_issuer,
+            "OIDC_CLIENT_ID": self.oidc_client_id,
+            "OIDC_CLIENT_SECRET": (
+                None
+                if self.oidc_client_secret is None
+                else self.oidc_client_secret.get_secret_value()
+            ),
+            "OIDC_REDIRECT_URI": self.oidc_redirect_uri,
+        }
+        missing = [name for name, value in values.items() if not value or not value.strip()]
+        if missing:
+            raise ValueError(f"OIDC configuration is incomplete: {', '.join(missing)}.")
+        issuer = values["OIDC_ISSUER"]
+        client_id = values["OIDC_CLIENT_ID"]
+        client_secret = values["OIDC_CLIENT_SECRET"]
+        redirect_uri = values["OIDC_REDIRECT_URI"]
+        assert issuer is not None
+        assert client_id is not None
+        assert client_secret is not None
+        assert redirect_uri is not None
+        if issuer.endswith("/"):
+            raise ValueError("OIDC_ISSUER must not end with a slash.")
+        issuer_parts = urlparse(issuer)
+        redirect_parts = urlparse(redirect_uri)
+        if issuer_parts.scheme not in {"http", "https"} or not issuer_parts.netloc:
+            raise ValueError("OIDC_ISSUER must be an absolute HTTP(S) URL.")
+        if redirect_parts.scheme not in {"http", "https"} or not redirect_parts.netloc:
+            raise ValueError("OIDC_REDIRECT_URI must be an absolute HTTP(S) URL.")
+        if self.app_env == "production" and (
+            issuer_parts.scheme != "https" or redirect_parts.scheme != "https"
+        ):
+            raise ValueError("Production OIDC issuer and redirect URI must use HTTPS.")
+        discovery_url = self.oidc_discovery_url or (f"{issuer}/.well-known/openid-configuration")
+        discovery_parts = urlparse(discovery_url)
+        if discovery_parts.scheme not in {"http", "https"} or not discovery_parts.netloc:
+            raise ValueError("OIDC_DISCOVERY_URL must be an absolute HTTP(S) URL.")
+        if self.app_env == "production" and discovery_parts.scheme != "https":
+            raise ValueError("Production OIDC discovery must use HTTPS.")
+        if self.oidc_backchannel_base_url is not None:
+            backchannel_parts = urlparse(self.oidc_backchannel_base_url)
+            if (
+                backchannel_parts.scheme not in {"http", "https"}
+                or not backchannel_parts.netloc
+                or self.oidc_backchannel_base_url.endswith("/")
+            ):
+                raise ValueError(
+                    "OIDC_BACKCHANNEL_BASE_URL must be an absolute URL without a trailing slash."
+                )
+            if self.app_env == "production":
+                raise ValueError(
+                    "Production must use discovery endpoints published by the configured issuer."
+                )
+        return issuer, discovery_url, client_id, client_secret, redirect_uri
 
     def require_local_image_storage(self) -> Path:
         """Return the private local root only in explicitly non-production runtimes."""
@@ -269,6 +372,56 @@ class Settings(BaseSettings):
         if self.image_min_side_px > self.image_max_side_px:
             raise ValueError("IMAGE_MIN_SIDE_PX must not exceed IMAGE_MAX_SIDE_PX.")
         return self.image_storage_root.expanduser().resolve(strict=False)
+
+    def require_s3_image_storage(
+        self,
+    ) -> tuple[str, str, str, str, str, Path]:
+        """Return complete private S3-compatible configuration or fail closed."""
+        if self.app_env is None:
+            raise ValueError("APP_ENV must be explicitly configured.")
+        if self.image_storage_provider != "s3":
+            raise ValueError("The S3 private-object storage provider is not selected.")
+        access_key = (
+            None if self.s3_access_key_id is None else self.s3_access_key_id.get_secret_value()
+        )
+        secret_key = (
+            None
+            if self.s3_secret_access_key is None
+            else self.s3_secret_access_key.get_secret_value()
+        )
+        values = {
+            "S3_ENDPOINT_URL": self.s3_endpoint_url,
+            "S3_REGION": self.s3_region,
+            "S3_BUCKET": self.s3_bucket,
+            "S3_ACCESS_KEY_ID": access_key,
+            "S3_SECRET_ACCESS_KEY": secret_key,
+        }
+        missing = [name for name, value in values.items() if not value or not value.strip()]
+        if missing:
+            raise ValueError(f"S3 configuration is incomplete: {', '.join(missing)}.")
+        endpoint = values["S3_ENDPOINT_URL"]
+        region = values["S3_REGION"]
+        bucket = values["S3_BUCKET"]
+        assert endpoint is not None
+        assert region is not None
+        assert bucket is not None
+        assert access_key is not None
+        assert secret_key is not None
+        endpoint_parts = urlparse(endpoint)
+        if endpoint_parts.scheme not in {"http", "https"} or not endpoint_parts.netloc:
+            raise ValueError("S3_ENDPOINT_URL must be an absolute HTTP(S) URL.")
+        if endpoint_parts.scheme == "http" and not self.s3_allow_insecure_http:
+            raise ValueError("Plain HTTP S3 endpoints require S3_ALLOW_INSECURE_HTTP=true.")
+        if self.app_env == "production" and (
+            endpoint_parts.scheme != "https" or self.s3_allow_insecure_http
+        ):
+            raise ValueError("Production S3 endpoints must use HTTPS.")
+        if self.app_env == "production" and self.s3_create_bucket:
+            raise ValueError("Production must not create the S3 bucket at application startup.")
+        if not 3 <= len(bucket) <= 63 or bucket.lower() != bucket:
+            raise ValueError("S3_BUCKET must be a normalized bucket name.")
+        staging_root = self.s3_staging_root.expanduser().resolve(strict=False)
+        return endpoint, region, bucket, access_key, secret_key, staging_root
 
 
 @lru_cache(maxsize=1)

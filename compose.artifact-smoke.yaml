@@ -3,34 +3,61 @@ x-smoke-labels: &smoke-labels
   io.creativedeploy.production: NOT_REAL_PRODUCTION
   io.creativedeploy.run-id: ${SMOKE_RUN_ID:?SMOKE_RUN_ID is required}
 
-x-api-environment: &api-environment
+x-runtime-environment: &runtime-environment
   APP_ENV: test
   APP_NAME: CreativeDeploy API
   APP_VERSION: 0.1.0
-  DATABASE_URL: postgresql+psycopg://${SMOKE_DATABASE_USER:?required}:${SMOKE_DATABASE_PASSWORD:?required}@postgres:5432/${SMOKE_DATABASE_NAME:?required}
+  DATABASE_URL: postgresql+psycopg://${SMOKE_DATABASE_RUNTIME_USER:?required}:${SMOKE_DATABASE_RUNTIME_PASSWORD:?required}@postgres:5432/${SMOKE_DATABASE_NAME:?required}
   DATABASE_HEALTH_TIMEOUT_SECONDS: "2"
   DATABASE_LOCK_TIMEOUT_MS: "2000"
   DATABASE_STATEMENT_TIMEOUT_MS: "5000"
-  IMAGE_STORAGE_PROVIDER: local_filesystem
-  IMAGE_STORAGE_ROOT: /var/lib/creativedeploy/private-images
+  IDENTITY_PROVIDER: oidc
+  OIDC_ISSUER: http://127.0.0.1:${ARTIFACT_SMOKE_PORT:?required}
+  OIDC_DISCOVERY_URL: http://127.0.0.1:${ARTIFACT_SMOKE_PORT:?required}/.well-known/openid-configuration
+  OIDC_BACKCHANNEL_BASE_URL: http://oidc:8090
+  OIDC_CLIENT_ID: ${SMOKE_OIDC_CLIENT_ID:?required}
+  OIDC_CLIENT_SECRET: ${SMOKE_OIDC_CLIENT_SECRET:?required}
+  OIDC_REDIRECT_URI: http://127.0.0.1:${ARTIFACT_SMOKE_PORT:?required}/api/v1/auth/callback
+  OIDC_ID_TOKEN_MAX_AGE_SECONDS: "300"
+  OIDC_CLOCK_SKEW_SECONDS: "30"
+  OIDC_HTTP_TIMEOUT_SECONDS: "5"
+  AUTH_SESSION_TTL_SECONDS: "3600"
+  OIDC_LOGIN_TTL_SECONDS: "300"
+  IMAGE_STORAGE_PROVIDER: s3
+  S3_ENDPOINT_URL: http://minio:9000
+  S3_REGION: us-east-1
+  S3_BUCKET: ${SMOKE_S3_BUCKET:?required}
+  S3_ACCESS_KEY_ID: ${SMOKE_S3_ACCESS_KEY_ID:?required}
+  S3_SECRET_ACCESS_KEY: ${SMOKE_S3_SECRET_ACCESS_KEY:?required}
+  S3_FORCE_PATH_STYLE: "true"
+  S3_ALLOW_INSECURE_HTTP: "true"
+  S3_CREATE_BUCKET: "true"
+  S3_STAGING_ROOT: /tmp/s3-staging
   IMAGE_UPLOAD_MAX_BYTES: "20971520"
   IMAGE_MIN_SIDE_PX: "768"
   IMAGE_MAX_SIDE_PX: "8192"
   IMAGE_MAX_PIXELS: "40000000"
-  PAINTPILOT_DEMO_PRINCIPAL_ID: ${SMOKE_PRINCIPAL_ID:-phase2a1-owner-a}
-  PAINTPILOT_DEMO_PRINCIPAL_DISPLAY_NAME: ${SMOKE_PRINCIPAL_DISPLAY_NAME:-Phase 2A-1 Owner A}
   TRUSTED_HOSTS: '["localhost","127.0.0.1"]'
+
+x-role-environment: &role-environment
+  APP_ENV: test
+  DATABASE_URL: postgresql+psycopg://${SMOKE_DATABASE_ADMIN_USER:?required}:${SMOKE_DATABASE_ADMIN_PASSWORD:?required}@postgres:5432/${SMOKE_DATABASE_NAME:?required}
+  DATABASE_MIGRATOR_ROLE: ${SMOKE_DATABASE_MIGRATOR_USER:?required}
+  DATABASE_MIGRATOR_PASSWORD: ${SMOKE_DATABASE_MIGRATOR_PASSWORD:?required}
+  DATABASE_RUNTIME_ROLE: ${SMOKE_DATABASE_RUNTIME_USER:?required}
+  DATABASE_RUNTIME_PASSWORD: ${SMOKE_DATABASE_RUNTIME_PASSWORD:?required}
 
 services:
   postgres:
     image: postgres:17.10-alpine3.24@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
     labels: *smoke-labels
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: ${SMOKE_DATABASE_USER:?required}
-      POSTGRES_PASSWORD: ${SMOKE_DATABASE_PASSWORD:?required}
+      POSTGRES_USER: ${SMOKE_DATABASE_ADMIN_USER:?required}
+      POSTGRES_PASSWORD: ${SMOKE_DATABASE_ADMIN_PASSWORD:?required}
       POSTGRES_DB: ${SMOKE_DATABASE_NAME:?required}
     volumes:
-      - phase2a1_postgres:/var/lib/postgresql/data
+      - phase2b1_postgres:/var/lib/postgresql/data
     healthcheck:
       test:
         - CMD-SHELL
@@ -40,13 +67,82 @@ services:
       timeout: 3s
       retries: 20
 
-  migrate:
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    labels: *smoke-labels
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${SMOKE_S3_ACCESS_KEY_ID:?required}
+      MINIO_ROOT_PASSWORD: ${SMOKE_S3_SECRET_ACCESS_KEY:?required}
+    volumes:
+      - phase2b1_minio:/data
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - --fail
+        - --silent
+        - http://127.0.0.1:9000/minio/health/live
+      start_period: 10s
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  oidc:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-      target: migration
+      target: runtime
     labels: *smoke-labels
-    environment: *api-environment
+    restart: unless-stopped
+    command:
+      - python
+      - -m
+      - uvicorn
+      - creativedeploy_api.local_oidc:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8090"
+      - --no-server-header
+      - --no-proxy-headers
+    environment:
+      APP_ENV: test
+      LOCAL_OIDC_ISSUER: http://127.0.0.1:${ARTIFACT_SMOKE_PORT:?required}
+      LOCAL_OIDC_CLIENT_ID: ${SMOKE_OIDC_CLIENT_ID:?required}
+      LOCAL_OIDC_CLIENT_SECRET: ${SMOKE_OIDC_CLIENT_SECRET:?required}
+      LOCAL_OIDC_REDIRECT_URI: http://127.0.0.1:${ARTIFACT_SMOKE_PORT:?required}/api/v1/auth/callback
+      LOCAL_OIDC_USERS_JSON: ${SMOKE_OIDC_USERS_JSON:?required}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/.well-known/openid-configuration', timeout=2).read()"
+      start_period: 5s
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  role_provision:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: runtime
+    labels: *smoke-labels
+    command:
+      - python
+      - -m
+      - creativedeploy_api.tools.provision_database_roles
+    environment: *role-environment
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=32m
@@ -58,24 +154,69 @@ services:
       postgres:
         condition: service_healthy
 
-  api:
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: migration
+    labels: *smoke-labels
+    environment:
+      APP_ENV: test
+      DATABASE_URL: postgresql+psycopg://${SMOKE_DATABASE_MIGRATOR_USER:?required}:${SMOKE_DATABASE_MIGRATOR_PASSWORD:?required}@postgres:5432/${SMOKE_DATABASE_NAME:?required}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      role_provision:
+        condition: service_completed_successfully
+
+  role_grant:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
       target: runtime
     labels: *smoke-labels
-    environment: *api-environment
+    command:
+      - python
+      - -m
+      - creativedeploy_api.tools.provision_database_roles
+    environment: *role-environment
     read_only: true
     tmpfs:
-      - /tmp:rw,noexec,nosuid,size=64m
-    volumes:
-      - phase2a1_private_images:/var/lib/creativedeploy/private-images
+      - /tmp:rw,noexec,nosuid,size=32m
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     depends_on:
       migrate:
+        condition: service_completed_successfully
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: runtime
+    labels: *smoke-labels
+    restart: unless-stopped
+    environment: *runtime-environment
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      minio:
+        condition: service_healthy
+      oidc:
+        condition: service_healthy
+      role_grant:
         condition: service_completed_successfully
 
   web:
@@ -86,8 +227,9 @@ services:
       args:
         VITE_RUNTIME_PROFILE: artifact-smoke
     labels: *smoke-labels
+    restart: unless-stopped
     ports:
-      - "127.0.0.1:${ARTIFACT_SMOKE_PORT:-0}:8080"
+      - "127.0.0.1:${ARTIFACT_SMOKE_PORT:?required}:8080"
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
@@ -101,7 +243,7 @@ services:
         condition: service_healthy
 
 volumes:
-  phase2a1_postgres:
+  phase2b1_postgres:
     labels: *smoke-labels
-  phase2a1_private_images:
+  phase2b1_minio:
     labels: *smoke-labels

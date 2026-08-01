@@ -1,3 +1,5 @@
+import { fetchWithCsrf } from "./auth";
+
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const sha256Pattern = /^[0-9a-f]{64}$/;
@@ -561,7 +563,7 @@ async function requestJson<T>(
 ): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(input, init);
+    response = await fetchWithCsrf(input, init);
   } catch {
     if (init.signal?.aborted) {
       throw new ImageAssetApiError("aborted", "The image request was cancelled.");

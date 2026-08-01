@@ -6,6 +6,13 @@ from creativedeploy_api.db.base import Base
 from creativedeploy_api.db.models.command_idempotency_record import (
     CommandIdempotencyRecord,
 )
+from creativedeploy_api.db.models.identity import (
+    AuthSession,
+    ExternalIdentity,
+    OidcLoginFlow,
+    ProjectMembership,
+    UserAccount,
+)
 from creativedeploy_api.db.models.image_asset import ImageAsset
 from creativedeploy_api.db.models.image_set_readiness_review import (
     ImageSetReadinessReview,
@@ -25,6 +32,11 @@ REGISTERED_MODELS: Final[tuple[type[Base], ...]] = (
     CommandIdempotencyRecord,
     ImageAsset,
     ImageSetReadinessReview,
+    UserAccount,
+    ExternalIdentity,
+    ProjectMembership,
+    OidcLoginFlow,
+    AuthSession,
     RegionSet,
     Region,
     RegionVertex,
@@ -33,13 +45,18 @@ REGISTERED_MODELS: Final[tuple[type[Base], ...]] = (
 
 __all__ = [
     "REGISTERED_MODELS",
+    "AuthSession",
     "CommandIdempotencyRecord",
+    "ExternalIdentity",
     "ImageAsset",
     "ImageSetReadinessReview",
+    "OidcLoginFlow",
     "PaintProject",
+    "ProjectMembership",
     "Region",
     "RegionSet",
     "RegionSetReview",
     "RegionVertex",
     "StateTransitionEvent",
+    "UserAccount",
 ]

@@ -364,7 +364,10 @@ def test_request_dependencies_reuse_id_close_session_and_resolve_adapter() -> No
 
     first_request_id = get_request_id(request)
     assert get_request_id(request) == first_request_id
-    assert get_current_principal(request).principal_id == "owner"
+    assert (
+        asyncio.run(get_current_principal(request, cast(AsyncSession, fake_session))).principal_id
+        == "owner"
+    )
 
     async def consume_session() -> object:
         generator = get_database_session(request)

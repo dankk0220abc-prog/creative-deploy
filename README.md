@@ -1,7 +1,7 @@
 # CreativeDeploy
 
 Project Status: Phase 1D `COMPLETE` — Phase 1E-1 `CLOSED` — Phase 1E-2 `CLOSED` —
-Phase 1F `CLOSED`
+Phase 1F `CLOSED` — Phase 2B-1 `IMPLEMENTED_PENDING_INDEPENDENT_REVIEW`
 
 Implementation Status:
 
@@ -37,17 +37,45 @@ Implementation Status:
 - Phase 1F — Human-Governed Region Annotation and Review passed final independent review with
   `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_PASS_READY_FOR_SEALING`, is sealed by
   `fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b`, and is `CLOSED`
+- Phase 2B-1 adds provider-neutral OIDC Authorization Code + PKCE, opaque server sessions,
+  server-side Owner/reviewer authorization, API-only private S3-compatible object delivery,
+  non-destructive local-object copy, and separate migrator/runtime PostgreSQL roles
+- Phase 2B-1 is an unstaged implementation Candidate awaiting independent review; it is not
+  independently approved, Git-sealed, production-ready, or authorization for Phase 2B-2
 - Overall project progress is approximately 80% (`approximately_80_percent`)
 - The next checkpoint is the `80_percent_overall_product_and_deployment_readiness_review`;
   the next product phase is `NOT_SELECTED` / `NOT_STARTED`
 - The sealed Phase 1F implementation adds immutable human RegionSet snapshots, deterministic ppm Polygon
   geometry, ImageSet-fingerprint staleness, Project-scoped save/submit/review idempotency,
   append-only reviews, and an SVG annotation workspace
-- AI is `NOT_AUTHORIZED`; external object storage is `NOT_SELECTED`; public/signed URLs are
-  `NOT_AUTHORIZED`; deletion and real authentication are `NOT_IMPLEMENTED`
+- AI is `NOT_AUTHORIZED`; public/signed URLs and destructive deletion remain
+  `NOT_AUTHORIZED`; no real IdP or managed object-storage provider has been selected
 - Automated Polygon generation, automated region analysis, light design, color design, and
   PaintPlan remain `NOT_IMPLEMENTED`
-- Local storage is development/test only and production storage is `NOT_READY`
+- Local storage remains development/test only. Production now has fail-closed provider-neutral
+  OIDC/S3 boundaries, but real providers, secrets, domain/TLS, operations, retention, and
+  independent review remain `NOT_READY`
+
+Phase 2B-1 Candidate:
+
+- Verdict: `PHASE_2B_1_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
+- Baseline: `main` at `771b53914f51245d6c62c569e40ddd061ae7ec6e`
+- Migration: `2b1c4d5e6f70`, child of `7f3a2b9c4d1e`
+- Stable identity: internal UUID mapped uniquely by OIDC `issuer + subject`; email/display
+  name are profile-only
+- Browser security: backend code exchange, S256 PKCE, state, nonce, one-time callback,
+  opaque HttpOnly session, CSRF, logout/revocation, and explicit IdP failure UI
+- Authorization: project Owner plus explicit reviewer membership, server checked on every
+  project/object request with safe 404 non-disclosure
+- Storage: private S3-compatible adapter, immutable conditional writes, SHA-256 verification,
+  API streaming only, and no public/signed URL surface
+- Database: admin-only provisioning, migrator DDL, runtime DML/sequence privileges, and
+  verified runtime DDL refusal
+- Local/CI: synthetic repository-owned OIDC Provider and digest-pinned private MinIO; neither
+  is a production provider selection
+- Candidate docs:
+  `docs/progress/phase-2b-1-governed-identity-private-storage-candidate.md`
+- This Candidate remains unstaged/uncommitted and requires a fresh independent review
 
 Phase 1D-2 Commit:
 
@@ -285,9 +313,11 @@ reconciliation 已通过独立复审并由 `ac8630ae393cb6ca5bf3a2d1db5070531d6f
 进度现约 80%；Phase 1F — Human-Governed Region Annotation and Review 经最终独立复审
 `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_PASS_READY_FOR_SEALING` 后，由
 `fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b` 封存并正式 `CLOSED`。下一检查点为 80%
-总体产品与部署就绪评估；下一产品 Phase 仍为 `NOT_SELECTED` / `NOT_STARTED`。当前仍没有公开认证、
-真实用户授权、正式图片质量评估、自动区域分析、AI Provider、RAG、Paint inventory、
-Agent 工作流、通用 HumanApproval、CI、生产对象存储或生产部署能力。
+总体产品与部署就绪评估；下一产品 Phase 仍为 `NOT_SELECTED` / `NOT_STARTED`。Phase 2B-1
+当前已有待独立复审的 OIDC、多用户 Owner/reviewer 与私有 S3-compatible 实现，但尚未选择
+真实 Provider，也不是 production-ready。当前仍没有正式图片质量评估、自动区域分析、
+AI Provider、RAG、Paint inventory、Agent 工作流、通用 HumanApproval、生产 Secret/
+域名/TLS/运维或生产部署能力。
 
 ## Prerequisites
 
@@ -382,7 +412,9 @@ make web
 
 ## Local Production-Style Artifact
 
-Phase 2A-1 adds a repeatable, explicitly non-production deployment spine:
+Phase 2A-1 added a repeatable, explicitly non-production deployment spine; the
+Phase 2B-1 Candidate extends that same isolated profile with governed identity,
+private object storage, and least-privilege database roles:
 
 ```bash
 make artifact-build
@@ -391,12 +423,12 @@ make supply-chain-check
 ```
 
 `compose.artifact-smoke.yaml` runs the production-built Web/NGINX and API images
-against an isolated PostgreSQL database and private local volume. Only the Web
+against isolated PostgreSQL, a synthetic local OIDC Provider, and private MinIO. Only the Web
 proxy is published, on `127.0.0.1:18080` by default. The profile is labelled
 `LOCAL_PRODUCTION_STYLE_SMOKE` and `NOT_REAL_PRODUCTION`; it is not a real
-deployment, does not provide authentication or external object storage, and
-does not weaken the application's production refusal of the Demo Principal and
-local-filesystem storage.
+deployment and does not select a real identity or storage provider. Production
+still refuses the Demo Principal, local filesystem, insecure OIDC/S3, incomplete
+provider configuration, and application-created buckets.
 
 Configuration has one local-development database source of truth:
 `POSTGRES_HOST`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, and
@@ -494,6 +526,8 @@ implementation seal `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d` 封存；这不�
 
 - Phase 2A-1 提供本地 production-style artifact 和 CI 基础，但仍不是
   production-ready 或真实生产部署；
+- Phase 2B-1 已实现 OIDC、Owner/reviewer 服务端权限、私有 S3-compatible 存储和
+  migrator/runtime 数据库角色，但仍是待独立复审、未封存的 Candidate；
 - Commit 10 和 UX remediation commit 已存在，但 Commit 10 创建前没有可用的正式仓库
   approval record；后续复审不构成倒填批准；
 - Phase 1D-3 技术 remediation 与 governance reconciliation 均已封存，Phase 1D-3 当前为
@@ -507,7 +541,8 @@ implementation seal `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d` 封存；这不�
 - 当前封存基线有九个业务表；
   readiness/RegionSet review 只能 append，PaintProject 仍没有 update、delete 或 Owner
   transfer，ImageAsset 和已封存 RegionSet 历史也没有 update/delete；
-- 配置型单 Principal 不是公共认证、多人授权或真实用户系统，production 明确拒绝它；
+- 配置型单 Principal 仍只用于普通 development/test；Phase 2B-1 artifact 使用合成
+  OIDC 多用户，production 只接受完整的真实 OIDC 配置；
 - Create 幂等 key 仅在当前页面生命周期内保留；浏览器刷新不会恢复尚未确认请求的 key，
   且本阶段不自行引入 localStorage 持久化协议；
 - 项目详情中的项目字段仍只读；图片工作台只处理人选角色、attestation、私有预览、
@@ -516,8 +551,8 @@ implementation seal `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d` 封存；这不�
   分析仍未实现；
 - 本地 artifact 依赖同源 NGINX `/api/` 代理，开发访问依赖 Vite Proxy；不提供跨域
   公共 API；
-- 尚未选择真实认证 Provider、外部对象存储、域名或 TLS 终止方式；Demo Principal 和
-  local filesystem storage 均被 production 模式拒绝；
+- 尚未选择真实认证 Provider、托管对象存储、Secret 管理、域名或 TLS 终止方式；
+  Demo Principal、local filesystem、不安全 OIDC/S3 和缺失配置均被 production 拒绝；
 - 未实现图片质量评估、AI、RAG、完整 Trace、HumanApproval、后台任务或 Redis。
 
 ## 素材使用边界

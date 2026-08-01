@@ -10,6 +10,7 @@ import {
 import { FeedbackPanel } from "../components/FeedbackPanel";
 import { ImageAssetManager } from "../components/ImageAssetManager";
 import { ProjectStatusBadge } from "../components/ProjectStatusBadge";
+import { ReviewerMembershipManager } from "../components/ReviewerMembershipManager";
 import { formatProjectTimestamp } from "../utils/format";
 
 type DetailState =
@@ -99,6 +100,7 @@ export function ProjectDetailPage() {
   const location = useLocation();
   const createdNavigation = wasCreatedNavigation(location.state);
   const [reloadToken, setReloadToken] = useState(0);
+  const [membershipsOpen, setMembershipsOpen] = useState(false);
   const [state, setState] = useState<DetailState>({
     status: "loading",
     projectId: projectId ?? "",
@@ -239,7 +241,9 @@ export function ProjectDetailPage() {
         <article className="project-detail">
           <header className="project-detail__header">
             <div>
-              <p className="eyebrow">PaintProject · Read only</p>
+              <p className="eyebrow">
+                PaintProject · {currentState.project.access_role}
+              </p>
               <h1>{currentState.project.title}</h1>
               <p className="project-detail__description">
                 {currentState.project.description ?? "No description provided."}
@@ -274,7 +278,11 @@ export function ProjectDetailPage() {
               </div>
               <div>
                 <dt>Access scope</dt>
-                <dd>Current configured demo operator</dd>
+                <dd>
+                  {currentState.project.access_role === "owner"
+                    ? "Owner · full governed project control"
+                    : "Reviewer · read and human review"}
+                </dd>
               </div>
               <div>
                 <dt>Created</dt>
@@ -300,9 +308,29 @@ export function ProjectDetailPage() {
           </section>
 
           <ImageAssetManager
+            canManageImages={currentState.project.access_role === "owner"}
             onProjectChanged={() => setReloadToken((current) => current + 1)}
             project={currentState.project}
           />
+
+          {currentState.project.access_role === "owner" && membershipsOpen ? (
+            <ReviewerMembershipManager projectId={currentState.project.id} />
+          ) : currentState.project.access_role === "owner" ? (
+            <section className="project-memberships">
+              <p className="eyebrow">Owner governed</p>
+              <h2>Reviewer access</h2>
+              <p>
+                Grant or revoke read-and-review access for existing signed-in users.
+              </p>
+              <button
+                className="button button--secondary"
+                onClick={() => setMembershipsOpen(true)}
+                type="button"
+              >
+                Manage reviewer access
+              </button>
+            </section>
+          ) : null}
 
           <aside className="next-boundary" aria-labelledby="next-boundary-heading">
             <div aria-hidden="true" className="next-boundary__visual">

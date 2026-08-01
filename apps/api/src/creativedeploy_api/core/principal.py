@@ -1,5 +1,6 @@
 """PaintPilot request Principal value object and configured demo adapter."""
 
+import uuid
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated
@@ -31,6 +32,7 @@ class AuthenticationMode(StrEnum):
     LOCAL_DEVELOPMENT = "local_development"
     CONFIGURED_DEMO_OPERATOR = "configured_demo_operator"
     FUTURE_AUTHENTICATED_USER = "future_authenticated_user"
+    OIDC_AUTHORIZATION_CODE = "oidc_authorization_code"
 
 
 class PrincipalContext(BaseModel):
@@ -42,6 +44,7 @@ class PrincipalContext(BaseModel):
     principal_type: PrincipalType
     display_name: PrincipalDisplayName
     authentication_mode: AuthenticationMode
+    user_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -30,6 +30,7 @@ from creativedeploy_api.db.models.constants import (
     PLANNING_MODE_DEMO,
     TARGET_STYLE_CEL_SHADING,
 )
+from creativedeploy_api.repositories.identity import SqlAlchemyIdentityRepository
 from creativedeploy_api.repositories.paint_projects import (
     IdempotencyClaim,
     SqlAlchemyPaintProjectRepository,
@@ -215,8 +216,31 @@ def _database_sqlstate(error: DBAPIError) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _project_read(project: PaintProject) -> PaintProjectRead:
-    return PaintProjectRead.model_validate(project)
+def _project_read(
+    project: PaintProject,
+    *,
+    access_role: str = "owner",
+) -> PaintProjectRead:
+    return PaintProjectRead.model_validate(
+        {
+            **{
+                field: getattr(project, field)
+                for field in (
+                    "id",
+                    "owner_principal_id",
+                    "title",
+                    "description",
+                    "requested_target_style",
+                    "planning_mode",
+                    "status",
+                    "current_image_asset_id",
+                    "created_at",
+                    "updated_at",
+                )
+            },
+            "access_role": access_role,
+        }
+    )
 
 
 def _stored_project_read(record: CommandIdempotencyRecord) -> PaintProjectRead:
@@ -257,6 +281,7 @@ class PaintProjectService:
                 raise ValueError(f"{name} is outside the approved runtime boundary.")
         self._session = session
         self._repository = repository or SqlAlchemyPaintProjectRepository(session)
+        self._identity_repository = SqlAlchemyIdentityRepository(session)
         self._database_lock_timeout_ms = database_lock_timeout_ms
         self._database_statement_timeout_ms = database_statement_timeout_ms
 
@@ -371,14 +396,32 @@ class PaintProjectService:
         limit: int,
         offset: int,
     ) -> PaintProjectListResponse:
-        """List only projects owned by the current Principal."""
+        """List projects owned by or explicitly assigned to the current Principal."""
         async with self._session.begin():
-            projects, total = await self._repository.list_owned_projects(
-                owner_principal_id=principal.principal_id,
-                limit=limit,
-                offset=offset,
-            )
-            items = [_project_read(project) for project in projects]
+            if principal.user_id is None:
+                projects, total = await self._repository.list_owned_projects(
+                    owner_principal_id=principal.principal_id,
+                    limit=limit,
+                    offset=offset,
+                )
+            else:
+                projects, total = await self._identity_repository.list_accessible_projects(
+                    principal_id=principal.principal_id,
+                    user_id=principal.user_id,
+                    limit=limit,
+                    offset=offset,
+                )
+            items = [
+                _project_read(
+                    project,
+                    access_role=(
+                        "owner"
+                        if project.owner_principal_id == principal.principal_id
+                        else "reviewer"
+                    ),
+                )
+                for project in projects
+            ]
         return PaintProjectListResponse(
             items=items,
             total=total,
@@ -392,12 +435,22 @@ class PaintProjectService:
         project_id: uuid.UUID,
         principal: PrincipalContext,
     ) -> PaintProjectRead:
-        """Read within the owner predicate so missing and inaccessible are identical."""
+        """Read within one owner/reviewer predicate so inaccessible stays indistinguishable."""
         async with self._session.begin():
-            project = await self._repository.get_owned_project(
-                project_id=project_id,
-                owner_principal_id=principal.principal_id,
-            )
+            if principal.user_id is None:
+                project = await self._repository.get_owned_project(
+                    project_id=project_id,
+                    owner_principal_id=principal.principal_id,
+                )
+                access_role = "owner"
+            else:
+                access = await self._identity_repository.resolve_project_access(
+                    project_id=project_id,
+                    principal_id=principal.principal_id,
+                    user_id=principal.user_id,
+                )
+                project = None if access is None else access.project
+                access_role = "owner" if access is None else access.role
             if project is None:
                 raise PaintProjectNotFoundError
-            return _project_read(project)
+            return _project_read(project, access_role=access_role)

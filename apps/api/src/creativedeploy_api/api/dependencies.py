@@ -1,5 +1,6 @@
 """Explicit FastAPI dependencies for database and Principal boundaries."""
 
+import hmac
 import uuid
 from collections.abc import AsyncIterator
 from typing import Annotated, cast
@@ -7,10 +8,17 @@ from typing import Annotated, cast
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from creativedeploy_api.auth.cookies import csrf_cookie_name, session_cookie_name
+from creativedeploy_api.auth.oidc import OidcClient
 from creativedeploy_api.core.config import Settings
 from creativedeploy_api.core.principal import (
     ConfiguredDemoPrincipalAdapter,
     PrincipalContext,
+)
+from creativedeploy_api.services.identity import (
+    AuthenticationService,
+    InvalidCsrfTokenError,
+    ProjectMembershipService,
 )
 from creativedeploy_api.services.image_assets import ImageAssetService
 from creativedeploy_api.services.paint_projects import PaintProjectService
@@ -38,18 +46,73 @@ async def get_database_session(request: Request) -> AsyncIterator[AsyncSession]:
         yield session
 
 
-def get_current_principal(request: Request) -> PrincipalContext:
-    """Resolve the configured demo operator through the installed adapter."""
-    adapter = cast(
-        ConfiguredDemoPrincipalAdapter,
-        request.app.state.principal_adapter,
-    )
-    return adapter.resolve()
-
-
 DatabaseSessionDependency = Annotated[AsyncSession, Depends(get_database_session)]
+
+
+def get_authentication_service(
+    request: Request,
+    session: DatabaseSessionDependency,
+) -> AuthenticationService:
+    """Build the request-scoped OIDC/session service."""
+    settings = cast(Settings, request.app.state.settings)
+    oidc_client = cast(OidcClient, request.app.state.oidc_client)
+    return AuthenticationService(session, settings, oidc_client)
+
+
+AuthenticationServiceDependency = Annotated[
+    AuthenticationService,
+    Depends(get_authentication_service),
+]
+
+
+async def get_current_principal(
+    request: Request,
+    session: DatabaseSessionDependency,
+) -> PrincipalContext:
+    """Resolve either the explicit local demo adapter or an OIDC session."""
+    settings = cast(Settings, request.app.state.settings)
+    if settings.identity_provider == "configured_demo":
+        adapter = cast(
+            ConfiguredDemoPrincipalAdapter,
+            request.app.state.principal_adapter,
+        )
+        return adapter.resolve()
+    oidc_client = cast(OidcClient, request.app.state.oidc_client)
+    service = AuthenticationService(session, settings, oidc_client)
+    resolved = await service.resolve_session(
+        session_token=request.cookies.get(session_cookie_name(settings))
+    )
+    return resolved.principal
+
+
 PrincipalDependency = Annotated[PrincipalContext, Depends(get_current_principal)]
 RequestIdDependency = Annotated[uuid.UUID, Depends(get_request_id)]
+
+
+async def enforce_csrf(
+    request: Request,
+    session: DatabaseSessionDependency,
+) -> None:
+    """Require a session-bound double-submit token on every unsafe API request."""
+    if request.method in {"GET", "HEAD", "OPTIONS", "TRACE"}:
+        return
+    settings = cast(Settings, request.app.state.settings)
+    if settings.identity_provider == "configured_demo":
+        return
+    csrf_cookie = request.cookies.get(csrf_cookie_name(settings))
+    csrf_header = request.headers.get("X-CSRF-Token")
+    if (
+        csrf_cookie is None
+        or csrf_header is None
+        or not hmac.compare_digest(csrf_cookie, csrf_header)
+    ):
+        raise InvalidCsrfTokenError
+    oidc_client = cast(OidcClient, request.app.state.oidc_client)
+    service = AuthenticationService(session, settings, oidc_client)
+    await service.validate_csrf(
+        session_token=request.cookies.get(session_cookie_name(settings)),
+        csrf_token=csrf_header,
+    )
 
 
 def get_paint_project_service(
@@ -100,4 +163,16 @@ def get_region_set_service(
 RegionSetServiceDependency = Annotated[
     RegionSetService,
     Depends(get_region_set_service),
+]
+
+
+def get_project_membership_service(
+    session: DatabaseSessionDependency,
+) -> ProjectMembershipService:
+    return ProjectMembershipService(session)
+
+
+ProjectMembershipServiceDependency = Annotated[
+    ProjectMembershipService,
+    Depends(get_project_membership_service),
 ]

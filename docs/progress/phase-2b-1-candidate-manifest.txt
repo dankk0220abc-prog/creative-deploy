@@ -1,0 +1,103 @@
+manifest_format: CreativeDeploy Phase 2B-1 remediated Candidate v2
+generated_at: 2026-08-01
+repository: /Users/danke/Developer/CreativeDeploy
+baseline_branch: main
+baseline_head: 771b53914f51245d6c62c569e40ddd061ae7ec6e
+baseline_tree: 26f395ef6c217bc7f5f997309c12893618ce5634
+baseline_commit_count: 22
+total_git_status_entries_including_manifest: 79
+candidate_payload_entry_count_excluding_manifest: 78
+tracked_modified_count: 47
+untracked_leaf_count_including_manifest: 32
+staged_path_count: 0
+manifest_file: docs/progress/phase-2b-1-candidate-manifest.txt
+manifest_self_hash_policy: excluded from payload entries to avoid recursive hashing; report manifest file SHA-256 externally
+scope_rule: exact git status --porcelain=v1 -z --untracked-files=all leaf paths, excluding only manifest_file
+columns: git_status | bytes | sha256 | repository-relative-path
+candidate_entries_payload_hash_rule: SHA-256 of every sorted row plus one LF
+evidence_index_hash_rule: SHA-256 of sorted evidence lines formatted sha256 bytes path plus one LF
+tracked_binary_patch_sha256: eb793c670787ea5e0d64149015254e87fe793218ea7d93df7729ea9c12dc0a54
+porcelain_v1_z_exact_byte_sha256: d6d7b84fba45de04a778e9d4abf83aab79bf4297dc2a0b24c4aaf02536a4d4c5
+migration_sha256: cb2356309f88187da26d7f1b061a716600a8cb6397333f54683775a00194f322
+api_lockfile_sha256: 414278ee4cb05f036a1466118ffd86988072ed5fb8c2d85c8d7e2af272baa1ca  # gitleaks:allow
+web_lockfile_sha256: c7a6e2eb86d8feb722b1e2fffcafa0db40dc7448a5860fed8066ba62eb7354a9
+evidence_index_sha256: 4ddc0763f6315a4d701ab80d3a3d03760c380e0a351b819b2df15540fed83470
+candidate_entries_payload_sha256: f4df66a4a16d4fb5bc704cc5c41e2702cf058faa5a6868a748cb5a2c44663166
+ M | 2244 | 19dcba380be11174ab6f0fb84f7683f75b9341784c28b0b4cdf5667c10970117 | .env.example
+ M | 26163 | feb7e2b72718ad3f8eed534ef38a582324336bc76d5430fe33d523a596dd8190 | AGENTS.md
+ M | 9877 | 58d2c2f0f78e635f37836d2edbccf4c61a14e495e78d9fbf9e238a768fe56fed | Makefile
+ M | 30741 | ca90416841ea937995b3a62a1503e70966246c561029a2ea6fca80d5c350aea5 | README.md
+?? | 10374 | cb2356309f88187da26d7f1b061a716600a8cb6397333f54683775a00194f322 | apps/api/migrations/versions/2b1c4d5e6f70_add_governed_identity_and_private_storage.py
+ M | 1431 | e512304c5c47f456eb42b661158092dff22ae1332bf99fe77214fbc57c34ae95 | apps/api/pyproject.toml
+ M | 5938 | b95acf5b72e832622f0d650f87f2bee4cb50aedf3836289e1212e651c944ffe0 | apps/api/src/creativedeploy_api/api/dependencies.py
+ M | 1128 | 5f06cd13cd12f5d7b22265eef85e85182877afcea69eb1e8ec00dc589c983c39 | apps/api/src/creativedeploy_api/api/router.py
+?? | 6547 | fbb34ee7ce42975e9fe884638d4e538e56bcb0e108ca1c29af36aeed4469fcb5 | apps/api/src/creativedeploy_api/api/routes/auth.py
+?? | 3166 | f4a42fe54369be032f91121368bb904c1d0417d0836df89e0eae32283d3d4f0f | apps/api/src/creativedeploy_api/api/routes/project_memberships.py
+ M | 3822 | 0bf313f05280913e3f59684e13ea48db9d6b42dfcafc5f71fcb8ff3d7049ca3c | apps/api/src/creativedeploy_api/app_factory.py
+?? | 54 | 506fec0d3b72e423c17c6f85593310eb3d778c9434174e5532ce271cf5ed41aa | apps/api/src/creativedeploy_api/auth/__init__.py
+?? | 613 | 0b9f05215d390f207915e84e8eb9002f58b0e19ae261d7d19b707205d4b3c8cf | apps/api/src/creativedeploy_api/auth/cookies.py
+?? | 11420 | bda1b104c2f03bbff2a05aaebf5b462296344d84f54f24413cfbbedeba33841c | apps/api/src/creativedeploy_api/auth/oidc.py
+ M | 19481 | 7ab22592f2352f23c502635a8da9cea9f28604a78f427cb4996b21e1ccb44063 | apps/api/src/creativedeploy_api/core/config.py
+ M | 2282 | b8a8116f2309f5738b3428f825eaba49c5599e5497942dbec2f0727f8de32152 | apps/api/src/creativedeploy_api/core/principal.py
+ M | 1528 | 761f264e46bb4fb40f02839ba5f79be3880d91731c06df2ec2310c3b0b4243c8 | apps/api/src/creativedeploy_api/db/models/__init__.py
+?? | 8628 | bed1d062a808138a1aae3c81e80e585be7b7234284e25d6c63752374466a38c8 | apps/api/src/creativedeploy_api/db/models/identity.py
+ M | 11228 | f9ff68fef2a5eb27f1c31dc1ce2c49828a28957a8b959a47bd537ceb0db66e03 | apps/api/src/creativedeploy_api/db/models/image_asset.py
+?? | 12746 | a7539c509f823beda73b82b8917c839649db4fc74e728e99b97e41ae1ad6ef1b | apps/api/src/creativedeploy_api/local_oidc.py
+?? | 10980 | b17cdbf8f592ca3a566db4a03951395468d61c2a021aec0f8bf3dcd3b88f0584 | apps/api/src/creativedeploy_api/repositories/identity.py
+?? | 2042 | 7fbfe1d5bc3309765e0adf2e32dd6247270090ba469791b43f4894ba471f4384 | apps/api/src/creativedeploy_api/schemas/auth.py
+ M | 3404 | 053e80cba9369fa0fc98dd0e1a58a199b931c4eb15dc3d29cda6ccc3e398566d | apps/api/src/creativedeploy_api/schemas/paint_projects.py
+ M | 10006 | 27c021f81b7ecb655c6b96848e1f066821999b518ea7ca39bf9be7ffbf8796b4 | apps/api/src/creativedeploy_api/schemas/region_sets.py
+?? | 13631 | 237357ba8141dc51b011b074194366797f4d40a44d99d2403adbb4538d90fa09 | apps/api/src/creativedeploy_api/services/identity.py
+ M | 54239 | 91ec7afe8cec2a717846315ffe6b0615fc7acc6cd50149d01fb5e05b6df20edb | apps/api/src/creativedeploy_api/services/image_assets.py
+ M | 16327 | 5c115b9c02e352962e025b2dab3e98001c5561a01ebd1100be98f46c70b65cd9 | apps/api/src/creativedeploy_api/services/paint_projects.py
+ M | 54596 | 293e903d5ca3d374a082b7c527e879bb8609e7ce9e4bee7af71bab4384bc6279 | apps/api/src/creativedeploy_api/services/region_sets.py
+ M | 15525 | 7f89380061da61c8eb3d71966875c1db1132e48a7786a23b6dfeecf159c876ef | apps/api/src/creativedeploy_api/storage/images.py
+?? | 19873 | 3a5e902105f5c57684d4f15b2895ddf23f88d4ad194619f26650f49c0e62ef4f | apps/api/src/creativedeploy_api/storage/s3.py
+?? | 68 | e17547557da1157650bbf2dff7e027739dab177e83a6153579e0e3cabd94848b | apps/api/src/creativedeploy_api/tools/__init__.py
+?? | 4853 | ef60af0b744f8baf742cf5e041467b5a15a84d4b772de27c044fdc4a3b844e05 | apps/api/src/creativedeploy_api/tools/migrate_image_storage.py
+?? | 4504 | 39e5f67ed32dbf19e6fbfba0ea87fd48439e4e0d45f81a3959317fe74ada706b | apps/api/src/creativedeploy_api/tools/provision_database_roles.py
+ M | 53949 | 3ca6f135cffd5a2dde8ebb36bdea20694efc95a33c4976c5c1da783b4e1e0cb6 | apps/api/tests/integration/test_image_set_readiness_api.py
+ M | 101212 | eb26681be3d08eecadde98d74350a9a234488b899b925d537bfa9f7991681fbc | apps/api/tests/integration/test_initial_paint_project_migration.py
+ M | 15082 | 9b12372efa479265386a40ef4993531ea33dc58b269cb6d76e0872d4d8c158d3 | apps/api/tests/unit/test_database_metadata.py
+ M | 14781 | 1db30916998803d5a67e2f5633548c4e8a6982204741acc015ba097628be0bd6 | apps/api/tests/unit/test_image_storage_and_validation.py
+?? | 8209 | 477c9d38088543737c6520ff04c128c4c819148a4311ef983979464cd9b1b774 | apps/api/tests/unit/test_migrate_image_storage.py
+?? | 12734 | 0808d868d4d1c746d0465501aeab9fc948ac8ca4dbf42f92099fb5eb8623859d | apps/api/tests/unit/test_oidc_client.py
+ M | 40129 | bfd46bcd8ed36c9d99b70558a99f807f8d46e3bf7caed308332cce70aa45440e | apps/api/tests/unit/test_paint_project_models.py
+ M | 10979 | 76cd4b8e100c97dc95284ce406c14230580925281fc52efb166b1558bef3f928 | apps/api/tests/unit/test_paint_project_principal_and_schemas.py
+ M | 12125 | 5dd14d043ed8b8d8c702657fbec6ecaba8dc34667fe585c784e10237d9e99d45 | apps/api/tests/unit/test_paint_project_repository_and_dependencies.py
+?? | 12667 | 52825bdaa63508d3b052114800d19370c81e1b3c822deb45e7fb2e0aeb12ff78 | apps/api/tests/unit/test_s3_image_storage.py
+ M | 150596 | 414278ee4cb05f036a1466118ffd86988072ed5fb8c2d85c8d7e2af272baa1ca | apps/api/uv.lock
+ M | 418 | 307be006e2425330d4de421d26549025fe76bba2f6af16c0ebfb2fc01e8b970e | apps/web/src/App.tsx
+ M | 13988 | 74f9870e0e254a571d8e31e3dac7a685dfe0a561380f87b5c55f22304d5115a9 | apps/web/src/__tests__/AppRoutes.test.tsx
+ M | 7430 | 14e4bd2d8f757fe01627564e946c2a9c046a1d3f8590bef6d6fe8b2d5bf48cc7 | apps/web/src/__tests__/ProjectDetailPage.test.tsx
+?? | 4024 | b369587082bf973205cb3028543ff04174004c28f844833126e1ba56cd037bd6 | apps/web/src/api/auth.ts
+ M | 21239 | 91d24fdfc8a27b6756bed4b0f022291f7303631098f6a7ddd75afd14431255a4 | apps/web/src/api/imageAssets.ts
+?? | 4579 | 665b84b28e333755a3c1b117c37a1982d6dbaf2e9b3f42c414aac2b3b8224a1c | apps/web/src/api/memberships.ts
+ M | 13199 | baddbfc55eb858ec1c88236c8b5c7cab1fb389f388dae5f891fc5a81fc17e691 | apps/web/src/api/paintProjects.ts
+ M | 21240 | 9ba050afadbf19e1e57ac14ba0ddad5c6b6da6230b67c70f5e9910add4c588e7 | apps/web/src/api/regionSets.ts
+?? | 2767 | cdde6f2c79175245de38b79e1403a14b2580f2e44f60060eda8d7f3efb186413 | apps/web/src/auth/AuthContext.tsx
+ M | 7551 | 3f088b74e54c0a8022d4a5800fb3542cb79db7a0cbdbdd20d7ab0ffba9a592f5 | apps/web/src/components/AppShell.tsx
+ M | 35292 | 6d551549856450a01513b83bfb9db5167ee56106177bd5fd0da781993175d6f1 | apps/web/src/components/ImageAssetManager.tsx
+ M | 49280 | c6695001fdfd7e9bac193447b857ab66253867b9825eaf54014caad591af4090 | apps/web/src/components/RegionAnnotationWorkspace.tsx
+?? | 7010 | 53779e9c620610967f42dfb561c2a1f221ded289b9a1ebabddd6c153c1227cff | apps/web/src/components/ReviewerMembershipManager.tsx
+ M | 60093 | 657147b89ebf5834f0b8019ba6ef48229da7f026ccc611d989d8fae2fa0d28c5 | apps/web/src/index.css
+?? | 3254 | c60115c71eb62c8ffe7ae4eaf6d849ddd4af438db8584178c57c68e1fa653702 | apps/web/src/pages/LoginPage.tsx
+ M | 12154 | 9a66eeb3af2e5f33fa08a66650f911fc1c7a2846ca04a5df695e95de8b26f136 | apps/web/src/pages/ProjectDetailPage.tsx
+ M | 2173 | 6f56603cc5fd6c0a39cfc0ec6eaeb3840b189583728570597a41e8101f2d4b73 | apps/web/src/router/AppRoutes.tsx
+ M | 6209 | adcd765ee4b0dc6125886c6f2400e5c4ba73c8a91c21e2a44a11905ccb6a8109 | apps/web/src/test/paintProjectFixtures.ts
+ M | 2908 | 66e348f40ee65b89d592f0262c4cead65d5b8cfceedb9e3d103b718d16973b30 | apps/web/src/test/regionSetFixtures.ts
+ M | 7460 | 0689ab46fcf695155dbe090f806e22d502b793b573deaf471b4fe16a568ffddd | compose.artifact-smoke.yaml
+ M | 3965 | c926d969383cff6b706f71bb7971d8094366122c74049b8c8c36ed1fe42914b0 | deploy/nginx.conf
+?? | 7031 | ebd13e3bf8d015b8c287a5636c39de42ba8eec870ae7f59347c156283c5a37c4 | docs/architecture/paintpilot-auth-authorization-contract-v0.1.md
+?? | 5733 | 93ee3046521cbfa3aed64345319d2763b02e0535b55077bf8845a7fecc3a316c | docs/architecture/paintpilot-private-object-storage-contract-v0.1.md
+?? | 6793 | 4b9e4aaca17e8ed706eb4ac6a3447e6bea5d882764844071904eaa27f6a08b55 | docs/decisions/ADR-0008-governed-identity-authorization-and-private-storage.md
+?? | 4374 | 06a37b8062036aeb27399e40faa342cbffb8e0b9bfe93ddf948be4d1a9d5ee6e | docs/progress/evidence/phase-2b-1/browser-acceptance-summary.txt
+?? | 5787 | d7fbfce7427fc324996f0f7a065d9b7ab6d3926ae6461c58997cb84e797daf97 | docs/progress/evidence/phase-2b-1/final-validation-summary.txt
+?? | 13533 | 4ede11b37fca0b2231ba0e82d81582a9d5d42589304e2f9f228e98ece7b31b14 | docs/progress/phase-2b-1-command-ledger.md
+?? | 18845 | 143eda91fc0e5c0a2ab30dbc3fb7b397ae0dadfcd0e07a5b55b77307da4427a9 | docs/progress/phase-2b-1-governed-identity-private-storage-candidate.md
+?? | 4242 | cde0a2d61fed37c4926fa93490ad064f91fcbb4cdea38977cf95ef0c5e5bb1cb | docs/progress/phase-2b-1-governed-identity-private-storage-plan.md
+ M | 10541 | 7d5ae3727c9cc2d36a99248b6c4deb9a2db31aaec1c531e337245b11b0fe2022 | docs/runbooks/local-production-style.md
+ M | 8557 | 58eb0cf039917a57c1964c105fb8c60831fac56cfffe975f796a5abfdcb813ba | scripts/validate_artifact_config.py
+ M | 29200 | e3038908c77e1415f4eb2826dd46a4872918772240bafb120db4fd3bc466a1ae | scripts/verify_artifact_smoke.sh
+ M | 3044 | 434e6135af70a43e46374e1977ff9ef84e88ec4fc640241fb958f22bdfc1f857 | scripts/verify_attempt_isolation.sh
+ M | 2586 | cedb89a302e473fc774db8316363e735aca270c0e2c71c1ec18c22f9a9f3772a | scripts/verify_immutable_references.py

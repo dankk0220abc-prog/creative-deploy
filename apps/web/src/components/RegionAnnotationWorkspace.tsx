@@ -44,6 +44,7 @@ const regionColors = [
 ];
 
 interface RegionAnnotationWorkspaceProps {
+  canEdit?: boolean;
   onViewStateChange?: (
     state: "current" | "error" | "historical" | "loading" | "not_found",
   ) => void;
@@ -176,6 +177,7 @@ function isInteractiveCanvasTarget(
 }
 
 export function RegionAnnotationWorkspace({
+  canEdit,
   onViewStateChange,
   projectId,
 }: RegionAnnotationWorkspaceProps) {
@@ -223,6 +225,8 @@ export function RegionAnnotationWorkspace({
           return;
         }
         const current = workbench.current_region_set;
+        const canEditLoadedProject =
+          canEdit ?? workbench.access_role === "owner";
         setState({ status: "loaded", workbench });
         setViewedRegionSet(current);
         setRegions(
@@ -231,9 +235,10 @@ export function RegionAnnotationWorkspace({
         setSelectedKey(current?.regions[0]?.stable_region_key ?? null);
         setSelectedVertex(null);
         setEditable(
-          current === null
-            ? workbench.can_create_draft
-            : current.effective_lifecycle === "draft" && !current.stale,
+          canEditLoadedProject &&
+            (current === null
+              ? workbench.can_create_draft
+              : current.effective_lifecycle === "draft" && !current.stale),
         );
         setDrawing([]);
         setUndoStack([]);
@@ -249,9 +254,11 @@ export function RegionAnnotationWorkspace({
         }
       });
     return () => controller.abort();
-  }, [projectId, reloadToken]);
+  }, [canEdit, projectId, reloadToken]);
 
   const workbench = state.status === "loaded" ? state.workbench : null;
+  const canEditProject =
+    canEdit ?? workbench?.access_role !== "reviewer";
   const currentRegionSet = workbench?.current_region_set ?? null;
   const commandTargets = useMemo(
     () => regionCommandTargets(currentRegionSet, viewedRegionSet),
@@ -529,7 +536,9 @@ export function RegionAnnotationWorkspace({
     setSelectedKey(currentRegionSet.regions[0]?.stable_region_key ?? null);
     setSelectedVertex(null);
     setEditable(
-      currentRegionSet.effective_lifecycle === "draft" && !currentRegionSet.stale,
+      canEditProject &&
+        currentRegionSet.effective_lifecycle === "draft" &&
+        !currentRegionSet.stale,
     );
     setDrawing([]);
     setUndoStack([]);
@@ -589,7 +598,7 @@ export function RegionAnnotationWorkspace({
       setRegions(persistedRegionsToDrafts(draft.regions));
       setSelectedKey(draft.regions[0]?.stable_region_key ?? null);
       setSelectedVertex(null);
-      setEditable(!draft.stale);
+      setEditable(canEditProject && !draft.stale);
       setDrawing([]);
       setUndoStack([]);
       setRedoStack([]);
@@ -854,11 +863,13 @@ export function RegionAnnotationWorkspace({
   const presentedContentUrl =
     presentedRegionSet?.source_content_url ?? workbench.source_content_url;
   const canStartDraftFromCurrent =
+    canEditProject &&
     commandTargets.lifecycle !== null &&
     ["approved", "changes_requested"].includes(
       commandTargets.lifecycle.effective_lifecycle,
     );
   const canSubmit =
+    canEditProject &&
     commandTargets.lifecycle !== null &&
     commandTargets.lifecycle.effective_lifecycle === "draft" &&
     !commandTargets.lifecycle.stale &&
@@ -916,6 +927,12 @@ export function RegionAnnotationWorkspace({
         <div className="region-banner region-banner--warning" role="alert">
           The current image set is {workbench.image_set_status}. Region commands are
           locked until a new human READY review is recorded.
+        </div>
+      ) : null}
+      {!canEditProject ? (
+        <div className="region-banner region-banner--boundary" role="note">
+          Reviewer access is read-only for geometry. You can inspect private images
+          and history, then record a decision on a submitted exact snapshot.
         </div>
       ) : null}
       <div className="region-banner region-banner--boundary">
@@ -1129,7 +1146,7 @@ export function RegionAnnotationWorkspace({
               <p className="eyebrow">Snapshot contents</p>
               <h2>{regions.length} regions</h2>
             </div>
-            {commandTargets.isViewingHistoricalSnapshot ? (
+            {canEditProject && commandTargets.isViewingHistoricalSnapshot ? (
               <button
                 className="button button--primary"
                 disabled={busy !== null || workbench.image_set_status !== "ready"}
@@ -1341,7 +1358,7 @@ export function RegionAnnotationWorkspace({
             </div>
           ) : null}
 
-          {!commandTargets.isViewingHistoricalSnapshot ? (
+          {canEditProject && !commandTargets.isViewingHistoricalSnapshot ? (
             <div className="region-command-bar">
               <button
                 className="button button--secondary"

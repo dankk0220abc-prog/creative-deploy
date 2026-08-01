@@ -1,5 +1,30 @@
 # CreativeDeploy Agent Guide
 
+## Phase 2B-1 Candidate Boundary
+
+Phase 2B-1 — Governed Identity, Authorization and Private Storage is an unstaged,
+uncommitted implementation Candidate at baseline
+`771b53914f51245d6c62c569e40ddd061ae7ec6e`. It adds Revision
+`2b1c4d5e6f70`, provider-neutral OIDC Authorization Code + PKCE, stable internal
+users keyed externally by `issuer + subject`, opaque server sessions and CSRF,
+server-side Owner/reviewer membership, private S3-compatible API-only object
+delivery, a non-destructive local-object copy tool, and distinct PostgreSQL
+migrator/runtime roles.
+
+Its post-remediation implementation verdict is
+`PHASE_2B_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`. This is not an
+independent approval, Git seal, production-ready claim, or authorization for
+Phase 2B-2. The repository-owned OIDC Provider and MinIO are synthetic
+local/CI dependencies only. No real provider, public/signed URL, destructive
+deletion, retention policy, AI, OCR, Agent, or RAG is authorized.
+
+The final remediation closes two independent Blocking Medium findings only:
+OIDC ID tokens now require a bounded `iat` age using one captured validation
+time, and legacy S3 copies now re-read and verify destination facts after every
+write before any database storage-reference update. Revision
+`2b1c4d5e6f70`, identity keys, roles, workflow, private streaming, and retention
+boundaries are unchanged.
+
 ## Project Goal
 
 CreativeDeploy is a deployment-engineering portfolio project. PaintPilot is its primary,
@@ -55,19 +80,19 @@ READY / NOT READY fingerprint-bound reviews. Revision `d4c8a1f7b2e9` maps sealed
 historical revisions. The original failure remains historical evidence and is not rewritten as
 an initial pass.
 
-The overall project checkpoint is approximately 80% (`approximately_80_percent`). Phase 1F —
+The sealed Phase 1F project checkpoint was approximately 80%
+(`approximately_80_percent`). Phase 1F —
 Human-Governed Region Annotation and Review passed final independent review with
 `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_PASS_READY_FOR_SEALING`, was sealed by
 `fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b`, and is `CLOSED`.
 Revision `7f3a2b9c4d1e` adds immutable human RegionSet/Region/Vertex/Review persistence,
 deterministic ppm simple-Polygon validation, ImageSet-fingerprint staleness, Project-scoped
 idempotent save/submit/review commands, append-only review, and an SVG workbench. The next
-checkpoint is the `80_percent_overall_product_and_deployment_readiness_review`; the next product
-phase is `NOT_SELECTED` / `NOT_STARTED`. This closure is not production readiness. AI is
-`NOT_AUTHORIZED`; external object storage is `NOT_SELECTED`; public/signed URLs are
-`NOT_AUTHORIZED`; deletion and real authentication are `NOT_IMPLEMENTED`; local storage is
-development/test only; production storage is `NOT_READY`; light, color, and PaintPlan are
-`NOT_IMPLEMENTED`.
+checkpoint was the `80_percent_overall_product_and_deployment_readiness_review`. Phase 2B-1
+now exists only as the unreviewed Candidate described above. This remains outside production
+readiness. AI is `NOT_AUTHORIZED`; public/signed URLs and deletion are `NOT_AUTHORIZED`;
+local storage remains development/test only; no real IdP/object provider is selected; light,
+color, and PaintPlan are `NOT_IMPLEMENTED`.
 
 The historical implementation conversation ended `PHASE_1F_IMPLEMENTATION_FAILED` despite
 passing technical gates: one supplemental final-source browser attempt used the wrong Vite proxy
@@ -189,8 +214,9 @@ For every subsequent Codex task:
   ADR-0004 primary workflow gate;
 - do not claim the sealed Phase 1E-1 implementation is production-ready;
 - do not integrate AI;
-- do not select external object storage, public URLs, irreversible deletion, real authentication,
-  or major permission changes;
+- preserve the Phase 2B-1 provider-neutral OIDC, private S3-compatible, and Owner/reviewer
+  Candidate boundaries; do not select a real provider, add public/signed URLs, irreversible
+  deletion, retention, owner transfer, workflow changes, or broader roles;
 - keep Phase 1F `CLOSED`, preserve implementation seal
   `fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b`, and do not reopen it;
 - keep the next checkpoint as the 80% overall product and deployment readiness review; do not
@@ -205,7 +231,8 @@ authorization.
 
 Do not claim or imply implementation or independent approval of:
 
-- public authentication, full authorization, JWT, OAuth or a real-user Principal Adapter;
+- a selected real enterprise IdP/client, managed object-storage account/IAM, production
+  domain/TLS, secret manager, retention, backup/restore, monitoring, or deployment operations;
 - ImageQualityAssessment, automated viewpoint analysis, segmentation, automated Polygon
   generation, automated semantic labels, or automated region analysis;
 - AI providers, Agent workflows, RAG, inventory, citations, or Trace;
@@ -253,10 +280,11 @@ make bootstrap
 Run Make commands from the repository root. API settings resolve the repository-root
 `.env` independently of the current working directory.
 
-`APP_ENV` must be explicit and is limited to `development`, `test` or `production`. The current
-Demo Principal Adapter requires explicit ID and display-name configuration in development/test and
-rejects production. It is not public authentication; do not expose its write API publicly without
-separately approved real authentication or deployment-platform access protection.
+`APP_ENV` must be explicit and is limited to `development`, `test` or `production`. The Demo
+Principal Adapter still requires explicit ID and display-name configuration in development/test
+and rejects production. The Phase 2B-1 OIDC adapter is selected separately; do not expose either
+configuration publicly until real provider ownership, secrets, TLS/domain, operations, independent
+review, and Git sealing are complete.
 
 PostgreSQL:
 
@@ -278,8 +306,10 @@ These commands never generate or upgrade a revision. The repository preserves hi
 Revision `a10d3d8dab38`; the Phase 1E-1 implementation seal adds Revision `5ed9906e7d33` and a
 fourth business table. The Phase 1E-2 implementation seal adds child Revision `d4c8a1f7b2e9`
 and a fifth business table. The Phase 1F implementation seal adds child Revision `7f3a2b9c4d1e`
-and four more tables without changing the historical revisions. This does not imply production
-storage readiness or authorize a later product phase.
+and four more tables without changing the historical revisions. The Phase 2B-1 Candidate adds
+child Revision `2b1c4d5e6f70` and five identity/session/membership tables, bringing an upgraded
+schema to fourteen business tables. This does not imply production readiness or authorize a later
+product phase.
 
 Backend:
 
@@ -317,9 +347,10 @@ make supply-chain-check
 ```
 
 The artifact smoke profile is always `LOCAL_PRODUCTION_STYLE_SMOKE` and
-`NOT_REAL_PRODUCTION`. It may use the configured Demo Principal and isolated
-local storage only with `APP_ENV=test`; never relabel it as production, add a
-real domain or fake TLS, or weaken the production refusal of those adapters.
+`NOT_REAL_PRODUCTION`. Phase 2B-1 uses its repository-owned synthetic OIDC
+Provider, private MinIO, and isolated admin/migrator/runtime roles with
+`APP_ENV=test`; never relabel it as production, add a real domain or fake TLS,
+or weaken production OIDC/S3/database refusal.
 Only its Web/NGINX port may be published to loopback. Keep `/api/` same-origin,
 preserve SPA fallback, host allowlisting, private-asset no-store, the exact
 upload-size boundary, and the HTTP-only no-HSTS rule.
@@ -395,10 +426,11 @@ under normal operating-system rules, unlike the standard Make targets.
 - Preserve the independently reviewed README remediation and its seal commit
   `707bdfa3c5931867125cc9c7dc11067a86f5f343`; do not rewrite the original Phase 1D-4 failure.
 - Keep Phase 1D-3 and Phase 1D-4 `CLOSED` and Phase 1D `COMPLETE`; do not reopen Phase 1D.
-- Keep Phase 1E-1, Phase 1E-2, and Phase 1F `CLOSED`; keep the next product phase
-  `NOT_SELECTED` / `NOT_STARTED`. Do not integrate AI or image quality assessment, select external
-  object storage, add public URLs, irreversible deletion, real authentication, or major permission
-  changes.
+- Keep Phase 1E-1, Phase 1E-2, and Phase 1F `CLOSED`. Preserve the authorized Phase 2B-1
+  Candidate boundaries: provider-neutral OIDC, Owner/reviewer server authorization, private
+  S3-compatible storage, and distinct database roles only. Do not add public/signed URLs,
+  irreversible deletion, retention, owner transfer, workflow changes, AI, OCR, Agent, RAG, or
+  Phase 2B-2.
 - Phase 2A-1 is a production spine candidate, not production readiness. Keep its API/Web
   Dockerfiles multi-stage and non-root, exclude `.env` and private/test data from build contexts,
   keep the single Candidate CI workflow lockfile-driven, and never make CI depend on a private

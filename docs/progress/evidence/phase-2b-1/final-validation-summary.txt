@@ -1,0 +1,130 @@
+PHASE 2B-1 FINAL VALIDATION SUMMARY
+date: 2026-07-31
+repository: /Users/danke/Developer/CreativeDeploy
+baseline_head: 771b53914f51245d6c62c569e40ddd061ae7ec6e
+candidate_revision: 2b1c4d5e6f70
+
+CANONICAL
+make check with process-only active PostgreSQL URL and empty temporary env file: EXIT 0
+- configuration audit: PASS
+- real PostgreSQL probe: PASS
+- Ruff: PASS, 90 files
+- Ruff format check: PASS, 90 files
+- mypy: PASS, 64 source files
+- API unit: 264 passed, 0 skipped/xfail, 65% aggregate coverage
+- API integration: 54 passed on real PostgreSQL, 0 skipped/xfail
+- Web lint/typecheck: PASS
+- Web Vitest: 13 files, 154 passed
+- Web production build: PASS, 98 modules
+- warnings: one known Starlette/httpx deprecation warning in API unit/integration
+
+FOCUSED
+- OIDC validation: 10 passed
+- S3 adapter/migration behavior: 5 passed
+- migration governed round-trip/refusal: 2 passed
+- corrected rollback-head cases: 2 passed
+- AppRoutes including explicit IdP failure: 16 passed
+
+MIGRATION
+- head/current: 2b1c4d5e6f70
+- parent: 7f3a2b9c4d1e
+- upgrade/downgrade/re-upgrade/check: PASS on isolated real PostgreSQL
+- unsafe downgrade: refused SQLSTATE 55000, facts preserved
+- migration sha256: cb2356309f88187da26d7f1b061a716600a8cb6397333f54683775a00194f322
+
+FINAL ARTIFACT
+run_id: phase2b1_final_20
+exit: 0
+result: artifact smoke validation PASS
+- synthetic OIDC Authorization Code + PKCE
+- callback replay 400; stable issuer+subject; session rotation
+- anonymous 401; missing CSRF 403; logout/object 401
+- legal historical-created/now-expired session becomes anonymous; object 401
+- Owner A/Owner B safe isolation
+- concurrent and repeated reviewer assignment converges on one membership
+- two reviewers on one project; one reviewer across two projects
+- reviewer private-image access and existing READY review action
+- reviewer removal and immediate revocation
+- private MinIO, checksum upload/API stream, no provider URL leak
+- unauthenticated bucket refusal
+- API/IdP/Web/MinIO restart recovery
+- migrator-owned 14-table schema; runtime DML; runtime DDL refused
+- production Demo/local/incomplete config fail closed
+- non-root/read-only runtime, headers, database degraded behavior
+- exact RUN_ID cleanup
+
+SECURITY AND SUPPLY CHAIN
+- manifest-inclusive Gitleaks phase2b1_finalscan_21 rerun: no leaks
+- pip-audit retry: no known vulnerabilities; local unpublished package skipped
+- pnpm production audit: no known vulnerabilities
+- immutable references: PASS, 3 Actions / 9 container references
+- final attempt isolation phase2b1_isolation_22: PASS
+- git diff --check: PASS
+
+FIRST FAILURES RETAINED
+- pip-audit PyPI timeout
+- immutable-reference stale expected count
+- attempt-isolation missing new synthetic environment
+- canonical stale parent-head expectation
+- final_16 simultaneous restart exposed missing long-lived restart policy
+- final_18 first expiry fixture was rejected by expires-after-created constraint
+- first manifest-inclusive Gitleaks run classified the API lockfile SHA
+  metadata as a generic key; established inline allow marker, exact rerun PASS
+- first redacted diagnostic package and residual database query were invalid;
+  corrected diagnostics isolated the false positive and returned zero residual
+  Phase 2B-1 databases/roles
+- final targeted Ruff format check found one mechanically unwrapped validator
+  line; Ruff format/check rerun PASS
+- artifact-config-check was a nonexistent target; real artifact-config target
+  phase2b1_config_24 PASS
+- environment/path/browser invalid attempts are listed in phase-2b-1-command-ledger.md
+
+CLASSIFICATION
+PHASE_2B_1_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW
+not independent approval
+not Git sealing
+not production-ready
+Phase 2B-2 not started
+AI/OCR/Agent/RAG not added
+
+FINAL REMEDIATION ADDENDUM
+date: 2026-08-01
+
+F-01
+- pre-fix reproduction: a valid signed, future-expiry token with one-hour-old iat was accepted
+- fix: required finite numeric iat, one captured current time, max age 300 seconds
+  constrained to 60..900, skew 30 seconds constrained to 0..60, stable safe error
+- focused: OIDC 25 passed; direct auth regression 51 passed
+
+F-02
+- pre-fix reproduction: corrupted destination could be treated as copied without a
+  post-write destination HEAD
+- fix: fresh post-PUT HEAD; exact size, controlled SHA-256 metadata, and content-type
+  validation before receipt/database update; ETag remains provider identity only
+- focused: S3 adapter and migration tool 16 passed; direct storage regression 39 passed
+
+REMEDIATION CANONICAL
+- make check: EXIT 0
+- Ruff/format: 91 files; mypy: 64 source files
+- API unit: 290 passed, 0 skip/xfail, 66% aggregate coverage
+- real PostgreSQL integration: 54 passed, 0 skip/xfail
+- Web: lint/typecheck/build PASS; 13 files/154 tests; Vite 98 modules
+- migration revision/hash unchanged: 2b1c4d5e6f70 /
+  cb2356309f88187da26d7f1b061a716600a8cb6397333f54683775a00194f322
+
+REMEDIATION ARTIFACT/BROWSER
+- phase2b1_remediation_artifact_02: EXIT 0, including real MinIO legacy-copy
+  post-write verification, exact resume, session expiry, restart, roles, and cleanup
+- phase2b1_remediation_browser_03: PASS, including Owner/reviewer assignment,
+  private image, immediate revocation, Owner B safe unavailable, logout, API/OIDC/Web/
+  MinIO restart recovery, and empty console warning/error set
+- phase2b1_remediation_isolation_04: PASS and exact cleanup
+- manifest-inclusive Gitleaks phase2b1_remediation_finalscan_05: no leaks
+- pip-audit and pnpm production audit: no known vulnerabilities
+- immutable references: PASS, 3 Actions / 9 container references
+- git diff --check: PASS
+
+CLASSIFICATION
+PHASE_2B_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW
+not independent approval; not Git sealing; not production-ready
+Phase 2B-2 not started; AI/OCR/Agent/RAG not added

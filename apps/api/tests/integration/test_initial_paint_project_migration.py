@@ -34,17 +34,70 @@ ALEMBIC_COMMAND = (
     "apps/api/alembic.ini",
 )
 BUSINESS_TABLES = {
+    "auth_sessions",
     "command_idempotency_records",
+    "external_identities",
     "image_assets",
     "image_set_readiness_reviews",
+    "oidc_login_flows",
     "paint_projects",
+    "project_memberships",
     "region_set_reviews",
     "region_sets",
     "region_vertices",
     "regions",
     "state_transition_events",
+    "user_accounts",
 }
 EXPECTED_COLUMNS = {
+    "user_accounts": (
+        "id",
+        "display_name",
+        "email",
+        "is_active",
+        "created_at",
+        "updated_at",
+    ),
+    "external_identities": (
+        "id",
+        "user_id",
+        "issuer",
+        "subject",
+        "email_snapshot",
+        "display_name_snapshot",
+        "created_at",
+        "last_authenticated_at",
+    ),
+    "project_memberships": (
+        "id",
+        "paint_project_id",
+        "user_id",
+        "role",
+        "assigned_by_user_id",
+        "created_at",
+    ),
+    "oidc_login_flows": (
+        "id",
+        "state_hash",
+        "browser_binding_hash",
+        "nonce",
+        "code_verifier",
+        "return_to",
+        "created_at",
+        "expires_at",
+        "consumed_at",
+    ),
+    "auth_sessions": (
+        "id",
+        "user_id",
+        "token_hash",
+        "csrf_token_hash",
+        "oidc_issuer",
+        "created_at",
+        "last_seen_at",
+        "expires_at",
+        "revoked_at",
+    ),
     "paint_projects": (
         "id",
         "owner_principal_id",
@@ -2782,7 +2835,7 @@ def test_initial_paint_project_migration_round_trip_and_constraints(
 
     _run_alembic(temporary_database_url, "upgrade", "head")
     current_result = _run_alembic(temporary_database_url, "current")
-    assert "7f3a2b9c4d1e (head)" in current_result.stdout
+    assert "2b1c4d5e6f70 (head)" in current_result.stdout
     check_result = _run_alembic(temporary_database_url, "check")
     assert "No new upgrade operations detected." in check_result.stdout
 
@@ -2820,3 +2873,44 @@ def test_initial_paint_project_migration_round_trip_and_constraints(
         for table in BUSINESS_TABLES:
             query = sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(table))
             assert connection.execute(query).fetchone() == (0,)
+
+
+def test_phase_2b1_downgrade_refuses_governed_facts_without_deleting_them(
+    temporary_database: TemporaryDatabase,
+) -> None:
+    temporary_database_url = temporary_database.url
+    temporary_database_name = temporary_database.name
+    user_id = uuid.uuid4()
+    _run_alembic(temporary_database_url, "upgrade", "head")
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        connection.execute(
+            """
+            INSERT INTO user_accounts (id, display_name, email)
+            VALUES (%s, %s, %s)
+            """,
+            (user_id, "Synthetic Downgrade Guard", "downgrade@example.test"),
+        )
+
+    with pytest.raises(AssertionError, match="governed facts exist"):
+        _run_alembic(temporary_database_url, "downgrade", "7f3a2b9c4d1e")
+
+    current_result = _run_alembic(temporary_database_url, "current")
+    assert "2b1c4d5e6f70 (head)" in current_result.stdout
+    with psycopg.connect(
+        **_connection_kwargs(temporary_database_url, temporary_database_name)
+    ) as connection:
+        assert connection.execute(
+            "SELECT display_name FROM user_accounts WHERE id = %s",
+            (user_id,),
+        ).fetchone() == ("Synthetic Downgrade Guard",)
+        with connection.transaction():
+            connection.execute("DELETE FROM user_accounts WHERE id = %s", (user_id,))
+
+    _run_alembic(temporary_database_url, "downgrade", "7f3a2b9c4d1e")
+    downgraded_result = _run_alembic(temporary_database_url, "current")
+    assert "7f3a2b9c4d1e" in downgraded_result.stdout

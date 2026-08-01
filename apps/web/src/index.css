@@ -3170,3 +3170,52 @@ a {
     display: none;
   }
 }
+.project-memberships {
+  margin-block: 2rem;
+}
+
+.membership-assign {
+  align-items: end;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(16rem, 1fr) auto;
+}
+
+.membership-assign label {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.membership-list {
+  display: grid;
+  gap: 0.75rem;
+  list-style: none;
+  margin: 1.25rem 0 0;
+  padding: 0;
+}
+
+.membership-list li {
+  align-items: center;
+  border: 1px solid var(--border-subtle, #c8d4d8);
+  border-radius: 0.75rem;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1rem;
+}
+
+.membership-list li div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+@media (max-width: 42rem) {
+  .membership-assign {
+    grid-template-columns: 1fr;
+  }
+
+  .membership-list li {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
