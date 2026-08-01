@@ -82,6 +82,8 @@ class ImageStoragePort(Protocol):
 
     provider_name: str
 
+    def probe(self) -> None: ...
+
     async def stage_upload(self, upload: UploadFile, *, max_bytes: int) -> StagedUpload: ...
 
     def put_from_temp(
@@ -140,6 +142,16 @@ class LocalFilesystemImageStorageAdapter:
             path.relative_to(parent)
         except ValueError as error:
             raise ImageStorageError("A storage operation escaped its configured root.") from error
+
+    def probe(self) -> None:
+        """Prove the controlled private root remains a writable, non-symlink directory."""
+        metadata = self._root.stat(follow_symlinks=False)
+        if (
+            self._root.is_symlink()
+            or not stat.S_ISDIR(metadata.st_mode)
+            or not os.access(self._root, os.R_OK | os.W_OK | os.X_OK)
+        ):
+            raise ImageStorageError("The private local storage root is unavailable.")
 
     def _object_path(self, key: str, *, must_exist: bool) -> Path:
         if (

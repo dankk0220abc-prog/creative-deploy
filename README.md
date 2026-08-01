@@ -1,7 +1,8 @@
 # CreativeDeploy
 
 Project Status: Phase 1D `COMPLETE` — Phase 1E-1 `CLOSED` — Phase 1E-2 `CLOSED` —
-Phase 1F `CLOSED` — Phase 2B-1 `IMPLEMENTED_PENDING_INDEPENDENT_REVIEW`
+Phase 1F `CLOSED` — Phase 2B-1 `IMPLEMENTED_PENDING_INDEPENDENT_REVIEW` —
+Phase 2B-2 `IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
 
 Implementation Status:
 
@@ -40,8 +41,16 @@ Implementation Status:
 - Phase 2B-1 adds provider-neutral OIDC Authorization Code + PKCE, opaque server sessions,
   server-side Owner/reviewer authorization, API-only private S3-compatible object delivery,
   non-destructive local-object copy, and separate migrator/runtime PostgreSQL roles
-- Phase 2B-1 is an unstaged implementation Candidate awaiting independent review; it is not
-  independently approved, Git-sealed, production-ready, or authorization for Phase 2B-2
+- Phase 2B-1 remains the unsealed identity/storage foundation Candidate; Phase 2B-2 was later
+  explicitly authorized and exists as a separate unstaged operations Candidate. Its real-browser
+  gate passed with a dedicated profile and exact synthetic-certificate SPKI trust, without global
+  certificate bypass or system trust mutation. Neither Candidate is independently approved,
+  Git-sealed, or production-ready
+- Phase 2B-2 adds a loopback-only TLS staging topology, exact Origin/Host/OIDC/CSRF contract,
+  file-mounted secrets, database/storage/identity readiness, JSON request correlation, and a
+  coordinated PostgreSQL/private-object backup and temporary restore drill
+- The Phase 2B-2 canonical drill passed with synthetic Owner/Reviewer/project/private-image
+  facts, fresh-environment restore, exact retry, checksum-tamper refusal, and exact cleanup
 - Overall project progress is approximately 80% (`approximately_80_percent`)
 - The next checkpoint is the `80_percent_overall_product_and_deployment_readiness_review`;
   the next product phase is `NOT_SELECTED` / `NOT_STARTED`
@@ -53,8 +62,30 @@ Implementation Status:
 - Automated Polygon generation, automated region analysis, light design, color design, and
   PaintPlan remain `NOT_IMPLEMENTED`
 - Local storage remains development/test only. Production now has fail-closed provider-neutral
-  OIDC/S3 boundaries, but real providers, secrets, domain/TLS, operations, retention, and
-  independent review remain `NOT_READY`
+  OIDC/S3/TLS/secret/backup contracts, but real providers, secrets, domain/certificate
+  automation, operations ownership, monitoring, retention, cutover, and independent review
+  remain `NOT_READY`
+
+Phase 2B-2 Candidate:
+
+- State: `PHASE_2B_2_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
+- Baseline: `main` at `511e42ecb2adccc55e75cb4d801181206b1b337a`
+- Schema: unchanged sole head `2b1c4d5e6f70`
+- Staging: TLS proxy, production Web/API, ordered role/migration jobs, PostgreSQL, private MinIO,
+  synthetic OIDC, internal networks, and loopback-only ingress
+- URL security: exact HTTPS origin/host/callback/CSRF facts, secure `__Host-` cookies, HSTS only
+  on HTTPS, and proxy-header bypass refusal
+- Secrets: provider-neutral direct-or-file boundary with separate read-only mounts and strict
+  negative validation; no real values or ordinary staging `.env`
+- Recovery: quiesced fourteen-table plus private-object manifest backup; fresh `p2b2r_` restore,
+  full data/object verification, dry-run, exact retry, and tamper refusal
+- Candidate docs:
+  `docs/progress/phase-2b-2-staging-operations-hardening-candidate.md`
+- Real Chrome HTTPS acceptance passed with one dedicated `/tmp` profile and an exact allowlist for
+  the current synthetic certificate's SPKI; no global bypass, Keychain, or system trust-store
+  change was made
+- This work remains unstaged/uncommitted and is ready only for a fresh independent Phase 2B-2
+  security/operations review; it is not approved, sealed, or production-ready
 
 Phase 2B-1 Candidate:
 
@@ -314,10 +345,11 @@ reconciliation 已通过独立复审并由 `ac8630ae393cb6ca5bf3a2d1db5070531d6f
 `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_PASS_READY_FOR_SEALING` 后，由
 `fdf1fd787b2cc0c5a4db3c1e72885df4fdf6ae1b` 封存并正式 `CLOSED`。下一检查点为 80%
 总体产品与部署就绪评估；下一产品 Phase 仍为 `NOT_SELECTED` / `NOT_STARTED`。Phase 2B-1
-当前已有待独立复审的 OIDC、多用户 Owner/reviewer 与私有 S3-compatible 实现，但尚未选择
-真实 Provider，也不是 production-ready。当前仍没有正式图片质量评估、自动区域分析、
-AI Provider、RAG、Paint inventory、Agent 工作流、通用 HumanApproval、生产 Secret/
-域名/TLS/运维或生产部署能力。
+当前已有待独立复审的 OIDC、多用户 Owner/reviewer 与私有 S3-compatible 实现；Phase 2B-2
+另已实现待独立复审的 loopback TLS staging、文件 Secret、完整 readiness、结构化日志与临时
+backup/restore 演练。两者均未选择真实 Provider、Secret、域名或生产运维所有者，也不是
+production-ready。当前仍没有正式图片质量评估、自动区域分析、AI Provider、RAG、Paint
+inventory、Agent 工作流、通用 HumanApproval 或公网生产部署能力。
 
 ## Prerequisites
 
@@ -528,6 +560,9 @@ implementation seal `9b3b23ac3e1f056a73e3934d3da51b24aa7f671d` 封存；这不�
   production-ready 或真实生产部署；
 - Phase 2B-1 已实现 OIDC、Owner/reviewer 服务端权限、私有 S3-compatible 存储和
   migrator/runtime 数据库角色，但仍是待独立复审、未封存的 Candidate；
+- Phase 2B-2 已实现合成本地/CI staging 运维与全新临时环境恢复证明，但仍是待独立复审、
+  未封存的 Candidate；真实 Provider/Secret/域名/证书自动化、生产 RPO/RTO、监控值守、
+  retention 与 cutover 仍未选择；
 - Commit 10 和 UX remediation commit 已存在，但 Commit 10 创建前没有可用的正式仓库
   approval record；后续复审不构成倒填批准；
 - Phase 1D-3 技术 remediation 与 governance reconciliation 均已封存，Phase 1D-3 当前为

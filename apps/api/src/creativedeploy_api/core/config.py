@@ -12,6 +12,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError
 
+from creativedeploy_api.core.secret_files import read_secret_file
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_ENV_FILE = (
     Path(os.environ.get("CREATIVEDEPLOY_ENV_FILE", REPOSITORY_ROOT / ".env"))
@@ -132,6 +134,7 @@ class Settings(BaseSettings):
     app_name: str = "CreativeDeploy API"
     app_version: str = "0.1.0"
     database_url: SecretStr | None = None
+    database_url_file: Path | None = None
     postgres_host: PostgresComponentSetting | None = None
     postgres_port: int | None = Field(default=None, ge=1, le=65_535)
     postgres_user: PostgresComponentSetting | None = None
@@ -156,6 +159,7 @@ class Settings(BaseSettings):
     oidc_backchannel_base_url: str | None = None
     oidc_client_id: str | None = None
     oidc_client_secret: SecretStr | None = None
+    oidc_client_secret_file: Path | None = None
     oidc_redirect_uri: str | None = None
     oidc_http_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     oidc_id_token_max_age_seconds: int = Field(
@@ -176,7 +180,9 @@ class Settings(BaseSettings):
     s3_region: str | None = None
     s3_bucket: str | None = None
     s3_access_key_id: SecretStr | None = None
+    s3_access_key_id_file: Path | None = None
     s3_secret_access_key: SecretStr | None = None
+    s3_secret_access_key_file: Path | None = None
     s3_force_path_style: bool = True
     s3_allow_insecure_http: bool = False
     s3_create_bucket: bool = False
@@ -204,6 +210,33 @@ class Settings(BaseSettings):
     trusted_hosts: list[TrustedHostSetting] = Field(
         default_factory=lambda: ["localhost", "127.0.0.1", "testserver"]
     )
+    public_origin: str | None = None
+    secure_cookies: bool = False
+    require_csrf_origin: bool = False
+    structured_logs: bool = False
+
+    @model_validator(mode="after")
+    def load_mounted_secrets(self) -> "Settings":
+        """Resolve supported direct-or-file secrets with an exact one-source rule."""
+        secret_pairs = (
+            ("DATABASE_URL", "database_url", "database_url_file"),
+            ("OIDC_CLIENT_SECRET", "oidc_client_secret", "oidc_client_secret_file"),
+            ("S3_ACCESS_KEY_ID", "s3_access_key_id", "s3_access_key_id_file"),
+            ("S3_SECRET_ACCESS_KEY", "s3_secret_access_key", "s3_secret_access_key_file"),
+        )
+        for setting_name, value_field, file_field in secret_pairs:
+            direct_value = getattr(self, value_field)
+            file_path = getattr(self, file_field)
+            if direct_value is not None and file_path is not None:
+                raise ValueError(f"Configure exactly one of {setting_name} or {setting_name}_FILE.")
+            if file_path is not None:
+                object.__setattr__(
+                    self,
+                    value_field,
+                    SecretStr(read_secret_file(file_path, setting_name=setting_name)),
+                )
+                object.__setattr__(self, file_field, None)
+        return self
 
     @model_validator(mode="after")
     def resolve_database_configuration(self) -> "Settings":
@@ -262,10 +295,56 @@ class Settings(BaseSettings):
         if len(set(normalized_hosts)) != len(normalized_hosts):
             raise ValueError("TRUSTED_HOSTS must not contain duplicate normalized hosts.")
         self.trusted_hosts = normalized_hosts
+        if self.public_origin is not None:
+            if self.public_origin != self.public_origin.strip() or "*" in self.public_origin:
+                raise ValueError("PUBLIC_ORIGIN must be one exact normalized origin.")
+            origin = urlparse(self.public_origin)
+            if (
+                origin.scheme not in {"http", "https"}
+                or not origin.hostname
+                or origin.username is not None
+                or origin.password is not None
+                or origin.path not in {"", "/"}
+                or origin.params
+                or origin.query
+                or origin.fragment
+            ):
+                raise ValueError("PUBLIC_ORIGIN must contain only an absolute HTTP(S) origin.")
+            origin_host = canonical_trusted_host(origin.hostname)
+            if origin_host not in self.trusted_hosts:
+                raise ValueError("PUBLIC_ORIGIN host must be present in TRUSTED_HOSTS.")
+            default_port = 443 if origin.scheme == "https" else 80
+            try:
+                origin_port = origin.port
+            except ValueError as error:
+                raise ValueError("PUBLIC_ORIGIN contains an invalid port.") from error
+            authority = origin_host
+            if origin_port is not None and origin_port != default_port:
+                authority = (
+                    f"[{origin_host}]:{origin_port}"
+                    if ":" in origin_host
+                    else f"{origin_host}:{origin_port}"
+                )
+            self.public_origin = f"{origin.scheme}://{authority}"
+        if self.secure_cookies and (
+            self.public_origin is None or not self.public_origin.startswith("https://")
+        ):
+            raise ValueError("SECURE_COOKIES requires an HTTPS PUBLIC_ORIGIN.")
+        if self.require_csrf_origin and self.public_origin is None:
+            raise ValueError("REQUIRE_CSRF_ORIGIN requires PUBLIC_ORIGIN.")
         if self.app_env == "production" and self.identity_provider != "oidc":
             raise ValueError("Production requires the OIDC identity provider.")
         if self.app_env == "production" and self.image_storage_provider != "s3":
             raise ValueError("Production requires the S3 private-object storage provider.")
+        if self.app_env == "production" and (
+            not self.secure_cookies
+            or not self.require_csrf_origin
+            or self.public_origin is None
+            or not self.public_origin.startswith("https://")
+        ):
+            raise ValueError(
+                "Production requires HTTPS PUBLIC_ORIGIN, secure cookies, and exact CSRF origin."
+            )
         return self
 
     @property
@@ -337,6 +416,10 @@ class Settings(BaseSettings):
             issuer_parts.scheme != "https" or redirect_parts.scheme != "https"
         ):
             raise ValueError("Production OIDC issuer and redirect URI must use HTTPS.")
+        if self.public_origin is not None:
+            expected_redirect = f"{self.public_origin}/api/v1/auth/callback"
+            if redirect_uri != expected_redirect:
+                raise ValueError("OIDC_REDIRECT_URI must exactly match PUBLIC_ORIGIN callback.")
         discovery_url = self.oidc_discovery_url or (f"{issuer}/.well-known/openid-configuration")
         discovery_parts = urlparse(discovery_url)
         if discovery_parts.scheme not in {"http", "https"} or not discovery_parts.netloc:

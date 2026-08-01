@@ -6,18 +6,28 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+from fastapi import Response
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from creativedeploy_api.api.routes.health import get_database_health_service
+from creativedeploy_api.api.routes.health import (
+    get_database_health_service,
+    get_identity_health_service,
+    get_storage_health_service,
+)
 from creativedeploy_api.app_factory import create_app
+from creativedeploy_api.auth.cookies import (
+    clear_oidc_flow_cookie,
+    clear_session_cookies,
+)
 from creativedeploy_api.core.config import DEFAULT_ENV_FILE, REPOSITORY_ROOT, Settings
 from creativedeploy_api.db.engine import create_database_engine
 from creativedeploy_api.services.database_health import (
     DatabaseHealthResult,
     DatabaseHealthService,
 )
+from creativedeploy_api.services.runtime_health import RuntimeDependencyHealthResult
 
 
 class StubDatabaseHealthService:
@@ -32,12 +42,25 @@ class StubDatabaseHealthService:
         return self.result
 
 
+class StubRuntimeHealthService:
+    def __init__(self, result: RuntimeDependencyHealthResult) -> None:
+        self.result = result
+
+    async def check(self) -> RuntimeDependencyHealthResult:
+        return self.result
+
+
 def build_client(
     settings: Settings,
     service: StubDatabaseHealthService,
 ) -> tuple[AbstractContextManager[TestClient], StubDatabaseHealthService]:
     app = create_app(settings)
     app.dependency_overrides[get_database_health_service] = lambda: service
+    healthy_dependency = StubRuntimeHealthService(
+        RuntimeDependencyHealthResult(status="ok", latency_ms=0.5, error_code=None)
+    )
+    app.dependency_overrides[get_storage_health_service] = lambda: healthy_dependency
+    app.dependency_overrides[get_identity_health_service] = lambda: healthy_dependency
     return TestClient(app), service
 
 
@@ -80,7 +103,9 @@ def test_readiness_returns_healthy_schema(test_settings: Settings) -> None:
                 "status": "ok",
                 "latency_ms": 1.25,
                 "error_code": None,
-            }
+            },
+            "storage": {"status": "ok", "latency_ms": 0.5, "error_code": None},
+            "identity": {"status": "ok", "latency_ms": 0.5, "error_code": None},
         },
     }
 
@@ -106,7 +131,9 @@ def test_readiness_returns_safe_503(test_settings: Settings) -> None:
                 "status": "error",
                 "latency_ms": None,
                 "error_code": "DATABASE_UNAVAILABLE",
-            }
+            },
+            "storage": {"status": "ok", "latency_ms": 0.5, "error_code": None},
+            "identity": {"status": "ok", "latency_ms": 0.5, "error_code": None},
         },
     }
     assert "postgresql" not in response_text
@@ -454,3 +481,181 @@ def test_exact_trusted_host_boundary_supports_bracketed_ipv6(
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
+
+
+def test_database_url_file_is_loaded_without_disclosure(tmp_path: Path) -> None:
+    secret_file = tmp_path / "database_url"
+    secret_file.write_text(
+        "postgresql+psycopg://file-user:synthetic-file-secret@127.0.0.1:1/file\n",
+        encoding="utf-8",
+    )
+    secret_file.chmod(0o600)
+
+    settings = Settings(app_env="test", database_url_file=secret_file, _env_file=None)
+
+    assert settings.database_configuration_source == "database_url"
+    assert settings.require_database_url().get_secret_value().endswith("@127.0.0.1:1/file")
+    assert "synthetic-file-secret" not in repr(settings)
+
+
+def test_direct_and_file_secret_sources_conflict(tmp_path: Path) -> None:
+    secret_file = tmp_path / "database_url"
+    secret_file.write_text(
+        "postgresql+psycopg://file:file@127.0.0.1:1/file\n",
+        encoding="utf-8",
+    )
+    secret_file.chmod(0o600)
+
+    with pytest.raises(ValidationError, match="exactly one"):
+        Settings(
+            database_url="postgresql+psycopg://direct:direct@127.0.0.1:1/direct",
+            database_url_file=secret_file,
+            _env_file=None,
+        )
+
+
+@pytest.mark.parametrize("contents", ["", "   \n", "first\nsecond\n"])
+def test_blank_or_multiline_secret_files_fail_closed(tmp_path: Path, contents: str) -> None:
+    secret_file = tmp_path / "database_url"
+    secret_file.write_text(contents, encoding="utf-8")
+    secret_file.chmod(0o600)
+
+    with pytest.raises(ValidationError, match="DATABASE_URL_FILE"):
+        Settings(database_url_file=secret_file, _env_file=None)
+
+
+def test_symlink_and_writable_secret_files_fail_closed(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.write_text("postgresql+psycopg://file:file@127.0.0.1:1/file\n", encoding="utf-8")
+    target.chmod(0o600)
+    symlink = tmp_path / "symlink"
+    symlink.symlink_to(target)
+    with pytest.raises(ValidationError, match="non-symlink"):
+        Settings(database_url_file=symlink, _env_file=None)
+
+    target.chmod(0o622)
+    with pytest.raises(ValidationError, match="unsafe permissions"):
+        Settings(database_url_file=target, _env_file=None)
+
+
+def test_public_origin_requires_exact_host_and_oidc_callback() -> None:
+    with pytest.raises(ValidationError, match="PUBLIC_ORIGIN host"):
+        Settings(
+            app_env="test",
+            database_url="postgresql+psycopg://test:test@127.0.0.1:1/test",
+            public_origin="https://other.example.test",
+            trusted_hosts=["staging.example.test"],
+            _env_file=None,
+        )
+
+    with pytest.raises(ValueError, match="exactly match PUBLIC_ORIGIN"):
+        Settings(
+            app_env="test",
+            database_url="postgresql+psycopg://test:test@127.0.0.1:1/test",
+            identity_provider="oidc",
+            image_storage_provider="s3",
+            public_origin="https://staging.example.test",
+            secure_cookies=True,
+            require_csrf_origin=True,
+            trusted_hosts=["staging.example.test"],
+            oidc_issuer="https://identity.example.test",
+            oidc_client_id="client",
+            oidc_client_secret="synthetic-secret",
+            oidc_redirect_uri="https://other.example.test/api/v1/auth/callback",
+            _env_file=None,
+        ).require_oidc_client()
+
+
+def test_exact_origin_and_forwarded_boundary_rejects_bypass(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        app_env="test",
+        database_url="postgresql+psycopg://test:test@127.0.0.1:1/test",
+        paintpilot_demo_principal_id="owner",
+        paintpilot_demo_principal_display_name="Owner",
+        image_storage_root=tmp_path / "storage",
+        public_origin="https://staging.example.test:8443",
+        secure_cookies=True,
+        require_csrf_origin=True,
+        trusted_hosts=["staging.example.test"],
+        _env_file=None,
+    )
+    service = StubDatabaseHealthService(
+        DatabaseHealthResult(status="ok", latency_ms=1.0, error_code=None)
+    )
+    client_context, _ = build_client(settings, service)
+    base_headers = {
+        "Host": "staging.example.test:8443",
+        "X-Forwarded-Host": "staging.example.test:8443",
+        "X-Forwarded-Proto": "https",
+    }
+    with client_context as client:
+        accepted = client.get("/api/v1/health/live", headers=base_headers)
+        wrong_scheme = client.get(
+            "/api/v1/health/live",
+            headers={**base_headers, "X-Forwarded-Proto": "http"},
+        )
+        forwarded = client.get(
+            "/api/v1/health/live",
+            headers={**base_headers, "Forwarded": "proto=https;host=staging.example.test"},
+        )
+        missing_origin = client.post("/api/v1/health/live", headers=base_headers)
+        exact_origin = client.post(
+            "/api/v1/health/live",
+            headers={**base_headers, "Origin": "https://staging.example.test:8443"},
+        )
+
+    assert accepted.status_code == 200
+    assert wrong_scheme.status_code == 400
+    assert forwarded.status_code == 400
+    assert missing_origin.status_code == 400
+    assert exact_origin.status_code == 405
+
+
+def test_secure_host_cookie_expiry_preserves_required_attributes() -> None:
+    settings = Settings(
+        app_env="test",
+        database_url="postgresql+psycopg://test:test@127.0.0.1:1/test",
+        public_origin="https://staging.example.test",
+        secure_cookies=True,
+        require_csrf_origin=True,
+        trusted_hosts=["staging.example.test"],
+        _env_file=None,
+    )
+    response = Response()
+
+    clear_oidc_flow_cookie(response, settings)
+    clear_session_cookies(response, settings)
+
+    headers = response.headers.getlist("set-cookie")
+    assert len(headers) == 3
+    by_name = {header.split("=", 1)[0]: header for header in headers}
+    session = by_name["__Host-paintpilot_session"]
+    csrf = by_name["__Host-paintpilot_csrf"]
+    oidc_flow = by_name["__Host-paintpilot_oidc_flow"]
+    for header in headers:
+        assert "Max-Age=0" in header
+        assert "Path=/" in header
+        assert "Secure" in header
+    assert "HttpOnly" in session
+    assert "SameSite=lax" in session
+    assert "HttpOnly" in oidc_flow
+    assert "SameSite=lax" in oidc_flow
+    assert "HttpOnly" not in csrf
+    assert "SameSite=strict" in csrf
+
+
+def test_every_response_has_one_uuid_correlation_header(
+    test_settings: Settings,
+) -> None:
+    service = StubDatabaseHealthService(
+        DatabaseHealthResult(status="ok", latency_ms=1.0, error_code=None)
+    )
+    client_context, _ = build_client(test_settings, service)
+    inbound = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+
+    with client_context as client:
+        response = client.get("/api/v1/health/live", headers={"X-Request-ID": inbound})
+
+    assert response.headers["x-request-id"] == inbound

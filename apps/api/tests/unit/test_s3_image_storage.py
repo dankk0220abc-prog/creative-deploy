@@ -10,7 +10,7 @@ import pytest
 from botocore.exceptions import ClientError
 from fastapi import UploadFile
 
-from creativedeploy_api.storage.images import ImageStorageError
+from creativedeploy_api.storage.images import STREAM_CHUNK_BYTES, ImageStorageError
 from creativedeploy_api.storage.s3 import S3ImageStorageAdapter
 
 
@@ -25,12 +25,22 @@ def _client_error(code: str, operation: str, *, status: int = 404) -> ClientErro
 
 
 class _Body:
-    def __init__(self, payload: bytes) -> None:
+    def __init__(self, payload: bytes, *, fail_on_read: int | None = None) -> None:
         self._stream = io.BytesIO(payload)
+        self.fail_on_read = fail_on_read
         self.closed = False
+        self.read_calls = 0
+        self.requested_sizes: list[int] = []
+        self.observed_chunks: list[bytes] = []
 
     def read(self, size: int = -1) -> bytes:
-        return self._stream.read(size)
+        self.read_calls += 1
+        self.requested_sizes.append(size)
+        if self.read_calls == self.fail_on_read:
+            raise OSError("synthetic interrupted GET stream")
+        chunk = self._stream.read(size)
+        self.observed_chunks.append(chunk)
+        return chunk
 
     def close(self) -> None:
         self.closed = True
@@ -50,8 +60,14 @@ class FakePrivateS3:
         self.policy = policy
         self.objects: dict[str, dict[str, Any]] = {}
         self.head_calls: list[str] = []
+        self.get_calls: list[str] = []
+        self.get_bodies: list[_Body] = []
         self.put_calls: list[str] = []
         self.delete_calls: list[str] = []
+        self.fail_get = False
+        self.fail_stream_on_read: int | None = None
+        self.get_payload_override: bytes | None = None
+        self.get_response_overrides: dict[str, object] = {}
 
     def head_bucket(self, **_kwargs: object) -> dict[str, object]:
         return {}
@@ -96,11 +112,27 @@ class FakePrivateS3:
 
     def get_object(self, **kwargs: Any) -> dict[str, object]:
         key = str(kwargs["Key"])
+        self.get_calls.append(key)
+        if self.fail_get:
+            raise _client_error("ServiceUnavailable", "GetObject", status=503)
         try:
-            payload = self.objects[key]["payload"]
+            stored = self.objects[key]
         except KeyError as error:
             raise _client_error("NoSuchKey", "GetObject") from error
-        return {"Body": _Body(payload)}
+        payload = (
+            stored["payload"] if self.get_payload_override is None else self.get_payload_override
+        )
+        body = _Body(payload, fail_on_read=self.fail_stream_on_read)
+        self.get_bodies.append(body)
+        response: dict[str, object] = {
+            "Body": body,
+            "ContentLength": stored["ContentLength"],
+            "ContentType": stored["ContentType"],
+            "Metadata": dict(stored["Metadata"]),
+            "ETag": stored["ETag"],
+        }
+        response.update(self.get_response_overrides)
+        return response
 
     def delete_object(self, **kwargs: Any) -> dict[str, object]:
         key = str(kwargs["Key"])
@@ -129,6 +161,24 @@ def _adapter(tmp_path: Path, client: FakePrivateS3) -> S3ImageStorageAdapter:
     )
 
 
+def _seed_object(
+    client: FakePrivateS3,
+    *,
+    key: str,
+    payload: bytes,
+    checksum: str,
+    content_type: str = "image/jpeg",
+    etag: str = '"synthetic-etag"',
+) -> None:
+    client.objects[key] = {
+        "payload": payload,
+        "ContentLength": len(payload),
+        "ContentType": content_type,
+        "Metadata": {"sha256": checksum},
+        "ETag": etag,
+    }
+
+
 def test_s3_upload_is_private_verified_and_streamed_without_provider_url(
     tmp_path: Path,
 ) -> None:
@@ -152,6 +202,14 @@ def test_s3_upload_is_private_verified_and_streamed_without_provider_url(
         "sha256": hashlib.sha256(payload).hexdigest()
     }
     assert client.objects[receipt.key]["ContentType"] == "image/jpeg"
+    assert client.get_calls == [receipt.key]
+    verification_body = client.get_bodies[0]
+    assert b"".join(verification_body.observed_chunks) == payload
+    assert hashlib.sha256(b"".join(verification_body.observed_chunks)).hexdigest() == (
+        receipt.expected_sha256
+    )
+    assert verification_body.requested_sizes == [STREAM_CHUNK_BYTES, STREAM_CHUNK_BYTES]
+    assert verification_body.closed is True
     with storage.open_private(receipt.key) as stream:
         assert stream.read() == payload
     assert storage.scan_orphans(referenced_keys=set()) == (receipt.key,)
@@ -204,20 +262,17 @@ def test_s3_publish_identity_failure_is_not_reported_as_success(
             max_bytes=len(payload),
         )
     )
-    original_head = client.head_object
+    client.get_payload_override = b"x" * len(payload)
 
-    def changed_head(**kwargs: Any) -> dict[str, Any]:
-        result = original_head(**kwargs)
-        result["Metadata"] = {"sha256": "0" * 64}
-        return result
-
-    client.head_object = changed_head  # type: ignore[method-assign]
-
-    with pytest.raises(ImageStorageError, match="identity could not be proven"):
+    with pytest.raises(ImageStorageError, match="could not be byte-verified"):
         storage.put_from_temp(staged, detected_format="jpeg")
 
     assert staged.path.is_file()
     assert len(client.objects) == 1
+    assert client.get_calls == list(client.objects)
+    assert b"".join(client.get_bodies[0].observed_chunks) == b"x" * len(payload)
+    assert client.get_bodies[0].closed is True
+    assert client.delete_calls == []
     storage.delete_staged(staged)
 
 
@@ -226,7 +281,7 @@ def test_legacy_copy_is_idempotent_and_never_deletes_source(
 ) -> None:
     client = FakePrivateS3()
     storage = _adapter(tmp_path, client)
-    payload = b"legacy private bytes"
+    payload = b"l" * (STREAM_CHUNK_BYTES + 17)
     digest = hashlib.sha256(payload).hexdigest()
     source = io.BytesIO(payload)
 
@@ -237,7 +292,17 @@ def test_legacy_copy_is_idempotent_and_never_deletes_source(
         sha256=digest,
         content_type="image/jpeg",
     )
-    assert client.head_calls == [first.key, first.key]
+    assert client.head_calls == [first.key]
+    assert client.get_calls == [first.key]
+    first_body = client.get_bodies[0]
+    assert b"".join(first_body.observed_chunks) == payload
+    assert hashlib.sha256(b"".join(first_body.observed_chunks)).hexdigest() == digest
+    assert first_body.requested_sizes == [
+        STREAM_CHUNK_BYTES,
+        STREAM_CHUNK_BYTES,
+        STREAM_CHUNK_BYTES,
+    ]
+    assert first_body.closed is True
     second = storage.copy_verified_object(
         key=first.key,
         source=io.BytesIO(payload),
@@ -250,7 +315,10 @@ def test_legacy_copy_is_idempotent_and_never_deletes_source(
     assert second.created_by_this_call is False
     assert source.closed is False
     assert client.objects[first.key]["payload"] == payload
-    assert client.head_calls == [first.key, first.key, first.key]
+    assert client.head_calls == [first.key, first.key]
+    assert client.get_calls == [first.key, first.key]
+    assert b"".join(client.get_bodies[1].observed_chunks) == payload
+    assert client.get_bodies[1].closed is True
     assert client.put_calls == [first.key]
     assert client.delete_calls == []
 
@@ -273,16 +341,9 @@ def test_legacy_copy_rejects_post_write_destination_fact_mismatch(
     payload = b"legacy post-write verification"
     digest = hashlib.sha256(payload).hexdigest()
     key = "objects/bb/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.jpg"
-    original_head = client.head_object
+    client.get_response_overrides[field] = value
 
-    def changed_post_write_head(**kwargs: Any) -> dict[str, Any]:
-        response = original_head(**kwargs)
-        response[field] = value
-        return response
-
-    client.head_object = changed_post_write_head  # type: ignore[method-assign]
-
-    with pytest.raises(ImageStorageError, match="failed integrity verification"):
+    with pytest.raises(ImageStorageError, match="could not be byte-verified"):
         storage.copy_verified_object(
             key=key,
             source=io.BytesIO(payload),
@@ -291,30 +352,23 @@ def test_legacy_copy_rejects_post_write_destination_fact_mismatch(
             content_type="image/jpeg",
         )
 
-    assert client.head_calls == [key, key]
+    assert client.head_calls == [key]
+    assert client.get_calls == [key]
+    assert b"".join(client.get_bodies[0].observed_chunks) == payload
+    assert client.get_bodies[0].closed is True
     assert client.put_calls == [key]
     assert client.delete_calls == []
 
 
-def test_legacy_copy_rejects_post_write_head_failure_as_retryable(
+def test_legacy_copy_rejects_post_write_get_failure_as_retryable(
     tmp_path: Path,
 ) -> None:
     client = FakePrivateS3()
     storage = _adapter(tmp_path, client)
-    payload = b"legacy transient head failure"
+    payload = b"legacy transient GET failure"
     digest = hashlib.sha256(payload).hexdigest()
     key = "objects/cc/cccccccccccccccccccccccccccccccc.jpg"
-    original_head = client.head_object
-    attempts = 0
-
-    def failing_post_write_head(**kwargs: Any) -> dict[str, Any]:
-        nonlocal attempts
-        attempts += 1
-        if attempts == 2:
-            raise _client_error("ServiceUnavailable", "HeadObject", status=503)
-        return original_head(**kwargs)
-
-    client.head_object = failing_post_write_head  # type: ignore[method-assign]
+    client.fail_get = True
 
     with pytest.raises(ImageStorageError, match="retried safely"):
         storage.copy_verified_object(
@@ -325,7 +379,8 @@ def test_legacy_copy_rejects_post_write_head_failure_as_retryable(
             content_type="image/jpeg",
         )
 
-    assert attempts == 2
+    assert client.head_calls == [key]
+    assert client.get_calls == [key]
     assert client.put_calls == [key]
     assert client.delete_calls == []
 
@@ -338,13 +393,13 @@ def test_legacy_copy_existing_exact_object_is_verified_without_using_etag_as_has
     payload = b"legacy idempotent exact object"
     digest = hashlib.sha256(payload).hexdigest()
     key = "objects/dd/dddddddddddddddddddddddddddddddd.jpg"
-    client.objects[key] = {
-        "payload": payload,
-        "ContentLength": len(payload),
-        "ContentType": "image/jpeg",
-        "Metadata": {"sha256": digest},
-        "ETag": '"not-a-content-checksum"',
-    }
+    _seed_object(
+        client,
+        key=key,
+        payload=payload,
+        checksum=digest,
+        etag='"not-a-content-checksum"',
+    )
 
     receipt = storage.copy_verified_object(
         key=key,
@@ -356,6 +411,11 @@ def test_legacy_copy_existing_exact_object_is_verified_without_using_etag_as_has
 
     assert receipt.created_by_this_call is False
     assert client.head_calls == [key]
+    assert client.get_calls == [key]
+    body = client.get_bodies[0]
+    assert b"".join(body.observed_chunks) == payload
+    assert hashlib.sha256(b"".join(body.observed_chunks)).hexdigest() == digest
+    assert body.closed is True
     assert client.put_calls == []
 
 
@@ -377,13 +437,7 @@ def test_legacy_copy_existing_mismatched_object_is_never_overwritten(
     payload = b"legacy immutable mismatch"
     digest = hashlib.sha256(payload).hexdigest()
     key = "objects/ee/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.jpg"
-    client.objects[key] = {
-        "payload": payload,
-        "ContentLength": len(payload),
-        "ContentType": "image/jpeg",
-        "Metadata": {"sha256": digest},
-        "ETag": '"synthetic-etag"',
-    }
+    _seed_object(client, key=key, payload=payload, checksum=digest)
     client.objects[key][field] = value
 
     with pytest.raises(ImageStorageError, match="different immutable content"):
@@ -396,5 +450,122 @@ def test_legacy_copy_existing_mismatched_object_is_never_overwritten(
         )
 
     assert client.head_calls == [key]
+    assert client.get_calls == [key]
+    assert b"".join(client.get_bodies[0].observed_chunks) == payload
+    assert client.get_bodies[0].closed is True
+    assert client.put_calls == []
+    assert client.delete_calls == []
+
+
+def test_legacy_copy_reviewer_probe_rejects_same_facts_with_different_real_bytes(
+    tmp_path: Path,
+) -> None:
+    client = FakePrivateS3()
+    storage = _adapter(tmp_path, client)
+    expected = b"expected-private-bytes"
+    changed = b"x" * len(expected)
+    digest = hashlib.sha256(expected).hexdigest()
+    key = "objects/ff/ffffffffffffffffffffffffffffffff.jpg"
+    _seed_object(
+        client,
+        key=key,
+        payload=changed,
+        checksum=digest,
+        etag='"same-valid-looking-etag"',
+    )
+
+    with pytest.raises(ImageStorageError, match="different immutable content"):
+        storage.copy_verified_object(
+            key=key,
+            source=io.BytesIO(expected),
+            byte_size=len(expected),
+            sha256=digest,
+            content_type="image/jpeg",
+        )
+
+    body = client.get_bodies[0]
+    observed = b"".join(body.observed_chunks)
+    assert observed == changed
+    assert hashlib.sha256(observed).hexdigest() != digest
+    assert body.closed is True
+    assert client.put_calls == []
+    assert client.delete_calls == []
+    assert client.objects[key]["payload"] == changed
+
+
+def test_legacy_copy_rejects_forged_metadata_even_when_real_bytes_match(
+    tmp_path: Path,
+) -> None:
+    client = FakePrivateS3()
+    storage = _adapter(tmp_path, client)
+    payload = b"real bytes with forged metadata"
+    digest = hashlib.sha256(payload).hexdigest()
+    key = "objects/ab/abababababababababababababababab.jpg"
+    _seed_object(client, key=key, payload=payload, checksum="0" * 64)
+
+    with pytest.raises(ImageStorageError, match="different immutable content"):
+        storage.copy_verified_object(
+            key=key,
+            source=io.BytesIO(payload),
+            byte_size=len(payload),
+            sha256=digest,
+            content_type="image/jpeg",
+        )
+
+    observed = b"".join(client.get_bodies[0].observed_chunks)
+    assert hashlib.sha256(observed).hexdigest() == digest
+    assert client.get_bodies[0].closed is True
+    assert client.put_calls == []
+    assert client.delete_calls == []
+
+
+def test_legacy_copy_rejects_interrupted_existing_object_stream(
+    tmp_path: Path,
+) -> None:
+    client = FakePrivateS3()
+    storage = _adapter(tmp_path, client)
+    payload = b"s" * (STREAM_CHUNK_BYTES + 5)
+    digest = hashlib.sha256(payload).hexdigest()
+    key = "objects/ac/acacacacacacacacacacacacacacacac.jpg"
+    _seed_object(client, key=key, payload=payload, checksum=digest)
+    client.fail_stream_on_read = 2
+
+    with pytest.raises(ImageStorageError, match="retried safely"):
+        storage.copy_verified_object(
+            key=key,
+            source=io.BytesIO(payload),
+            byte_size=len(payload),
+            sha256=digest,
+            content_type="image/jpeg",
+        )
+
+    assert client.get_bodies[0].read_calls == 2
+    assert client.get_bodies[0].closed is True
+    assert client.put_calls == []
+    assert client.delete_calls == []
+
+
+def test_legacy_copy_rejects_actual_body_byte_count_mismatch(
+    tmp_path: Path,
+) -> None:
+    client = FakePrivateS3()
+    storage = _adapter(tmp_path, client)
+    payload = b"expected complete private body"
+    digest = hashlib.sha256(payload).hexdigest()
+    key = "objects/ad/adadadadadadadadadadadadadadadad.jpg"
+    _seed_object(client, key=key, payload=payload, checksum=digest)
+    client.get_payload_override = payload[:-1]
+
+    with pytest.raises(ImageStorageError, match="different immutable content"):
+        storage.copy_verified_object(
+            key=key,
+            source=io.BytesIO(payload),
+            byte_size=len(payload),
+            sha256=digest,
+            content_type="image/jpeg",
+        )
+
+    assert b"".join(client.get_bodies[0].observed_chunks) == payload[:-1]
+    assert client.get_bodies[0].closed is True
     assert client.put_calls == []
     assert client.delete_calls == []

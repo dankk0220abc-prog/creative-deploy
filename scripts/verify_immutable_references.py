@@ -48,7 +48,7 @@ def main() -> None:
                 r"^ARG\s+[A-Z0-9_]+_IMAGE=(\S+)$", read(path), flags=re.MULTILINE
             )
         )
-    for path in ("compose.yaml", "compose.artifact-smoke.yaml"):
+    for path in ("compose.yaml", "compose.artifact-smoke.yaml", "compose.staging.yaml"):
         docker_references.extend(
             re.findall(r"^\s+image:\s+(\S+)$", read(path), flags=re.MULTILINE)
         )
@@ -63,7 +63,7 @@ def main() -> None:
         re.findall(r"^\s+image:\s+(\S+)$", workflow, flags=re.MULTILINE)
     )
     require(
-        len(docker_references) == 9, "unexpected executable container reference count"
+        len(docker_references) == 11, "unexpected executable container reference count"
     )
     for reference in docker_references:
         require(

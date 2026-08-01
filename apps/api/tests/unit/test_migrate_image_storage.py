@@ -104,7 +104,7 @@ class _Engine:
         self.disposed = True
 
 
-class _VerifiedDestination:
+class _ByteVerifiedDestination:
     def __init__(self, events: list[str]) -> None:
         self.events = events
         self.object_exists = False
@@ -129,9 +129,9 @@ class _VerifiedDestination:
         if created:
             self.put_calls += 1
             self.object_exists = True
-            self.events.extend(("destination_put", "destination_post_write_head"))
+            self.events.extend(("destination_put", "destination_post_write_get_hash"))
         else:
-            self.events.append("destination_existing_head")
+            self.events.append("destination_existing_get_hash")
         return StoragePublishReceipt(
             key=key,
             byte_size=byte_size,
@@ -144,7 +144,7 @@ class _VerifiedDestination:
 def _install_fakes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> tuple[Path, _DatabaseFacts, _VerifiedDestination, list[str]]:
+) -> tuple[Path, _DatabaseFacts, _ByteVerifiedDestination, list[str]]:
     payload = b"synthetic legacy migration bytes"
     digest = hashlib.sha256(payload).hexdigest()
     key = "objects/aa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg"
@@ -161,7 +161,7 @@ def _install_fakes(
     )
     events: list[str] = []
     database = _DatabaseFacts(asset, events)
-    destination = _VerifiedDestination(events)
+    destination = _ByteVerifiedDestination(events)
     engine = _Engine()
     settings = SimpleNamespace(
         image_storage_root=source.root,
@@ -219,7 +219,7 @@ def test_dry_run_reads_and_verifies_source_without_object_or_database_write(
     assert "verified=1 updated=0 source_deleted=0" in capsys.readouterr().out
 
 
-def test_copy_verification_failure_leaves_database_and_source_unchanged(
+def test_real_destination_byte_verification_failure_leaves_database_and_source_unchanged(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -246,7 +246,11 @@ def test_database_failure_keeps_verified_target_resumable_and_never_deletes_sour
     with pytest.raises(RuntimeError, match="database update failure"):
         asyncio.run(migrate_image_storage.migrate(execute=True, limit=None))
 
-    assert events == ["destination_put", "destination_post_write_head", "database_update"]
+    assert events == [
+        "destination_put",
+        "destination_post_write_get_hash",
+        "database_update",
+    ]
     assert source_path.is_file()
     assert destination.object_exists is True
     assert database.storage_provider == "local_filesystem"
@@ -254,7 +258,7 @@ def test_database_failure_keeps_verified_target_resumable_and_never_deletes_sour
     events.clear()
     assert asyncio.run(migrate_image_storage.migrate(execute=True, limit=None)) == 0
 
-    assert events == ["destination_existing_head", "database_update"]
+    assert events == ["destination_existing_get_hash", "database_update"]
     assert destination.put_calls == 1
     assert database.storage_provider == "s3"
     assert source_path.is_file()

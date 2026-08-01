@@ -1,0 +1,56 @@
+upstream staging_web {
+    server web:8080;
+    keepalive 16;
+}
+
+server {
+    listen 8080 default_server;
+    server_name _;
+    add_header Cache-Control "no-store" always;
+    return 400;
+}
+
+server {
+    listen 8080;
+    server_name ${STAGING_HOST};
+    return 308 https://$host:${STAGING_HTTPS_PORT}$request_uri;
+}
+
+server {
+    listen 8443 ssl default_server;
+    server_name _;
+    ssl_certificate /run/secrets/tls_certificate;
+    ssl_certificate_key /run/secrets/tls_private_key;
+    add_header Cache-Control "no-store" always;
+    return 400;
+}
+
+server {
+    listen 8443 ssl;
+    server_name ${STAGING_HOST};
+    ssl_certificate /run/secrets/tls_certificate;
+    ssl_certificate_key /run/secrets/tls_private_key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:TLS:10m;
+    ssl_session_timeout 10m;
+    ssl_session_tickets off;
+    client_max_body_size 21037056;
+
+    add_header Strict-Transport-Security "max-age=86400" always;
+    add_header X-Request-ID $correlation_id always;
+
+    location / {
+        proxy_pass http://staging_web;
+        proxy_hide_header X-Request-ID;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header Connection "";
+        proxy_set_header X-Request-ID $correlation_id;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+    }
+}

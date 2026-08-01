@@ -1,0 +1,402 @@
+x-staging-labels: &staging-labels
+  io.creativedeploy.runtime: STAGING_STYLE_SYNTHETIC
+  io.creativedeploy.production: NOT_REAL_PRODUCTION
+  io.creativedeploy.run-id: ${STAGING_RUN_ID:?STAGING_RUN_ID is required}
+
+x-runtime-environment: &runtime-environment
+  CREATIVEDEPLOY_ENV_FILE: /dev/null
+  APP_ENV: test
+  APP_NAME: CreativeDeploy API
+  APP_VERSION: 0.1.0
+  DATABASE_URL_FILE: /run/secrets/database_runtime_url
+  DATABASE_HEALTH_TIMEOUT_SECONDS: "2"
+  DATABASE_LOCK_TIMEOUT_MS: "2000"
+  DATABASE_STATEMENT_TIMEOUT_MS: "5000"
+  IDENTITY_PROVIDER: oidc
+  PUBLIC_ORIGIN: https://${STAGING_HOST:?required}:${STAGING_HTTPS_PORT:?required}
+  SECURE_COOKIES: "true"
+  REQUIRE_CSRF_ORIGIN: "true"
+  STRUCTURED_LOGS: "true"
+  OIDC_ISSUER: https://${STAGING_HOST:?required}:${STAGING_HTTPS_PORT:?required}
+  OIDC_DISCOVERY_URL: https://${STAGING_HOST:?required}:${STAGING_HTTPS_PORT:?required}/.well-known/openid-configuration
+  OIDC_BACKCHANNEL_BASE_URL: http://oidc:8090
+  OIDC_CLIENT_ID: ${STAGING_OIDC_CLIENT_ID:?required}
+  OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc_client_secret
+  OIDC_REDIRECT_URI: https://${STAGING_HOST:?required}:${STAGING_HTTPS_PORT:?required}/api/v1/auth/callback
+  OIDC_ID_TOKEN_MAX_AGE_SECONDS: "300"
+  OIDC_CLOCK_SKEW_SECONDS: "30"
+  OIDC_HTTP_TIMEOUT_SECONDS: "5"
+  AUTH_SESSION_TTL_SECONDS: "3600"
+  OIDC_LOGIN_TTL_SECONDS: "300"
+  IMAGE_STORAGE_PROVIDER: s3
+  S3_ENDPOINT_URL: http://minio:9000
+  S3_REGION: us-east-1
+  S3_BUCKET: ${STAGING_S3_BUCKET:?required}
+  S3_ACCESS_KEY_ID_FILE: /run/secrets/s3_access_key_id
+  S3_SECRET_ACCESS_KEY_FILE: /run/secrets/s3_secret_access_key
+  S3_FORCE_PATH_STYLE: "true"
+  S3_ALLOW_INSECURE_HTTP: "true"
+  S3_CREATE_BUCKET: "true"
+  S3_STAGING_ROOT: /tmp/s3-staging
+  IMAGE_UPLOAD_MAX_BYTES: "20971520"
+  IMAGE_MIN_SIDE_PX: "768"
+  IMAGE_MAX_SIDE_PX: "8192"
+  IMAGE_MAX_PIXELS: "40000000"
+  TRUSTED_HOSTS: '["${STAGING_HOST:?required}"]'
+  STAGING_RUN_ID: ${STAGING_RUN_ID:?required}
+  SOURCE_GIT_COMMIT: ${SOURCE_GIT_COMMIT:?required}
+  BACKUP_ROOT: /backups
+
+x-api-secrets: &api-secrets
+  - database_runtime_url
+  - oidc_client_secret
+  - s3_access_key_id
+  - s3_secret_access_key
+
+x-hardened-service: &hardened-service
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  postgres:
+    image: postgres:17.10-alpine3.24@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    labels: *staging-labels
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${STAGING_DATABASE_ADMIN_USER:?required}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+      POSTGRES_DB: ${STAGING_DATABASE_NAME:?required}
+    secrets:
+      - postgres_admin_password
+    volumes:
+      - staging_postgres:/var/lib/postgresql/data
+    networks:
+      - data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      start_period: 10s
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    labels: *staging-labels
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        export MINIO_ROOT_USER="$$(cat /run/secrets/s3_access_key_id)";
+        export MINIO_ROOT_PASSWORD="$$(cat /run/secrets/s3_secret_access_key)";
+        exec minio server /data --console-address :9001
+    secrets:
+      - s3_access_key_id
+      - s3_secret_access_key
+    volumes:
+      - staging_minio:/data
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:9000/minio/health/live"]
+      start_period: 10s
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  oidc:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: runtime
+    labels: *staging-labels
+    restart: unless-stopped
+    command:
+      - python
+      - -m
+      - uvicorn
+      - creativedeploy_api.local_oidc:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8090"
+      - --no-server-header
+      - --no-proxy-headers
+      - --no-access-log
+    environment:
+      APP_ENV: test
+      LOCAL_OIDC_ISSUER: https://${STAGING_HOST:?required}:${STAGING_HTTPS_PORT:?required}
+      LOCAL_OIDC_CLIENT_ID: ${STAGING_OIDC_CLIENT_ID:?required}
+      LOCAL_OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc_client_secret
+      LOCAL_OIDC_REDIRECT_URI: https://${STAGING_HOST:?required}:${STAGING_HTTPS_PORT:?required}/api/v1/auth/callback
+      LOCAL_OIDC_ALLOWED_PUBLIC_HOST: ${STAGING_HOST:?required}
+      LOCAL_OIDC_USERS_JSON: ${STAGING_OIDC_USERS_JSON:?required}
+    secrets:
+      - oidc_client_secret
+    networks:
+      - app
+    <<: *hardened-service
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/.well-known/openid-configuration', timeout=2).read()"
+      start_period: 5s
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  role_provision:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: runtime
+    labels: *staging-labels
+    command: ["python", "-m", "creativedeploy_api.tools.provision_database_roles"]
+    environment:
+      CREATIVEDEPLOY_ENV_FILE: /dev/null
+      APP_ENV: test
+      DATABASE_URL_FILE: /run/secrets/database_admin_url
+      DATABASE_MIGRATOR_ROLE: ${STAGING_DATABASE_MIGRATOR_USER:?required}
+      DATABASE_MIGRATOR_PASSWORD_FILE: /run/secrets/database_migrator_password
+      DATABASE_RUNTIME_ROLE: ${STAGING_DATABASE_RUNTIME_USER:?required}
+      DATABASE_RUNTIME_PASSWORD_FILE: /run/secrets/database_runtime_password
+    secrets:
+      - database_admin_url
+      - database_migrator_password
+      - database_runtime_password
+    networks:
+      - data
+    <<: *hardened-service
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: migration
+    labels: *staging-labels
+    environment:
+      CREATIVEDEPLOY_ENV_FILE: /dev/null
+      APP_ENV: test
+      DATABASE_URL_FILE: /run/secrets/database_migrator_url
+    secrets:
+      - database_migrator_url
+    networks:
+      - data
+    <<: *hardened-service
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    depends_on:
+      role_provision:
+        condition: service_completed_successfully
+
+  role_grant:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: runtime
+    labels: *staging-labels
+    command: ["python", "-m", "creativedeploy_api.tools.provision_database_roles"]
+    environment:
+      CREATIVEDEPLOY_ENV_FILE: /dev/null
+      APP_ENV: test
+      DATABASE_URL_FILE: /run/secrets/database_admin_url
+      DATABASE_MIGRATOR_ROLE: ${STAGING_DATABASE_MIGRATOR_USER:?required}
+      DATABASE_MIGRATOR_PASSWORD_FILE: /run/secrets/database_migrator_password
+      DATABASE_RUNTIME_ROLE: ${STAGING_DATABASE_RUNTIME_USER:?required}
+      DATABASE_RUNTIME_PASSWORD_FILE: /run/secrets/database_runtime_password
+    secrets:
+      - database_admin_url
+      - database_migrator_password
+      - database_runtime_password
+    networks:
+      - data
+    <<: *hardened-service
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: runtime
+    labels: *staging-labels
+    restart: unless-stopped
+    environment: *runtime-environment
+    secrets: *api-secrets
+    networks:
+      - app
+      - data
+    <<: *hardened-service
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    depends_on:
+      minio:
+        condition: service_healthy
+      oidc:
+        condition: service_healthy
+      role_grant:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import os,urllib.request,urllib.parse;
+          authority=urllib.parse.urlparse(os.environ['PUBLIC_ORIGIN']).netloc;
+          request=urllib.request.Request('http://127.0.0.1:8000/api/v1/health/ready',headers={'Host':authority,'X-Forwarded-Host':authority,'X-Forwarded-Proto':'https'});
+          urllib.request.urlopen(request,timeout=3).read()
+      start_period: 10s
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: staging-runtime
+      args:
+        VITE_RUNTIME_PROFILE: staging-style
+    labels: *staging-labels
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        mkdir -p /tmp/nginx-conf;
+        envsubst '$${STAGING_HOST}' < /etc/nginx/staging-web.conf.template > /tmp/nginx-conf/default.conf;
+        exec nginx -g 'daemon off;'
+    environment:
+      STAGING_HOST: ${STAGING_HOST:?required}
+    networks:
+      - ingress
+      - app
+    <<: *hardened-service
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+      - /var/cache/nginx:rw,noexec,nosuid,size=32m
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "--header", "Host: ${STAGING_HOST:?required}", "http://127.0.0.1:8080/health/live"]
+      start_period: 5s
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  tls_proxy:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: tls-proxy
+    labels: *staging-labels
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        mkdir -p /tmp/nginx-conf;
+        envsubst '$${STAGING_HOST} $${STAGING_HTTPS_PORT}' < /etc/nginx/tls-proxy.conf.template > /tmp/nginx-conf/default.conf;
+        exec nginx -g 'daemon off;'
+    environment:
+      STAGING_HOST: ${STAGING_HOST:?required}
+      STAGING_HTTPS_PORT: ${STAGING_HTTPS_PORT:?required}
+    secrets:
+      - tls_certificate
+      - tls_private_key
+    ports:
+      - "127.0.0.1:${STAGING_HTTP_PORT:?required}:8080"
+      - "127.0.0.1:${STAGING_HTTPS_PORT:?required}:8443"
+    networks:
+      - ingress
+    <<: *hardened-service
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+      - /var/cache/nginx:rw,noexec,nosuid,size=32m
+    depends_on:
+      web:
+        condition: service_healthy
+
+  operations:
+    profiles: ["operations"]
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: runtime
+    labels: *staging-labels
+    entrypoint: ["python", "-m", "creativedeploy_api.tools.staging_backup_restore"]
+    command: ["--help"]
+    environment:
+      <<: *runtime-environment
+      BACKUP_SIGNING_KEY_FILE: /run/secrets/backup_signing_key
+      BACKUP_SIGNING_KEY_ID: ${STAGING_BACKUP_SIGNING_KEY_ID:?required}
+    secrets:
+      - database_runtime_url
+      - oidc_client_secret
+      - s3_access_key_id
+      - s3_secret_access_key
+      - backup_signing_key
+    volumes:
+      - type: bind
+        source: ${STAGING_BACKUP_ROOT:?required}
+        target: /backups
+    networks:
+      - data
+    <<: *hardened-service
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+
+networks:
+  ingress:
+  app:
+    internal: true
+  data:
+    internal: true
+
+volumes:
+  staging_postgres:
+    labels: *staging-labels
+  staging_minio:
+    labels: *staging-labels
+
+secrets:
+  postgres_admin_password:
+    file: ${STAGING_SECRET_ROOT:?required}/postgres_admin_password
+  database_admin_url:
+    file: ${STAGING_SECRET_ROOT:?required}/database_admin_url
+  database_migrator_password:
+    file: ${STAGING_SECRET_ROOT:?required}/database_migrator_password
+  database_migrator_url:
+    file: ${STAGING_SECRET_ROOT:?required}/database_migrator_url
+  database_runtime_password:
+    file: ${STAGING_SECRET_ROOT:?required}/database_runtime_password
+  database_runtime_url:
+    file: ${STAGING_SECRET_ROOT:?required}/database_runtime_url
+  oidc_client_secret:
+    file: ${STAGING_SECRET_ROOT:?required}/oidc_client_secret
+  s3_access_key_id:
+    file: ${STAGING_SECRET_ROOT:?required}/s3_access_key_id
+  s3_secret_access_key:
+    file: ${STAGING_SECRET_ROOT:?required}/s3_secret_access_key
+  tls_certificate:
+    file: ${STAGING_SECRET_ROOT:?required}/tls_certificate.pem
+  tls_private_key:
+    file: ${STAGING_SECRET_ROOT:?required}/tls_private_key.pem
+  backup_signing_key:
+    file: ${STAGING_BACKUP_SIGNING_KEY_FILE:?required}

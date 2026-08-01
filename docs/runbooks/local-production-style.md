@@ -3,6 +3,9 @@
 This runbook operates a local build-shaped environment only. Every integrated
 run is `LOCAL_PRODUCTION_STYLE_SMOKE` and `NOT_REAL_PRODUCTION`.
 
+For the separate loopback HTTPS, file-secret, dependency readiness, and
+temporary backup/restore profile, use `docs/runbooks/staging-operations.md`.
+
 ## Preconditions
 
 - Run from `/Users/danke/Developer/CreativeDeploy`.
@@ -268,10 +271,11 @@ Secret.
 
 ## Production Gaps Requiring User Decisions
 
-Phase 2B-1 implements provider-neutral OIDC and private S3-compatible
-boundaries; it does not select or configure real providers. Do not deploy
-publicly until the user selects identity/client ownership, private object
-storage and IAM, domain/TLS termination, secrets management, deployment
-ownership, backups/restore, monitoring, retention, and incident response.
-Independent security review and Git sealing are still required. AI remains
-unauthorized.
+Phase 2B-1 implements provider-neutral OIDC/private S3 boundaries, and Phase
+2B-2 adds a separate synthetic TLS/file-secret/temporary-recovery proof. Neither
+selects or configures real providers. Do not deploy publicly until the user
+selects identity/client and database/object/IAM ownership, domain/certificate
+automation, secret management, deployment/backup ownership, production
+RPO/RTO, monitoring/on-call, retention/legal rules, cutover, and incident
+response. Independent security/operations review and Git sealing are still
+required. AI remains unauthorized.

@@ -4,18 +4,25 @@ import asyncio
 import os
 import re
 from collections.abc import Sequence
+from pathlib import Path
 
 import psycopg
 from psycopg import sql
 from sqlalchemy.engine import make_url
 
 from creativedeploy_api.core.config import Settings
+from creativedeploy_api.core.secret_files import read_secret_file
 
 ROLE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{2,62}$")
 
 
 def _required(name: str) -> str:
     value = os.environ.get(name)
+    file_value = os.environ.get(f"{name}_FILE")
+    if value is not None and file_value is not None:
+        raise ValueError(f"Configure exactly one of {name} or {name}_FILE.")
+    if file_value is not None:
+        return read_secret_file(Path(file_value), setting_name=name)
     if value is None or not value.strip():
         raise ValueError(f"{name} must be explicitly configured.")
     return value

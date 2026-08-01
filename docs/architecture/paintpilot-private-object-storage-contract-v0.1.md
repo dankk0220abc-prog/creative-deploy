@@ -1,7 +1,7 @@
 # PaintPilot Private Object Storage Contract v0.1
 
-Status: Phase 2B-1 remediated Candidate for independent review<br>
-Date: 2026-08-01<br>
+Status: Phase 2B-2 final integrity-remediated Candidate for independent review<br>
+Date: 2026-08-02<br>
 Provider name: `s3`
 
 ## 1. Boundary
@@ -47,7 +47,14 @@ At object publication:
 - `If-None-Match: *` prevents replacement of an existing immutable key;
 - the request carries content type, content length, SHA-256 checksum, and SHA-256
   metadata;
-- a subsequent HEAD must match expected size and SHA-256 metadata before success.
+- before success, a real destination GET must stream the response body in fixed
+  64 KiB chunks, count the actual bytes, and calculate SHA-256 locally;
+- actual bytes, size, content type, and required checksum metadata must all
+  match, and the response body must be closed on success or failure.
+
+HEAD, ETag, provider checksum fields, metadata checksum, and size may provide
+auxiliary facts, but none is final content identity and none may replace the
+real destination GET/body hash.
 
 The adapter deliberately has no public URL, browser URL, or presign operation. API and
 schema responses do not serialize bucket, endpoint, credential, internal key, ETag,
@@ -103,17 +110,19 @@ python -m creativedeploy_api.tools.migrate_image_storage --execute [--limit N]
 The tool:
 
 1. copies to the same controlled key with conditional non-replacement;
-2. treats an already-present exact size/checksum/content-type object as an idempotent
-   resume;
-3. after every write, performs a new destination HEAD and verifies existence, exact
-   size, controlled SHA-256 metadata, and content type against the source facts;
+2. treats an already-present object as an idempotent resume only after a real
+   streaming GET proves its exact bytes, size, SHA-256, content type, and
+   required metadata;
+3. after every write, performs the same streaming destination GET/body hash
+   before returning a receipt or permitting a database reference update;
 4. updates only the exact matching asset row from `local_filesystem` to `s3`;
 5. never deletes the source file.
 
 An ordinary ETag is provider identity only and is never treated as a universal content
-checksum. A destination HEAD failure or any size/checksum/type mismatch is an explicit
-retryable copy failure before the database update. An already-present exact object may
-resume; an already-present mismatch is never overwritten or accepted. If the row
+checksum. GET failure, stream interruption, actual byte-count/digest mismatch, or
+content-type/metadata mismatch is an explicit Secret-safe, retryable copy failure
+before the database update. An already-present exact object may resume; an
+already-present mismatch is never overwritten, deleted, or accepted. If the row
 changed concurrently or the database update fails, the original file remains and the
 verified destination remains a clearly identifiable resume/reconciliation candidate;
 the tool does not fabricate a migration success, delete uncertain data, or weaken the

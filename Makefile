@@ -13,6 +13,7 @@ WEB_COMMAND_ENV := env \
 	-u APP_VERSION \
 	-u CREATIVEDEPLOY_ENV_FILE \
 	-u DATABASE_URL \
+	-u DATABASE_URL_FILE \
 	-u DATABASE_HEALTH_TIMEOUT_SECONDS \
 	-u DATABASE_LOCK_TIMEOUT_MS \
 	-u DATABASE_STATEMENT_TIMEOUT_MS \
@@ -28,6 +29,7 @@ WEB_COMMAND_ENV := env \
 	-u OIDC_BACKCHANNEL_BASE_URL \
 	-u OIDC_CLIENT_ID \
 	-u OIDC_CLIENT_SECRET \
+	-u OIDC_CLIENT_SECRET_FILE \
 	-u OIDC_REDIRECT_URI \
 	-u OIDC_HTTP_TIMEOUT_SECONDS \
 	-u OIDC_ID_TOKEN_MAX_AGE_SECONDS \
@@ -38,11 +40,15 @@ WEB_COMMAND_ENV := env \
 	-u S3_REGION \
 	-u S3_BUCKET \
 	-u S3_ACCESS_KEY_ID \
+	-u S3_ACCESS_KEY_ID_FILE \
 	-u S3_SECRET_ACCESS_KEY \
+	-u S3_SECRET_ACCESS_KEY_FILE \
 	-u S3_FORCE_PATH_STYLE \
 	-u S3_ALLOW_INSECURE_HTTP \
 	-u S3_CREATE_BUCKET \
 	-u S3_STAGING_ROOT \
+	-u BACKUP_SIGNING_KEY_FILE \
+	-u BACKUP_SIGNING_KEY_ID \
 	-u PAINTPILOT_DEMO_PRINCIPAL_ID \
 	-u PAINTPILOT_DEMO_PRINCIPAL_DISPLAY_NAME \
 	-u POSTGRES_HOST \
@@ -50,13 +56,18 @@ WEB_COMMAND_ENV := env \
 	-u POSTGRES_PASSWORD \
 	-u POSTGRES_DB \
 	-u POSTGRES_PORT \
-	-u TRUSTED_HOSTS
+	-u TRUSTED_HOSTS \
+	-u PUBLIC_ORIGIN \
+	-u SECURE_COOKIES \
+	-u REQUIRE_CSRF_ORIGIN \
+	-u STRUCTURED_LOGS
 API_UNIT_COMMAND_ENV := env \
 	-u APP_ENV \
 	-u APP_NAME \
 	-u APP_VERSION \
 	-u CREATIVEDEPLOY_ENV_FILE \
 	-u DATABASE_URL \
+	-u DATABASE_URL_FILE \
 	-u DATABASE_HEALTH_TIMEOUT_SECONDS \
 	-u DATABASE_LOCK_TIMEOUT_MS \
 	-u DATABASE_STATEMENT_TIMEOUT_MS \
@@ -72,6 +83,7 @@ API_UNIT_COMMAND_ENV := env \
 	-u OIDC_BACKCHANNEL_BASE_URL \
 	-u OIDC_CLIENT_ID \
 	-u OIDC_CLIENT_SECRET \
+	-u OIDC_CLIENT_SECRET_FILE \
 	-u OIDC_REDIRECT_URI \
 	-u OIDC_HTTP_TIMEOUT_SECONDS \
 	-u OIDC_ID_TOKEN_MAX_AGE_SECONDS \
@@ -82,11 +94,15 @@ API_UNIT_COMMAND_ENV := env \
 	-u S3_REGION \
 	-u S3_BUCKET \
 	-u S3_ACCESS_KEY_ID \
+	-u S3_ACCESS_KEY_ID_FILE \
 	-u S3_SECRET_ACCESS_KEY \
+	-u S3_SECRET_ACCESS_KEY_FILE \
 	-u S3_FORCE_PATH_STYLE \
 	-u S3_ALLOW_INSECURE_HTTP \
 	-u S3_CREATE_BUCKET \
 	-u S3_STAGING_ROOT \
+	-u BACKUP_SIGNING_KEY_FILE \
+	-u BACKUP_SIGNING_KEY_ID \
 	-u PAINTPILOT_DEMO_PRINCIPAL_ID \
 	-u PAINTPILOT_DEMO_PRINCIPAL_DISPLAY_NAME \
 	-u POSTGRES_HOST \
@@ -94,7 +110,11 @@ API_UNIT_COMMAND_ENV := env \
 	-u POSTGRES_PASSWORD \
 	-u POSTGRES_DB \
 	-u POSTGRES_PORT \
-	-u TRUSTED_HOSTS
+	-u TRUSTED_HOSTS \
+	-u PUBLIC_ORIGIN \
+	-u SECURE_COOKIES \
+	-u REQUIRE_CSRF_ORIGIN \
+	-u STRUCTURED_LOGS
 
 .PHONY: bootstrap bootstrap-env db-up db-down api web test-api test-api-integration test-web \
 	lint-api format-check-api typecheck-api lint-web typecheck-web build-web \
@@ -103,13 +123,33 @@ API_UNIT_COMMAND_ENV := env \
 	artifact-test artifact-isolation-test \
 	artifact-smoke-up artifact-smoke-down artifact-smoke database-role-provision \
 	image-storage-migrate secret-scan audit-api audit-web \
-	immutable-reference-check supply-chain-check
+	immutable-reference-check supply-chain-check staging-secrets staging-config staging-build \
+	staging-up staging-down staging-backup staging-restore staging-drill
 
 ARTIFACT_COMPOSE := compose.artifact-smoke.yaml
+STAGING_COMPOSE := compose.staging.yaml
 ATTEMPT_ID ?=
 RUN_ID ?= $(if $(strip $(ATTEMPT_ID)),$(ATTEMPT_ID),local_$(shell date -u +%Y%m%d%H%M%S)_$(shell uuidgen | tr '[:upper:]' '[:lower:]' | tr -d '-' | cut -c1-12))
 ARTIFACT_PROJECT := creativedeploy-phase2b1-$(RUN_ID)
+STAGING_PROJECT := creativedeploy-phase2b2-$(RUN_ID)
 SMOKE_DATABASE_ID := phase2b1_$(RUN_ID)
+STAGING_DATABASE_PREFIX ?= p2b2s
+STAGING_DATABASE_ID := $(STAGING_DATABASE_PREFIX)_$(RUN_ID)
+STAGING_DATABASE_NAME ?= $(STAGING_DATABASE_ID)
+STAGING_DATABASE_ADMIN_USER ?= $(STAGING_DATABASE_ID)_admin
+STAGING_DATABASE_MIGRATOR_USER ?= $(STAGING_DATABASE_ID)_migrator
+STAGING_DATABASE_RUNTIME_USER ?= $(STAGING_DATABASE_ID)_runtime
+STAGING_HOST ?= localhost
+STAGING_HTTP_PORT ?= 18081
+STAGING_HTTPS_PORT ?= 18443
+STAGING_SECRET_ROOT ?= /tmp/creativedeploy-phase2b2-$(RUN_ID)-secrets
+STAGING_BACKUP_ROOT ?= /tmp/creativedeploy-phase2b2-$(RUN_ID)-backups
+STAGING_BACKUP_SIGNING_KEY_FILE ?= $(STAGING_SECRET_ROOT)/backup_signing_key
+STAGING_BACKUP_SIGNING_KEY_ID ?= p2b2-$(RUN_ID)-v1
+STAGING_OIDC_CLIENT_ID ?= phase2b2-staging-client
+STAGING_OIDC_USERS_JSON ?= [{"subject":"owner-a","name":"Phase 2B-2 Owner A","email":"owner-a@example.test"},{"subject":"owner-b","name":"Phase 2B-2 Owner B","email":"owner-b@example.test"},{"subject":"reviewer-c","name":"Phase 2B-2 Reviewer","email":"reviewer-c@example.test"}]
+STAGING_S3_BUCKET ?= p2b2-private-$(subst _,-,$(RUN_ID))
+SOURCE_GIT_COMMIT ?= $(shell git rev-parse HEAD)
 ifeq ($(origin ARTIFACT_SMOKE_PORT), undefined)
 ARTIFACT_SMOKE_PORT := $(shell /usr/bin/python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
 endif
@@ -129,6 +169,23 @@ ARTIFACT_COMPOSE_ENV := \
 	SMOKE_S3_BUCKET=phase2b1-private-images \
 	SMOKE_S3_ACCESS_KEY_ID=phase2b1minio \
 	SMOKE_S3_SECRET_ACCESS_KEY=synthetic_minio_$(RUN_ID)_secret
+STAGING_COMPOSE_ENV := \
+	STAGING_RUN_ID=$(RUN_ID) \
+	STAGING_HOST=$(STAGING_HOST) \
+	STAGING_HTTP_PORT=$(STAGING_HTTP_PORT) \
+	STAGING_HTTPS_PORT=$(STAGING_HTTPS_PORT) \
+	STAGING_SECRET_ROOT=$(STAGING_SECRET_ROOT) \
+	STAGING_BACKUP_ROOT=$(STAGING_BACKUP_ROOT) \
+	STAGING_BACKUP_SIGNING_KEY_FILE=$(STAGING_BACKUP_SIGNING_KEY_FILE) \
+	STAGING_BACKUP_SIGNING_KEY_ID=$(STAGING_BACKUP_SIGNING_KEY_ID) \
+	STAGING_DATABASE_NAME=$(STAGING_DATABASE_NAME) \
+	STAGING_DATABASE_ADMIN_USER=$(STAGING_DATABASE_ADMIN_USER) \
+	STAGING_DATABASE_MIGRATOR_USER=$(STAGING_DATABASE_MIGRATOR_USER) \
+	STAGING_DATABASE_RUNTIME_USER=$(STAGING_DATABASE_RUNTIME_USER) \
+	STAGING_OIDC_CLIENT_ID=$(STAGING_OIDC_CLIENT_ID) \
+	STAGING_OIDC_USERS_JSON='$(STAGING_OIDC_USERS_JSON)' \
+	STAGING_S3_BUCKET=$(STAGING_S3_BUCKET) \
+	SOURCE_GIT_COMMIT=$(SOURCE_GIT_COMMIT)
 
 bootstrap-env:
 	@if [ -e "$(ENV_FILE)" ]; then \
@@ -222,13 +279,13 @@ validate-run-id:
 		(echo "RUN_ID must match ^[a-z0-9][a-z0-9_]{0,39}$$"; exit 1)
 
 artifact-config: validate-run-id
-	$(ARTIFACT_COMPOSE_ENV) docker compose --project-name $(ARTIFACT_PROJECT) \
+	@$(ARTIFACT_COMPOSE_ENV) docker compose --project-name $(ARTIFACT_PROJECT) \
 		--file $(ARTIFACT_COMPOSE) \
 		config --format json | uv run --project $(PYTHON_PROJECT) \
 		python scripts/validate_artifact_config.py
 
 artifact-build: artifact-config
-	$(ARTIFACT_COMPOSE_ENV) docker compose --project-name $(ARTIFACT_PROJECT) \
+	@$(ARTIFACT_COMPOSE_ENV) docker compose --project-name $(ARTIFACT_PROJECT) \
 		--file $(ARTIFACT_COMPOSE) \
 		build migrate api web
 
@@ -237,14 +294,14 @@ artifact-test: artifact-config
 		$(PNPM) --filter $(WEB_PACKAGE) build
 
 artifact-smoke-up: artifact-config
-	$(ARTIFACT_COMPOSE_ENV) docker compose --project-name $(ARTIFACT_PROJECT) \
+	@$(ARTIFACT_COMPOSE_ENV) docker compose --project-name $(ARTIFACT_PROJECT) \
 		--file $(ARTIFACT_COMPOSE) \
 		up --detach --build --wait
 	@$(ARTIFACT_COMPOSE_ENV) docker compose --project-name $(ARTIFACT_PROJECT) \
 		--file $(ARTIFACT_COMPOSE) port web 8080
 
 artifact-smoke-down: validate-run-id
-	$(ARTIFACT_COMPOSE_ENV) docker compose --project-name $(ARTIFACT_PROJECT) \
+	@$(ARTIFACT_COMPOSE_ENV) docker compose --project-name $(ARTIFACT_PROJECT) \
 		--file $(ARTIFACT_COMPOSE) \
 		down --volumes --remove-orphans --rmi local
 
@@ -261,6 +318,78 @@ image-storage-migrate: require-env
 
 artifact-isolation-test: validate-run-id
 	RUN_ID=$(RUN_ID) ./scripts/verify_attempt_isolation.sh
+
+staging-secrets: validate-run-id
+	@test ! -e "$(STAGING_BACKUP_ROOT)" || \
+		(echo "STAGING_BACKUP_ROOT already exists; use a new RUN_ID or explicit root."; exit 1)
+	@mkdir -m 700 "$(STAGING_BACKUP_ROOT)"
+	uv run --project $(PYTHON_PROJECT) python scripts/prepare_staging_attempt.py \
+		--run-id "$(RUN_ID)" \
+		--secret-root "$(STAGING_SECRET_ROOT)" \
+		--host "$(STAGING_HOST)" \
+		--database-name "$(STAGING_DATABASE_NAME)" \
+		--admin-user "$(STAGING_DATABASE_ADMIN_USER)" \
+		--migrator-user "$(STAGING_DATABASE_MIGRATOR_USER)" \
+		--runtime-user "$(STAGING_DATABASE_RUNTIME_USER)"
+
+staging-config: validate-run-id
+	$(STAGING_COMPOSE_ENV) docker compose --project-name $(STAGING_PROJECT) \
+		--file $(STAGING_COMPOSE) --profile operations config --format json | \
+		uv run --project $(PYTHON_PROJECT) python scripts/validate_staging_config.py
+
+staging-build: staging-config
+	$(STAGING_COMPOSE_ENV) docker compose --project-name $(STAGING_PROJECT) \
+		--file $(STAGING_COMPOSE) --profile operations \
+		build migrate api operations web tls_proxy
+
+staging-up: staging-config
+	$(STAGING_COMPOSE_ENV) docker compose --project-name $(STAGING_PROJECT) \
+		--file $(STAGING_COMPOSE) up --detach --build --wait
+
+staging-down: validate-run-id
+	$(STAGING_COMPOSE_ENV) docker compose --project-name $(STAGING_PROJECT) \
+		--file $(STAGING_COMPOSE) down --volumes --remove-orphans --rmi local
+
+staging-backup: staging-config
+	@test -n "$(BACKUP_ID)" || (echo "BACKUP_ID is required."; exit 1)
+	@set -eu; \
+		$(STAGING_COMPOSE_ENV) docker compose --project-name $(STAGING_PROJECT) \
+			--file $(STAGING_COMPOSE) stop api; \
+		trap 'docker start $(STAGING_PROJECT)-api-1 >/dev/null 2>&1 || true' EXIT HUP INT TERM; \
+		$(STAGING_COMPOSE_ENV) OPERATIONS_QUIESCED=true docker compose \
+			--project-name $(STAGING_PROJECT) --file $(STAGING_COMPOSE) --profile operations \
+			run --rm --env OPERATIONS_QUIESCED=true operations \
+			backup --backup-id "$(BACKUP_ID)" --dry-run; \
+		$(STAGING_COMPOSE_ENV) OPERATIONS_QUIESCED=true docker compose \
+			--project-name $(STAGING_PROJECT) --file $(STAGING_COMPOSE) --profile operations \
+			run --rm --env OPERATIONS_QUIESCED=true operations \
+			backup --backup-id "$(BACKUP_ID)"; \
+		$(STAGING_COMPOSE_ENV) docker compose --project-name $(STAGING_PROJECT) \
+			--file $(STAGING_COMPOSE) start api; \
+		trap - EXIT HUP INT TERM
+
+staging-restore: staging-config
+	@test -n "$(BACKUP_ID)" || (echo "BACKUP_ID is required."; exit 1)
+	@test "$(STAGING_DATABASE_PREFIX)" = "p2b2r" || \
+		(echo "Restore requires STAGING_DATABASE_PREFIX=p2b2r."; exit 1)
+	@set -eu; \
+		$(STAGING_COMPOSE_ENV) docker compose --project-name $(STAGING_PROJECT) \
+			--file $(STAGING_COMPOSE) stop api; \
+		trap 'docker start $(STAGING_PROJECT)-api-1 >/dev/null 2>&1 || true' EXIT HUP INT TERM; \
+		$(STAGING_COMPOSE_ENV) OPERATIONS_QUIESCED=true RESTORE_TEMPORARY=true docker compose \
+			--project-name $(STAGING_PROJECT) --file $(STAGING_COMPOSE) --profile operations \
+			run --rm --env OPERATIONS_QUIESCED=true --env RESTORE_TEMPORARY=true operations \
+			restore --backup-id "$(BACKUP_ID)" --dry-run; \
+		$(STAGING_COMPOSE_ENV) OPERATIONS_QUIESCED=true RESTORE_TEMPORARY=true docker compose \
+			--project-name $(STAGING_PROJECT) --file $(STAGING_COMPOSE) --profile operations \
+			run --rm --env OPERATIONS_QUIESCED=true --env RESTORE_TEMPORARY=true operations \
+			restore --backup-id "$(BACKUP_ID)"; \
+		$(STAGING_COMPOSE_ENV) docker compose --project-name $(STAGING_PROJECT) \
+			--file $(STAGING_COMPOSE) start api; \
+		trap - EXIT HUP INT TERM
+
+staging-drill: validate-run-id
+	RUN_ID=$(RUN_ID) ./scripts/verify_staging_drill.sh
 
 secret-scan: validate-run-id
 	RUN_ID=$(RUN_ID) ./scripts/secret_scan.sh

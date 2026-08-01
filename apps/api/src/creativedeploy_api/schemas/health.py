@@ -27,10 +27,24 @@ class DatabaseCheck(StrictSchema):
     error_code: Literal["DATABASE_UNAVAILABLE"] | None
 
 
+class StorageCheck(StrictSchema):
+    status: Literal["ok", "error"]
+    latency_ms: Annotated[float, Field(ge=0)] | None
+    error_code: Literal["STORAGE_UNAVAILABLE"] | None
+
+
+class IdentityCheck(StrictSchema):
+    status: Literal["ok", "error"]
+    latency_ms: Annotated[float, Field(ge=0)] | None
+    error_code: Literal["IDENTITY_PROVIDER_UNAVAILABLE"] | None
+
+
 class ReadinessChecks(StrictSchema):
     """Collection of readiness dependencies."""
 
     database: DatabaseCheck
+    storage: StorageCheck
+    identity: IdentityCheck
 
 
 class ReadinessResponse(StrictSchema):

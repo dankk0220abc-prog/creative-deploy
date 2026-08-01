@@ -1,0 +1,63 @@
+manifest_format: CreativeDeploy Phase 2B-2 Candidate v1
+generated_at: 2026-08-01
+repository: /Users/danke/Developer/CreativeDeploy
+baseline_branch: main
+baseline_head: 511e42ecb2adccc55e75cb4d801181206b1b337a
+baseline_tree: 05420278f8da5478be39832466fc60609c215313
+baseline_commit_count: 23
+alembic_head: 2b1c4d5e6f70
+total_git_status_entries_including_manifest: 43
+candidate_payload_entry_count_excluding_manifest: 42
+tracked_modified_count: 24
+untracked_leaf_count_including_manifest: 19
+staged_path_count: 0
+manifest_file: docs/progress/phase-2b-2-candidate-manifest.txt
+manifest_self_hash_policy: excluded from payload entries to avoid recursive hashing; report manifest file SHA-256 externally
+scope_rule: exact git status --porcelain=v1 -z --untracked-files=all leaf paths, excluding only manifest_file
+columns: git_status | bytes | sha256 | repository-relative-path
+candidate_entries_payload_hash_rule: SHA-256 of every sorted row plus one LF
+tracked_binary_patch_sha256: 4ab2cbe752574551d35457129377407d8b7ee74e0c9d0de4bb1190a59165fb36
+porcelain_v1_z_exact_byte_sha256: b74a594154a8a25fd4b6ad4f1a145f386f3d4e433c50e0bc57b033717c04cf91
+candidate_entries_payload_sha256: 0fee393e577d2ecd12e0f4bf3c721f17175e79bc9240ff070c7356819b850665
+ M | 2855 | 5254bc8c4dc3fe0583503a0c959b0e730b1c95cff0dd591686b1622ad131065c | .env.example
+ M | 2541 | 6d0fead8b6f4144a92daadc978d02a04f4b41199b22979755287bf98cb5c30ac | .github/workflows/ci.yml
+ M | 27829 | af8ed97abd938493a449372eca0d2b78d1ad92ca6a37e6e948a6a2ab4edf4372 | AGENTS.md
+ M | 16209 | 340317014a1c58c4f03b8919aa8fac4fc91849e8474e839f318f4c7b1cab26fa | Makefile
+ M | 33278 | 4ec8c6d73b11190c1d4e55bf7e4b59d265b4b9011a61db2c2544328eaea06cc6 | README.md
+ M | 2129 | 5d6d6c36ab3d92ebcae916aa7320d7dcd2eeb95fccb9005b3d3eb0ac13b2730b | apps/api/Dockerfile
+ M | 6465 | b79652bd66ad5f405d8a21d7e9fd08f382fa64e2cab0896d8c56b551d075ae67 | apps/api/src/creativedeploy_api/api/routes/auth.py
+ M | 4873 | d3688d34d368d46dff2ab9479b201654ae0e0ae87c589c94f311f92852e375da | apps/api/src/creativedeploy_api/api/routes/health.py
+ M | 9050 | 5e4880ec719d52daf0f3fa03eeb289d86009029e5e77d064e764dae5c0c0ef0f | apps/api/src/creativedeploy_api/api/security_middleware.py
+ M | 4760 | 24fd9ba90a6b37a53a5043184976385836dd1f98d2afc1fbc59265936b627c1c | apps/api/src/creativedeploy_api/app_factory.py
+ M | 1458 | a2b8647d71d00a1b032261d498a58b891e64989348914cf94821e574824a8fa9 | apps/api/src/creativedeploy_api/auth/cookies.py
+ M | 23643 | 407232864bb87cf66c6f47fbe00f8869231fe920c39484072fbb445cf4f7d937 | apps/api/src/creativedeploy_api/core/config.py
+?? | 1597 | e8a42734d7a125bf443e4d335259ebf20404998ffffc12ca2145322423794999 | apps/api/src/creativedeploy_api/core/logging.py
+?? | 2294 | 79e0fce98891d940afa8d1b59223af6b6a008ee56666dd79a17b9ad4ca6dcce7 | apps/api/src/creativedeploy_api/core/secret_files.py
+ M | 14329 | 60b201d53d10c9ae15530461443d511ce5e5d4c6fb084e02ea625a34bb982ae7 | apps/api/src/creativedeploy_api/local_oidc.py
+ M | 1403 | c8f0d6c6f192db859e168d974c3a18a0b64f44d76f48c15e8d93ab17444d747b | apps/api/src/creativedeploy_api/schemas/health.py
+?? | 2908 | fb5e4f510800431e52d08a7ccee8bb46f4ca61c42f003b4e9cd3c358a9cbbfa1 | apps/api/src/creativedeploy_api/services/runtime_health.py
+ M | 16004 | 3697ef809e7359d87d322b28afd4d6774673f17a29138fd40e2eba03f03f4064 | apps/api/src/creativedeploy_api/storage/images.py
+ M | 22591 | e88843992c1531891d5840f9f713bcdb55ae37ecb812e7149d7615d62c27c95e | apps/api/src/creativedeploy_api/storage/s3.py
+ M | 4873 | e6cb5c45afecae5191369c2682ca3ca6073fa44d3c93b1e8e2c2dc89e8457bbc | apps/api/src/creativedeploy_api/tools/provision_database_roles.py
+?? | 38109 | 4144207f7d657e2a0ce196f66bc450d025936053efa1effcbfacba4292223474 | apps/api/src/creativedeploy_api/tools/staging_backup_restore.py
+ M | 22684 | 1f341bda585dd2367d89eaa09cd6e8e395582c73dc747ba900f7ab148523ebd5 | apps/api/tests/unit/test_health_endpoints.py
+ M | 8285 | 2f31195764505fc3ef2969981824570743939ac9c3fb28952143bd994e117799 | apps/api/tests/unit/test_migrate_image_storage.py
+ M | 19045 | 536262c5f1927cc5ccdd2f579c2f2bc615436e6b59e064c6769a0d7b78545f50 | apps/api/tests/unit/test_s3_image_storage.py
+?? | 21069 | 4c8f2c8ab8886d652b1cd5154c0a8bc63fefc38d1cafce7d0a7c31979901be86 | apps/api/tests/unit/test_staging_backup_restore.py
+ M | 1702 | d0fd2fd09df00c0abbd01ffe1cfdc4b23f84ff6a3088584ebb8e1253ef3b1d9d | apps/web/Dockerfile
+?? | 12462 | b29c09cb123d88232055fe775b6427a3821747e5fcd5395c7fd037087369f7ef | compose.staging.yaml
+?? | 1183 | 29b6aadca32b894429caddb4fdd50a8b26fdec649b5e919c3ee544e8093fd9cf | deploy/staging-nginx-base.conf
+?? | 3193 | 566a3a759fae6ae80f6376df75888c9dbca58ca905fe9e3596fd2f5b715a4627 | deploy/staging-web.conf.template
+?? | 1535 | 214340d558d5c16128f7c8b9d673577a7f63241ec43741d51592cd1375b95bb4 | deploy/tls-proxy.conf.template
+ M | 6277 | f764e0d7721763b654722fd4345f2ef70004f92571f5c6cb7c879401f2895bcc | docs/architecture/paintpilot-private-object-storage-contract-v0.1.md
+?? | 6163 | e3d51560fd5bfd1c4c9a7a7869805bc4ba3c3ef0001d74f08df27b42c0d1ba30 | docs/decisions/ADR-0009-staging-operations-and-hardening.md
+?? | 16051 | 0db7abc6aa3cd2f868e53aabfccabea43b0091d2fcb5d1d9f3458d76b5303683 | docs/progress/phase-2b-2-command-ledger.md
+?? | 23297 | e507a219c57817d7c5dbce762643690240dafd600928594687514db6f7e5610e | docs/progress/phase-2b-2-staging-operations-hardening-candidate.md
+?? | 3380 | eb9e7dc48daf64dc8bec0cc38f414aad547f1d08505ca5a91a18d72e06726ede | docs/progress/phase-2b-2-staging-operations-hardening-plan.md
+ M | 10805 | 32c3674f360a3a3c592957beb273f091269a29d9c05806a506e8b05e59c3f43e | docs/runbooks/local-production-style.md
+?? | 12624 | 848af5c6a53c528e8a6b4b55a5e8efc7877631e2c6dcd66fa890a8d72231617e | docs/runbooks/staging-operations.md
+?? | 4923 | 7de3af5cbfeab38cd58d0921a3db6e666910930e77b47f7390399ba673ba33f4 | scripts/generate_phase2b2_manifest.py
+?? | 6296 | 9de4348e98908cada94795669c23f6d65660803282349c9430849cfff19ec2d3 | scripts/prepare_staging_attempt.py
+?? | 7443 | 346006e22829fdcc09698b535c66853310f84127633752def20e5ddeb5bc8f59 | scripts/validate_staging_config.py
+ M | 2611 | 3d338b1aad683bfdd463e984182761f2dbb7752f22e3b302ef8a0aea22ab805a | scripts/verify_immutable_references.py
+?? | 27312 | ed1b50b012edad660dac506a2ba72b64c2e75368174888ab2807c67e922d55fd | scripts/verify_staging_drill.sh

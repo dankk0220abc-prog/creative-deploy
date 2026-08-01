@@ -1,5 +1,6 @@
 """FastAPI application factory."""
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -8,11 +9,14 @@ from fastapi import FastAPI
 from creativedeploy_api.api.error_handlers import register_error_handlers
 from creativedeploy_api.api.router import api_router
 from creativedeploy_api.api.security_middleware import (
+    ExactPublicOriginMiddleware,
     ExactTrustedHostMiddleware,
     PrivateApiNoStoreMiddleware,
+    RequestCorrelationMiddleware,
 )
 from creativedeploy_api.auth.oidc import OidcClient
 from creativedeploy_api.core.config import Settings, get_settings
+from creativedeploy_api.core.logging import configure_structured_logging
 from creativedeploy_api.core.principal import ConfiguredDemoPrincipalAdapter
 from creativedeploy_api.db.engine import create_database_engine
 from creativedeploy_api.db.session import create_database_session_factory
@@ -26,6 +30,9 @@ from creativedeploy_api.storage.s3 import S3ImageStorageAdapter
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Create a FastAPI application with explicitly injectable settings."""
     resolved_settings = settings or get_settings()
+    if resolved_settings.structured_logs:
+        configure_structured_logging()
+    logger = logging.getLogger(__name__)
     principal_adapter: ConfiguredDemoPrincipalAdapter | None
     oidc_client: OidcClient | None
     if resolved_settings.identity_provider == "configured_demo":
@@ -72,9 +79,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = create_database_engine(resolved_settings)
         app.state.database_engine = engine
         app.state.database_session_factory = create_database_session_factory(engine)
+        logger.info(
+            "Application startup configuration accepted",
+            extra={
+                "event": "application_startup",
+                "storage_provider": resolved_settings.image_storage_provider,
+            },
+        )
         try:
             yield
         finally:
+            logger.info("Application shutdown started", extra={"event": "application_shutdown"})
             await engine.dispose()
 
     app = FastAPI(
@@ -90,7 +105,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ExactTrustedHostMiddleware,
         allowed_hosts=list(resolved_settings.trusted_hosts),
     )
+    if resolved_settings.public_origin is not None:
+        app.add_middleware(
+            ExactPublicOriginMiddleware,
+            public_origin=resolved_settings.public_origin,
+            require_csrf_origin=resolved_settings.require_csrf_origin,
+        )
     app.add_middleware(PrivateApiNoStoreMiddleware)
+    app.add_middleware(RequestCorrelationMiddleware)
     register_error_handlers(app)
     app.include_router(api_router)
     return app

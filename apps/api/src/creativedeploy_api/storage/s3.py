@@ -7,6 +7,7 @@ import json
 import os
 import stat
 import uuid
+from contextlib import suppress
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO
 
@@ -34,6 +35,10 @@ class S3ObjectStat:
 
     def __init__(self, *, byte_size: int) -> None:
         self.st_size = byte_size
+
+
+class _S3ObjectIntegrityMismatch(ImageStorageError):
+    """A real destination GET did not match the governed source facts."""
 
 
 class S3ImageStorageAdapter:
@@ -93,6 +98,16 @@ class S3ImageStorageAdapter:
         except (BotoCoreError, ClientError) as error:
             raise ImageStorageError("The private bucket could not be initialized.") from error
 
+    def probe(self) -> None:
+        """Revalidate reachability and the private bucket boundary for readiness."""
+        try:
+            self._client.head_bucket(Bucket=self._bucket)
+            self._assert_bucket_private()
+        except ImageStorageError:
+            raise
+        except (BotoCoreError, ClientError) as error:
+            raise ImageStorageError("The configured private bucket is unavailable.") from error
+
     def _assert_bucket_private(self) -> None:
         """Fail closed on group ACLs or any bucket policy."""
         try:
@@ -133,6 +148,66 @@ class S3ImageStorageAdapter:
         ):
             raise UnsafeStorageKeyError("The storage key is invalid.")
         return key
+
+    def _get_and_verify_object_bytes(
+        self,
+        *,
+        key: str,
+        byte_size: int,
+        sha256: str,
+        content_type: str,
+    ) -> dict[str, Any]:
+        """Stream a real GET and verify bytes plus the governed response facts."""
+        self._validate_key(key)
+        body: Any | None = None
+        try:
+            response = self._client.get_object(Bucket=self._bucket, Key=key)
+            if not isinstance(response, dict):
+                raise ImageStorageError("The private S3 GET response is invalid.")
+            body = response.get("Body")
+            if body is None or not hasattr(body, "read") or not hasattr(body, "close"):
+                raise ImageStorageError("The private S3 GET body is invalid.")
+
+            digest = hashlib.sha256()
+            observed_size = 0
+            while True:
+                chunk = body.read(STREAM_CHUNK_BYTES)
+                if not isinstance(chunk, bytes):
+                    raise ImageStorageError("The private S3 GET stream returned invalid bytes.")
+                if not chunk:
+                    break
+                observed_size += len(chunk)
+                if observed_size > byte_size:
+                    raise _S3ObjectIntegrityMismatch(
+                        "The private S3 object byte count exceeds the governed size."
+                    )
+                digest.update(chunk)
+
+            metadata = response.get("Metadata")
+            if observed_size != byte_size or digest.hexdigest() != sha256:
+                raise _S3ObjectIntegrityMismatch(
+                    "The private S3 object bytes do not match the governed identity."
+                )
+            if (
+                response.get("ContentLength") != byte_size
+                or response.get("ContentType") != content_type
+                or not isinstance(metadata, dict)
+                or metadata.get("sha256") != sha256
+            ):
+                raise _S3ObjectIntegrityMismatch(
+                    "The private S3 object response facts do not match the governed identity."
+                )
+            return response
+        except ImageStorageError:
+            raise
+        except Exception as error:
+            raise ImageStorageError(
+                "The private S3 object could not be read and byte-verified; retry is safe."
+            ) from error
+        finally:
+            if body is not None:
+                with suppress(Exception):
+                    body.close()
 
     async def stage_upload(self, upload: UploadFile, *, max_bytes: int) -> StagedUpload:
         staging_path = self._staging_root / f"{uuid.uuid4().hex}.tmp"
@@ -214,12 +289,17 @@ class S3ImageStorageAdapter:
             raise ImageStorageError("The private S3 object could not be published.") from error
         except (BotoCoreError, OSError) as error:
             raise ImageStorageError("The private S3 object could not be published.") from error
-        head = self._head(key)
-        if (
-            int(head.get("ContentLength", -1)) != staged.byte_size
-            or head.get("Metadata", {}).get("sha256") != staged.sha256
-        ):
-            raise ImageStorageError("The published S3 object identity could not be proven.")
+        try:
+            self._get_and_verify_object_bytes(
+                key=key,
+                byte_size=staged.byte_size,
+                sha256=staged.sha256,
+                content_type=content_type,
+            )
+        except ImageStorageError as error:
+            raise ImageStorageError(
+                "The published S3 object could not be byte-verified; the staged source remains."
+            ) from error
         staged.path.unlink()
         return StoragePublishReceipt(
             key=key,
@@ -255,24 +335,31 @@ class S3ImageStorageAdapter:
         except BotoCoreError as error:
             raise ImageStorageError("The target S3 key could not be checked safely.") from error
         if existing is not None:
-            if not self._copy_identity_matches(
-                existing,
-                byte_size=byte_size,
-                sha256=sha256,
-                content_type=content_type,
-            ):
+            try:
+                verified = self._get_and_verify_object_bytes(
+                    key=key,
+                    byte_size=byte_size,
+                    sha256=sha256,
+                    content_type=content_type,
+                )
+            except _S3ObjectIntegrityMismatch as error:
                 raise StorageObjectAlreadyExistsError(
                     "The target key exists with different immutable content."
-                )
+                ) from error
+            except ImageStorageError as error:
+                raise ImageStorageError(
+                    "The existing S3 object could not be byte-verified; "
+                    "migration can be retried safely."
+                ) from error
             return StoragePublishReceipt(
                 key=key,
                 byte_size=byte_size,
                 expected_sha256=sha256,
                 provider_name=self.provider_name,
-                etag=str(existing.get("ETag", "")).strip('"') or None,
+                etag=str(verified.get("ETag", "")).strip('"') or None,
                 version_id=(
-                    existing.get("VersionId")
-                    if isinstance(existing.get("VersionId"), str)
+                    verified.get("VersionId")
+                    if isinstance(verified.get("VersionId"), str)
                     else None
                 ),
                 created_by_this_call=False,
@@ -300,20 +387,16 @@ class S3ImageStorageAdapter:
         except BotoCoreError as error:
             raise ImageStorageError("The legacy object could not be copied to S3.") from error
         try:
-            verified = self._head(key)
+            verified = self._get_and_verify_object_bytes(
+                key=key,
+                byte_size=byte_size,
+                sha256=sha256,
+                content_type=content_type,
+            )
         except ImageStorageError as error:
             raise ImageStorageError(
-                "The copied S3 object could not be verified; migration can be retried safely."
+                "The copied S3 object could not be byte-verified; migration can be retried safely."
             ) from error
-        if not self._copy_identity_matches(
-            verified,
-            byte_size=byte_size,
-            sha256=sha256,
-            content_type=content_type,
-        ):
-            raise ImageStorageError(
-                "The copied S3 object failed integrity verification; the database was not updated."
-            )
         return StoragePublishReceipt(
             key=key,
             byte_size=byte_size,
@@ -329,28 +412,6 @@ class S3ImageStorageAdapter:
                     else None
                 )
             ),
-        )
-
-    @staticmethod
-    def _copy_identity_matches(
-        response: object,
-        *,
-        byte_size: int,
-        sha256: str,
-        content_type: str,
-    ) -> bool:
-        """Match only governed destination facts; an ETag is never a checksum."""
-        if not isinstance(response, dict):
-            return False
-        size = response.get("ContentLength")
-        metadata = response.get("Metadata")
-        return (
-            isinstance(size, int)
-            and not isinstance(size, bool)
-            and size == byte_size
-            and isinstance(metadata, dict)
-            and metadata.get("sha256") == sha256
-            and response.get("ContentType") == content_type
         )
 
     def _head(self, key: str) -> dict[str, Any]:

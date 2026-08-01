@@ -8,6 +8,7 @@ import json
 import secrets
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlencode, urlparse
 
@@ -19,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from creativedeploy_api.auth.oidc import pkce_challenge, random_urlsafe, sha256_text
+from creativedeploy_api.core.secret_files import read_secret_file
 
 
 class SyntheticUser(BaseModel):
@@ -41,9 +43,11 @@ class LocalOidcSettings(BaseSettings):
     app_env: str | None = Field(default=None, validation_alias="APP_ENV")
     issuer: str
     client_id: str
-    client_secret: SecretStr
+    client_secret: SecretStr | None = None
+    client_secret_file: Path | None = None
     redirect_uri: str
     users_json: str
+    allowed_public_host: str | None = None
     code_ttl_seconds: int = Field(default=120, ge=30, le=300)
     request_ttl_seconds: int = Field(default=300, ge=60, le=600)
 
@@ -51,15 +55,41 @@ class LocalOidcSettings(BaseSettings):
     def validate_boundary(self) -> "LocalOidcSettings":
         if self.app_env not in {"development", "test"}:
             raise ValueError("The project-owned OIDC provider is development/test only.")
+        if self.client_secret is not None and self.client_secret_file is not None:
+            raise ValueError(
+                "Configure exactly one of LOCAL_OIDC_CLIENT_SECRET or "
+                "LOCAL_OIDC_CLIENT_SECRET_FILE."
+            )
+        if self.client_secret_file is not None:
+            object.__setattr__(
+                self,
+                "client_secret",
+                SecretStr(
+                    read_secret_file(
+                        self.client_secret_file,
+                        setting_name="LOCAL_OIDC_CLIENT_SECRET",
+                    )
+                ),
+            )
+            object.__setattr__(self, "client_secret_file", None)
+        if self.client_secret is None or not self.client_secret.get_secret_value().strip():
+            raise ValueError("LOCAL_OIDC_CLIENT_SECRET must be explicitly configured.")
         for field_name, value in (
             ("LOCAL_OIDC_ISSUER", self.issuer),
             ("LOCAL_OIDC_REDIRECT_URI", self.redirect_uri),
         ):
             parts = urlparse(value)
-            if parts.scheme != "http" or not parts.netloc:
-                raise ValueError(f"{field_name} must be an absolute local HTTP URL.")
-            if parts.hostname not in {"127.0.0.1", "localhost"}:
-                raise ValueError(f"{field_name} must use a loopback hostname.")
+            if parts.scheme not in {"http", "https"} or not parts.netloc:
+                raise ValueError(f"{field_name} must be an absolute local HTTP(S) URL.")
+            if self.allowed_public_host is None:
+                if parts.scheme != "http" or parts.hostname not in {"127.0.0.1", "localhost"}:
+                    raise ValueError(f"{field_name} must use a loopback HTTP origin.")
+            elif (
+                "*" in self.allowed_public_host
+                or parts.scheme != "https"
+                or parts.hostname != self.allowed_public_host
+            ):
+                raise ValueError(f"{field_name} must use the exact synthetic staging HTTPS host.")
         try:
             users_payload = json.loads(self.users_json)
             users = [SyntheticUser.model_validate(item) for item in users_payload]
@@ -105,6 +135,8 @@ def create_local_oidc_app(
 ) -> FastAPI:
     """Create one ephemeral signing-key provider for synthetic local identities."""
     resolved = settings or LocalOidcSettings.model_validate({})
+    assert resolved.client_secret is not None
+    configured_client_secret = resolved.client_secret.get_secret_value()
     users = {user.subject: user for user in resolved.users()}
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     public_numbers = private_key.public_key().public_numbers()
@@ -215,7 +247,7 @@ def create_local_oidc_app(
             csrf_token,
             max_age=resolved.request_ttl_seconds,
             httponly=True,
-            secure=False,
+            secure=urlparse(resolved.issuer).scheme == "https",
             samesite="lax",
             path="/",
         )
@@ -286,7 +318,7 @@ def create_local_oidc_app(
             or not hmac.compare_digest(client_id, resolved.client_id)
             or not hmac.compare_digest(
                 client_secret,
-                resolved.client_secret.get_secret_value(),
+                configured_client_secret,
             )
             or grant_type != "authorization_code"
         ):

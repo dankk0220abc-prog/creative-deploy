@@ -1,0 +1,104 @@
+upstream staging_api {
+    server api:8000;
+    keepalive 8;
+}
+
+upstream staging_oidc {
+    server oidc:8090;
+    keepalive 4;
+}
+
+server {
+    listen 8080 default_server;
+    server_name _;
+    include /etc/nginx/security-headers.conf;
+    add_header Cache-Control "no-store" always;
+    return 400;
+}
+
+server {
+    listen 8080;
+    server_name ${STAGING_HOST};
+    root /usr/share/nginx/html;
+    index index.html;
+    autoindex off;
+    client_max_body_size 21037056;
+
+    include /etc/nginx/security-headers.conf;
+
+    location = /health/live {
+        default_type application/json;
+        add_header Cache-Control "no-store" always;
+        return 200 '{"status":"ok","service":"creativedeploy-staging-web"}';
+    }
+
+    location = /health/ready {
+        proxy_pass http://staging_api/api/v1/health/ready;
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "no-store" always;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header Connection "";
+        proxy_set_header X-Request-ID $http_x_request_id;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 10s;
+        proxy_send_timeout 10s;
+    }
+
+    location /api/ {
+        proxy_pass http://staging_api;
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "no-store" always;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header Connection "";
+        proxy_set_header X-Request-ID $http_x_request_id;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 30s;
+        proxy_send_timeout 30s;
+    }
+
+    location = /.well-known/openid-configuration {
+        proxy_pass http://staging_oidc;
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "no-store" always;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header Connection "";
+        proxy_set_header X-Request-ID $http_x_request_id;
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 10s;
+    }
+
+    location ~ ^/(authorize|jwks|token)$ {
+        proxy_pass http://staging_oidc;
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "no-store" always;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header Connection "";
+        proxy_set_header X-Request-ID $http_x_request_id;
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 10s;
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+        try_files $uri =404;
+    }
+
+    location ~* "^/assets/.+-[a-z0-9_-]{8,}\.(?:css|js|woff2?|png|jpe?g|webp|svg)$" {
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        try_files $uri =404;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

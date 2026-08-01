@@ -11,6 +11,8 @@ from creativedeploy_api.api.dependencies import (
     DatabaseSessionDependency,
 )
 from creativedeploy_api.auth.cookies import (
+    clear_oidc_flow_cookie,
+    clear_session_cookies,
     csrf_cookie_name,
     oidc_flow_cookie_name,
     session_cookie_name,
@@ -93,7 +95,7 @@ async def login(
         started.browser_binding,
         max_age=settings.oidc_login_ttl_seconds,
         httponly=True,
-        secure=settings.app_env == "production",
+        secure=settings.secure_cookies,
         samesite="lax",
         path="/",
     )
@@ -127,13 +129,13 @@ async def callback(
         status_code=status.HTTP_303_SEE_OTHER,
         headers={"Cache-Control": "no-store"},
     )
-    response.delete_cookie(oidc_flow_cookie_name(settings), path="/")
+    clear_oidc_flow_cookie(response, settings)
     response.set_cookie(
         session_cookie_name(settings),
         completed.session_token,
         max_age=settings.auth_session_ttl_seconds,
         httponly=True,
-        secure=settings.app_env == "production",
+        secure=settings.secure_cookies,
         samesite="lax",
         path="/",
     )
@@ -142,7 +144,7 @@ async def callback(
         completed.csrf_token,
         max_age=settings.auth_session_ttl_seconds,
         httponly=False,
-        secure=settings.app_env == "production",
+        secure=settings.secure_cookies,
         samesite="strict",
         path="/",
     )
@@ -175,6 +177,5 @@ async def logout(
     settings: Settings = request.app.state.settings
     await service.logout(session_token=request.cookies.get(session_cookie_name(settings)))
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
-    response.delete_cookie(session_cookie_name(settings), path="/")
-    response.delete_cookie(csrf_cookie_name(settings), path="/")
+    clear_session_cookies(response, settings)
     return response

@@ -16,7 +16,7 @@ concurrency:
 jobs:
   candidate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 60
     services:
       postgres:
         image: postgres:17.10-alpine3.24@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
@@ -63,4 +63,5 @@ jobs:
       - run: make artifact-test
       - run: make artifact-build
       - run: make artifact-smoke
+      - run: make staging-drill
       - run: make supply-chain-check

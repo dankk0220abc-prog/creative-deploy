@@ -1,6 +1,6 @@
 # CreativeDeploy Agent Guide
 
-## Phase 2B-1 Candidate Boundary
+## Phase 2B-2 Candidate Boundary
 
 Phase 2B-1 — Governed Identity, Authorization and Private Storage is an unstaged,
 uncommitted implementation Candidate at baseline
@@ -12,18 +12,38 @@ delivery, a non-destructive local-object copy tool, and distinct PostgreSQL
 migrator/runtime roles.
 
 Its post-remediation implementation verdict is
-`PHASE_2B_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`. This is not an
-independent approval, Git seal, production-ready claim, or authorization for
-Phase 2B-2. The repository-owned OIDC Provider and MinIO are synthetic
-local/CI dependencies only. No real provider, public/signed URL, destructive
-deletion, retention policy, AI, OCR, Agent, or RAG is authorized.
+`PHASE_2B_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`. Phase 2B-2
+was later explicitly authorized on baseline
+`511e42ecb2adccc55e75cb4d801181206b1b337a` and now exists as a separate
+unstaged/uncommitted Candidate. It adds the loopback TLS staging topology,
+exact URL/cookie/proxy boundary, file secrets, dependency-complete readiness,
+structured request logs, and coordinated PostgreSQL/private-object temporary
+recovery drill described by ADR-0009.
 
-The final remediation closes two independent Blocking Medium findings only:
-OIDC ID tokens now require a bounded `iat` age using one captured validation
-time, and legacy S3 copies now re-read and verify destination facts after every
-write before any database storage-reference update. Revision
-`2b1c4d5e6f70`, identity keys, roles, workflow, private streaming, and retention
-boundaries are unchanged.
+Its current implementation state is
+`PHASE_2B_2_FINAL_REMEDIATION_READY_FOR_INDEPENDENT_REVIEW`. After the in-app browser
+refused the self-signed loopback certificate, an explicitly authorized
+continuation used a dedicated real Chrome process/profile with an allowlist for
+only that synthetic certificate's SPKI. The full HTTPS, role, restart,
+backup/fresh-restore, logout, negative-access, browser-cleanliness,
+supply-chain, and manifest gates passed. No global certificate-error bypass,
+macOS Keychain/system trust change, staging, commit, push, tag, or PR occurred.
+This is not independent approval, Git sealing, production readiness, or
+authorization for another phase. The repository-owned OIDC provider, MinIO,
+certificate and secrets are synthetic local/CI dependencies only. No real
+provider/domain/secret, public deployment or URL, destructive in-place restore,
+retention policy, AI, OCR, Agent, or RAG is authorized.
+
+The earlier remediation closed F-01 and the OIDC token-age finding. A subsequent
+independent review kept F-01 closed but found F-02-01: the shared legacy S3 copy
+boundary still treated destination HEAD facts as final content identity. The
+final remediation now streams every new or existing destination through a real
+GET in 64 KiB chunks, counts the body bytes, calculates SHA-256 locally, closes
+the body, and requires size, digest, content type, and metadata before any
+success receipt or database storage-reference update. Revision `2b1c4d5e6f70`,
+identity keys, roles, workflow, private streaming, and retention boundaries are
+unchanged. This is an implementation handoff, not independent approval or Git
+sealing; F-01 remains closed.
 
 ## Project Goal
 
@@ -231,8 +251,9 @@ authorization.
 
 Do not claim or imply implementation or independent approval of:
 
-- a selected real enterprise IdP/client, managed object-storage account/IAM, production
-  domain/TLS, secret manager, retention, backup/restore, monitoring, or deployment operations;
+- a selected real enterprise IdP/client, managed database/object account/IAM, production
+  domain/certificate automation, secret manager, retention, monitoring/on-call, cutover, or
+  deployment ownership;
 - ImageQualityAssessment, automated viewpoint analysis, segmentation, automated Polygon
   generation, automated semantic labels, or automated region analysis;
 - AI providers, Agent workflows, RAG, inventory, citations, or Trace;
@@ -241,7 +262,7 @@ Do not claim or imply implementation or independent approval of:
   not workflow transitions;
 - PaintProject update/delete/owner transfer;
 - image-backed project cards, editable PaintProject fields, image update/delete, or public images;
-- Redis, workers, CI, production deployment or real-user validation.
+- Redis, workers, production deployment or real-user validation.
 
 ## Directory Responsibilities
 
@@ -283,8 +304,9 @@ Run Make commands from the repository root. API settings resolve the repository-
 `APP_ENV` must be explicit and is limited to `development`, `test` or `production`. The Demo
 Principal Adapter still requires explicit ID and display-name configuration in development/test
 and rejects production. The Phase 2B-1 OIDC adapter is selected separately; do not expose either
-configuration publicly until real provider ownership, secrets, TLS/domain, operations, independent
-review, and Git sealing are complete.
+configuration publicly until real provider ownership, secrets, TLS/domain, operations,
+independent review, and Git sealing are complete. Phase 2B-2 staging proof does not widen that
+boundary.
 
 PostgreSQL:
 
@@ -430,7 +452,9 @@ under normal operating-system rules, unlike the standard Make targets.
   Candidate boundaries: provider-neutral OIDC, Owner/reviewer server authorization, private
   S3-compatible storage, and distinct database roles only. Do not add public/signed URLs,
   irreversible deletion, retention, owner transfer, workflow changes, AI, OCR, Agent, RAG, or
-  Phase 2B-2.
+  another product phase. Preserve the Phase 2B-2 Candidate's loopback staging, exact-origin,
+  file-secret, readiness/logging, and temporary-only recovery boundaries; never reinterpret it
+  as a public deployment or destructive restore authorization.
 - Phase 2A-1 is a production spine candidate, not production readiness. Keep its API/Web
   Dockerfiles multi-stage and non-root, exclude `.env` and private/test data from build contexts,
   keep the single Candidate CI workflow lockfile-driven, and never make CI depend on a private
