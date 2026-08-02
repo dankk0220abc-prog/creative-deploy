@@ -49,13 +49,17 @@ jobs:
           version: 0.11.30
           enable-cache: true
 
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.14.0
+          run_install: false
+
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24.17.0
           cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
-      - run: corepack enable
-      - run: corepack prepare pnpm@11.14.0 --activate
       - run: uv sync --project apps/api --all-groups --locked
       - run: pnpm install --frozen-lockfile
       - run: make check ENV_FILE=.env.example
