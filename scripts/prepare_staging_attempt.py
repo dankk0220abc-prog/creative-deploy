@@ -40,6 +40,12 @@ def _write_secret(root: Path, name: str, value: str) -> None:
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
+        # Docker Compose implements file-backed secrets as bind mounts. On a
+        # Linux CI runner the source owner is not the non-root container user,
+        # so owner-only files are unreadable in the container. The 0700 parent
+        # keeps the attempt private on the host; the bind source itself must be
+        # read-only for every consuming container identity.
+        path.chmod(0o444)
     except BaseException:
         path.unlink(missing_ok=True)
         raise
@@ -139,8 +145,8 @@ extendedKeyUsage = serverAuth
         raise SystemExit("local staging certificate generation failed") from error
     finally:
         config.unlink(missing_ok=True)
-    key_path.chmod(0o600)
-    certificate_path.chmod(0o600)
+    key_path.chmod(0o444)
+    certificate_path.chmod(0o444)
 
 
 def main() -> int:

@@ -2,6 +2,9 @@
 set -eu
 
 REPOSITORY_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+STAGING_DIAGNOSTIC_PYTHON_PROJECT="${REPOSITORY_ROOT}/apps/api"
+export STAGING_DIAGNOSTIC_PYTHON_PROJECT
+. "${REPOSITORY_ROOT}/scripts/staging_failure_diagnostics.sh"
 RUN_ID=${RUN_ID:-local_$(date -u +%Y%m%d%H%M%S)}
 if ! printf '%s\n' "${RUN_ID}" | grep -Eq '^[a-z0-9][a-z0-9_]{0,39}$'; then
   echo "RUN_ID must match ^[a-z0-9][a-z0-9_]{0,39}$" >&2
@@ -25,45 +28,64 @@ TEMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/creativedeploy-phase2b2-drill-${RUN_STEM}
 SOURCE_SECRET_ROOT="${TEMP_ROOT}/source-secrets"
 RESTORE_SECRET_ROOT="${TEMP_ROOT}/restore-secrets"
 BACKUP_ROOT="${TEMP_ROOT}/backups"
-mkdir -m 700 "${BACKUP_ROOT}"
-
-set -- $(/usr/bin/python3 -c '
-import socket
-ports=[]
-for _ in range(2):
-    sock=socket.socket()
-    sock.bind(("127.0.0.1", 0))
-    ports.append(sock.getsockname()[1])
-    sock.close()
-print(*ports)
-')
-STAGING_HTTP_PORT=$1
-STAGING_HTTPS_PORT=$2
-if [ "${STAGING_HTTP_PORT}" = "${STAGING_HTTPS_PORT}" ]; then
-  echo "staging drill port allocation collided" >&2
-  exit 1
-fi
-BASE_URL="https://${STAGING_HOST}:${STAGING_HTTPS_PORT}"
 
 source_down=0
 restore_down=0
+emit_failed_one_shot_logs() {
+  project=$1
+  source_secret_root=$2
+  restore_secret_root=$3
+  compose_command=$4
+  for service in role_provision migrate role_grant; do
+    container_id=$(${compose_command} ps --all --quiet "${service}" 2>/dev/null || true)
+    if [ -z "${container_id}" ]; then
+      continue
+    fi
+    exit_code=$(docker inspect --format '{{.State.ExitCode}}' "${container_id}" 2>/dev/null || true)
+    if [ -z "${exit_code}" ] || [ "${exit_code}" = "0" ]; then
+      continue
+    fi
+    log_path="${TEMP_ROOT}/${project}-${service}-failure.log"
+    printf 'STAGING_ONE_SHOT_FAILURE project=%s service=%s exit_code=%s\n' \
+      "${project}" "${service}" "${exit_code}" >&2
+    run_with_staging_log_capture \
+      "${log_path}" "${source_secret_root}" "${restore_secret_root}" -- \
+      ${compose_command} logs --no-color "${service}" || true
+  done
+}
+
 cleanup() {
-  if [ "${restore_down}" != "1" ]; then
+  original_status=$?
+  trap - EXIT HUP INT TERM
+  set +eu
+  if [ "${original_status}" != "0" ] && \
+     command -v compose_restore >/dev/null 2>&1 && \
+     command -v compose_source >/dev/null 2>&1; then
+    emit_failed_one_shot_logs \
+      "${RESTORE_PROJECT}" "${SOURCE_SECRET_ROOT}" "${RESTORE_SECRET_ROOT}" compose_restore
+    emit_failed_one_shot_logs \
+      "${SOURCE_PROJECT}" "${SOURCE_SECRET_ROOT}" "" compose_source
+  fi
+  if [ "${restore_down}" != "1" ] && command -v make_restore >/dev/null 2>&1; then
     make_restore staging-down >/dev/null 2>&1 || true
   fi
-  if [ "${source_down}" != "1" ]; then
+  if [ "${source_down}" != "1" ] && command -v make_source >/dev/null 2>&1; then
     make_source staging-down >/dev/null 2>&1 || true
   fi
   case "${TEMP_ROOT}" in
     "${TMPDIR:-/tmp}"/creativedeploy-phase2b2-drill-*)
-      rm -rf -- "${TEMP_ROOT}"
+      rm -rf -- "${TEMP_ROOT}" >/dev/null 2>&1 || true
       ;;
     *)
       echo "refusing to remove unexpected staging drill root" >&2
       ;;
   esac
+  exit "${original_status}"
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 make_source() {
   make --no-print-directory -C "${REPOSITORY_ROOT}" "$@" \
@@ -150,6 +172,25 @@ prepare_attempt() {
     --migrator-user "${database_name}_migrator" \
     --runtime-user "${database_name}_runtime"
 }
+
+mkdir -m 700 "${BACKUP_ROOT}"
+set -- $(/usr/bin/python3 -c '
+import socket
+ports=[]
+for _ in range(2):
+    sock=socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    ports.append(sock.getsockname()[1])
+    sock.close()
+print(*ports)
+')
+STAGING_HTTP_PORT=$1
+STAGING_HTTPS_PORT=$2
+if [ "${STAGING_HTTP_PORT}" = "${STAGING_HTTPS_PORT}" ]; then
+  echo "staging drill port allocation collided" >&2
+  exit 1
+fi
+BASE_URL="https://${STAGING_HOST}:${STAGING_HTTPS_PORT}"
 
 ACTIVE_CERT="${SOURCE_SECRET_ROOT}/tls_certificate.pem"
 https_curl() {
@@ -382,10 +423,12 @@ https_curl --fail --silent --show-error --cookie "${REVIEWER_JAR}" \
   "${BASE_URL}/api/v1/paint-projects/${project_id}/images/${image_id}/content"
 source_object_sha=$(shasum -a 256 "${TEMP_ROOT}/source-object.jpg" | awk '{print $1}')
 
-source_failure="${TEMP_ROOT}/backup-without-quiesce.log"
+source_failure="${TEMP_ROOT}/backup-without-quiesce.raw.log"
 set +e
-compose_source --profile operations run --rm operations backup \
-  --backup-id must_not_exist > "${source_failure}" 2>&1
+run_with_staging_log_capture \
+  "${source_failure}" "${SOURCE_SECRET_ROOT}" "" -- \
+  compose_source --profile operations run --rm operations backup \
+  --backup-id must_not_exist
 failure_status=$?
 set -e
 if [ "${failure_status}" = "0" ] || \
@@ -412,7 +455,9 @@ wait_ready
 https_curl --fail --silent --show-error \
   "${BASE_URL}/health/live?probe=do-not-log-query-marker" >/dev/null
 backup_started=$(date +%s)
-make_source staging-backup BACKUP_ID="${BACKUP_ID}"
+run_with_staging_log_capture \
+  "${TEMP_ROOT}/staging-backup.raw.log" "${SOURCE_SECRET_ROOT}" "" -- \
+  make_source staging-backup BACKUP_ID="${BACKUP_ID}"
 backup_finished=$(date +%s)
 backup_seconds=$((backup_finished - backup_started))
 wait_ready
@@ -448,19 +493,28 @@ ACTIVE_CERT="${RESTORE_SECRET_ROOT}/tls_certificate.pem"
 make_restore staging-up
 wait_ready
 restore_started=$(date +%s)
-make_restore staging-restore BACKUP_ID="${BACKUP_ID}"
+run_with_staging_log_capture \
+  "${TEMP_ROOT}/staging-restore.raw.log" \
+  "${SOURCE_SECRET_ROOT}" "${RESTORE_SECRET_ROOT}" -- \
+  make_restore staging-restore BACKUP_ID="${BACKUP_ID}"
 restore_finished=$(date +%s)
 restore_seconds=$((restore_finished - restore_started))
 wait_ready
 
 # A second restore is an exact, resumable retry and must not duplicate state.
-make_restore staging-restore BACKUP_ID="${BACKUP_ID}"
+run_with_staging_log_capture \
+  "${TEMP_ROOT}/staging-restore-retry.raw.log" \
+  "${SOURCE_SECRET_ROOT}" "${RESTORE_SECRET_ROOT}" -- \
+  make_restore staging-restore BACKUP_ID="${BACKUP_ID}"
 wait_ready
 
 # Deliberately alter only the isolated restore target object while retaining the
 # signed size, content type, and metadata checksum. Run this before restored
 # logins add session rows, so the database exact-retry precondition still holds.
-compose_restore --profile operations run --rm --entrypoint python operations -c '
+tamper_raw_log="${TEMP_ROOT}/tampered-target.raw.log"
+run_with_staging_log_capture \
+  "${tamper_raw_log}" "${SOURCE_SECRET_ROOT}" "${RESTORE_SECRET_ROOT}" -- \
+  compose_restore --profile operations run --rm --entrypoint python operations -c '
 import hashlib,json,sys
 from pathlib import Path
 from creativedeploy_api.core.config import Settings
@@ -482,8 +536,8 @@ if response.get("ContentLength") != item["byte_size"] or response.get("ContentTy
 if response.get("Metadata",{}).get("sha256") != item["sha256"]:
     raise SystemExit("target tamper did not retain signed checksum metadata")
 print(observed_sha)
-' "${BACKUP_ID}" > "${TEMP_ROOT}/tampered-target-sha.txt"
-tampered_target_sha=$(tail -n 1 "${TEMP_ROOT}/tampered-target-sha.txt")
+' "${BACKUP_ID}"
+tampered_target_sha=$(tail -n 1 "${tamper_raw_log}")
 if ! printf '%s' "${tampered_target_sha}" | grep -Eq '^[0-9a-f]{64}$' || \
    [ "${tampered_target_sha}" = "${source_object_sha}" ]; then
   echo "same-size target tamper precondition was not established" >&2
@@ -491,21 +545,24 @@ if ! printf '%s' "${tampered_target_sha}" | grep -Eq '^[0-9a-f]{64}$' || \
 fi
 docker stop "${RESTORE_PROJECT}-api-1" >/dev/null
 set +e
-compose_restore --profile operations run --rm \
+byte_mismatch_log="${TEMP_ROOT}/byte-mismatch-restore.raw.log"
+run_with_staging_log_capture \
+  "${byte_mismatch_log}" "${SOURCE_SECRET_ROOT}" "${RESTORE_SECRET_ROOT}" -- \
+  compose_restore --profile operations run --rm \
   --env OPERATIONS_QUIESCED=true --env RESTORE_TEMPORARY=true operations \
-  restore --backup-id "${BACKUP_ID}" --dry-run \
-  > "${TEMP_ROOT}/byte-mismatch-restore.log" 2>&1
+  restore --backup-id "${BACKUP_ID}" --dry-run
 byte_mismatch_status=$?
 set -e
 if [ "${byte_mismatch_status}" = "0" ] || \
    ! grep -q 'private object byte checksum does not match' \
-     "${TEMP_ROOT}/byte-mismatch-restore.log"; then
+     "${byte_mismatch_log}"; then
   echo "same-size metadata-matched byte mismatch was not refused status=${byte_mismatch_status}" >&2
-  grep -E 'OPERATIONS_FAILED|RESTORE_DRY_RUN' \
-    "${TEMP_ROOT}/byte-mismatch-restore.log" >&2 || true
   exit 1
 fi
-compose_restore --profile operations run --rm --entrypoint python operations -c '
+run_with_staging_log_capture \
+  "${TEMP_ROOT}/target-repair.raw.log" \
+  "${SOURCE_SECRET_ROOT}" "${RESTORE_SECRET_ROOT}" -- \
+  compose_restore --profile operations run --rm --entrypoint python operations -c '
 import hashlib,json,sys
 from pathlib import Path
 from creativedeploy_api.core.config import Settings
@@ -559,16 +616,18 @@ cp -R "${BACKUP_ROOT}/${BACKUP_ID}" "${BACKUP_ROOT}/${BAD_BACKUP_ID}"
 truncate -s 1 "${BACKUP_ROOT}/${BAD_BACKUP_ID}/tables/paint_projects.csv"
 docker stop "${RESTORE_PROJECT}-api-1" >/dev/null
 set +e
-compose_restore --profile operations run --rm \
+tampered_restore_log="${TEMP_ROOT}/tampered-restore.raw.log"
+run_with_staging_log_capture \
+  "${tampered_restore_log}" "${SOURCE_SECRET_ROOT}" "${RESTORE_SECRET_ROOT}" -- \
+  compose_restore --profile operations run --rm \
   --env OPERATIONS_QUIESCED=true --env RESTORE_TEMPORARY=true operations \
-  restore --backup-id "${BAD_BACKUP_ID}" --dry-run \
-  > "${TEMP_ROOT}/tampered-restore.log" 2>&1
+  restore --backup-id "${BAD_BACKUP_ID}" --dry-run
 tampered_status=$?
 set -e
 docker start "${RESTORE_PROJECT}-api-1" >/dev/null
 if [ "${tampered_status}" = "0" ] || \
    ! grep -q 'Backup file size or checksum validation failed' \
-     "${TEMP_ROOT}/tampered-restore.log"; then
+     "${tampered_restore_log}"; then
   echo "tampered backup did not fail checksum validation" >&2
   exit 1
 fi
@@ -594,16 +653,18 @@ path.write_text(json.dumps(manifest,sort_keys=True)+"\n",encoding="utf-8")
 ' "${BACKUP_ROOT}/${BAD_MANIFEST_ID}"
 docker stop "${RESTORE_PROJECT}-api-1" >/dev/null
 set +e
-compose_restore --profile operations run --rm \
+manifest_tampered_log="${TEMP_ROOT}/manifest-tampered-restore.raw.log"
+run_with_staging_log_capture \
+  "${manifest_tampered_log}" "${SOURCE_SECRET_ROOT}" "${RESTORE_SECRET_ROOT}" -- \
+  compose_restore --profile operations run --rm \
   --env OPERATIONS_QUIESCED=true --env RESTORE_TEMPORARY=true operations \
-  restore --backup-id "${BAD_MANIFEST_ID}" --dry-run \
-  > "${TEMP_ROOT}/manifest-tampered-restore.log" 2>&1
+  restore --backup-id "${BAD_MANIFEST_ID}" --dry-run
 manifest_tampered_status=$?
 set -e
 docker start "${RESTORE_PROJECT}-api-1" >/dev/null
 if [ "${manifest_tampered_status}" = "0" ] || \
    ! grep -q 'Backup manifest authenticity verification failed' \
-     "${TEMP_ROOT}/manifest-tampered-restore.log"; then
+     "${manifest_tampered_log}"; then
   echo "tampered manifest did not fail detached authenticity verification" >&2
   exit 1
 fi
