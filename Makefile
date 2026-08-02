@@ -2,11 +2,20 @@ SHELL := /bin/sh
 
 PYTHON_PROJECT := apps/api
 ALEMBIC_CONFIG := apps/api/alembic.ini
+ALEMBIC_HEAD := 2b1c4d5e6f70
 API_CHECK_PATHS := apps/api/src apps/api/tests apps/api/migrations
 WEB_PACKAGE := @creativedeploy/web
 ENV_FILE ?= .env
 PNPM ?= pnpm
 BACKEND_ENV_FILE := CREATIVEDEPLOY_ENV_FILE=$(abspath $(ENV_FILE))
+INTEGRATION_DATABASE_ENV := env \
+	-u DATABASE_URL_FILE \
+	-u POSTGRES_HOST \
+	-u POSTGRES_USER \
+	-u POSTGRES_PASSWORD \
+	-u POSTGRES_DB \
+	-u POSTGRES_PORT \
+	CREATIVEDEPLOY_ENV_FILE=/dev/null
 WEB_COMMAND_ENV := env \
 	-u APP_ENV \
 	-u APP_NAME \
@@ -248,8 +257,14 @@ test-api:
 test-api-integration: ensure-db
 	@integration_database_url="$$($(BACKEND_ENV_FILE) uv run --project $(PYTHON_PROJECT) python -c \
 		'from creativedeploy_api.core.config import Settings; print(Settings().require_database_url().get_secret_value())')"; \
-	env -u POSTGRES_HOST -u POSTGRES_USER -u POSTGRES_PASSWORD -u POSTGRES_DB \
-		-u POSTGRES_PORT CREATIVEDEPLOY_ENV_FILE=/dev/null \
+	$(INTEGRATION_DATABASE_ENV) DATABASE_URL="$$integration_database_url" \
+		uv run --project $(PYTHON_PROJECT) alembic -c $(ALEMBIC_CONFIG) upgrade head; \
+	current_revision="$$($(INTEGRATION_DATABASE_ENV) DATABASE_URL="$$integration_database_url" \
+		uv run --project $(PYTHON_PROJECT) alembic -c $(ALEMBIC_CONFIG) current)"; \
+	printf '%s\n' "$$current_revision"; \
+	test "$$current_revision" = "$(ALEMBIC_HEAD) (head)" || \
+		(echo "Integration database is not at the expected unique Alembic head $(ALEMBIC_HEAD)." >&2; exit 1); \
+	$(INTEGRATION_DATABASE_ENV) \
 		DATABASE_URL="$$integration_database_url" uv run --project $(PYTHON_PROJECT) \
 		pytest apps/api/tests/integration -m integration
 
