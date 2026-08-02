@@ -34,7 +34,11 @@ jobs:
     env:
       RUN_ID: ci_${{ github.run_id }}_${{ github.run_attempt }}_${{ github.job }}
       APP_ENV: test
-      DATABASE_URL: postgresql+psycopg://creativedeploy_ci_${{ github.run_id }}_${{ github.run_attempt }}:synthetic_ci_${{ github.run_id }}_${{ github.run_attempt }}_password@127.0.0.1:55432/creativedeploy_ci_${{ github.run_id }}_${{ github.run_attempt }}
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: 55432
+      POSTGRES_DB: creativedeploy_ci_${{ github.run_id }}_${{ github.run_attempt }}
+      POSTGRES_USER: creativedeploy_ci_${{ github.run_id }}_${{ github.run_attempt }}
+      POSTGRES_PASSWORD: synthetic_ci_${{ github.run_id }}_${{ github.run_attempt }}_password
       IMAGE_STORAGE_PROVIDER: local_filesystem
       IMAGE_STORAGE_ROOT: /tmp/creativedeploy-ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}-private-images
       PAINTPILOT_DEMO_PRINCIPAL_ID: ci-demo-principal
