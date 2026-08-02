@@ -3,8 +3,10 @@ import { useLocation } from "react-router";
 import { loginUrl } from "../api/auth";
 import { useAuth } from "../auth/AuthContext";
 import { FeedbackPanel } from "../components/FeedbackPanel";
+import { useAppTranslation } from "../i18n";
 
 export function LoginPage() {
+  const { t } = useAppTranslation();
   const location = useLocation();
   const { state, retry } = useAuth();
   const query = new URLSearchParams(location.search);
@@ -21,9 +23,9 @@ export function LoginPage() {
   if (state.status === "loading") {
     return (
       <section aria-busy="true" className="page page--projects">
-        <p className="eyebrow">Secure session</p>
-        <h1>Checking your PaintPilot session</h1>
-        <p role="status">Loading sign-in state…</p>
+        <p className="context-label">{t("login.secureSession")}</p>
+        <h1>{t("login.checking")}</h1>
+        <p role="status">{t("login.loading")}</p>
       </section>
     );
   }
@@ -32,13 +34,13 @@ export function LoginPage() {
     return (
       <div className="page page--projects">
         <FeedbackPanel
-          action={{ label: "Retry session", onClick: retry }}
-          eyebrow="Identity service unavailable"
-          heading="PaintPilot could not check your session"
+          action={{ label: t("login.retrySession"), onClick: retry }}
+          eyebrow={t("login.identityUnavailable")}
+          heading={t("login.sessionCheckFailed")}
           headingLevel={1}
           kind="error"
         >
-          <p>No Demo Principal or client-provided identity was substituted.</p>
+          <p>{t("login.noSubstitutionShort")}</p>
         </FeedbackPanel>
       </div>
     );
@@ -48,50 +50,77 @@ export function LoginPage() {
     return (
       <div className="page page--projects">
         <FeedbackPanel
-          action={{ label: "Try sign in again", onClick: retryLogin }}
+          action={{ label: t("login.retrySignIn"), onClick: retryLogin }}
           eyebrow={
             authError === "identity_provider_unavailable"
-              ? "Identity provider unavailable"
-              : "Sign-in failed"
+              ? t("login.providerUnavailable")
+              : t("login.signInFailed")
           }
           heading={
             authError === "identity_provider_unavailable"
-              ? "PaintPilot could not reach the identity provider"
-              : "PaintPilot could not complete sign-in"
+              ? t("login.providerHeading")
+              : t("login.failedHeading")
           }
           headingLevel={1}
           kind="error"
         >
-          <p>
-            No Demo Principal, request header, email, or client-provided role was
-            substituted. Retry when the governed identity service is available.
-          </p>
+          <p>{t("login.noSubstitution")}</p>
         </FeedbackPanel>
       </div>
     );
   }
 
   return (
-    <div className="page page--projects">
-      <section className="workspace-hero" aria-labelledby="login-title">
+    <div className="page page--login">
+      <div className="login-layout">
+      <section className="workspace-hero workspace-hero--login" aria-labelledby="login-title">
         <div className="workspace-hero__copy">
-          <p className="eyebrow">Governed access</p>
+          <p className="context-label">{t("login.governedAccess")}</p>
           <h1 id="login-title">
             {state.status === "authenticated"
-              ? `Signed in as ${state.user.display_name}`
+              ? t("login.signedInAs", { name: state.user.display_name })
               : state.reason === "session_expired"
-                ? "Your session expired"
-                : "Sign in to PaintPilot"}
+                ? t("login.sessionExpired")
+                : t("login.signInHeading")}
           </h1>
           <p className="workspace-hero__lede">
-            PaintPilot uses an OIDC Authorization Code flow with PKCE and a private
-            HttpOnly server session.
+            {t("login.lede")}
           </p>
         </div>
         <a className="button button--primary button--hero" href={loginUrl(safeReturn)}>
-          {state.status === "authenticated" ? "Continue" : "Sign in"}
+          {state.status === "authenticated" ? t("login.continue") : t("shell.signIn")}
         </a>
       </section>
+      <aside className="login-proof" aria-label={t("login.boundariesLabel")}>
+        <p className="context-label">{t("login.controlledWorkspace")}</p>
+        <ol>
+          <li>
+            <span>01</span>
+            <div>
+              <strong>{t("login.privateImages")}</strong>
+              <p>{t("login.privateImagesCopy")}</p>
+            </div>
+          </li>
+          <li>
+            <span>02</span>
+            <div>
+              <strong>{t("login.humanGeometry")}</strong>
+              <p>{t("login.humanGeometryCopy")}</p>
+            </div>
+          </li>
+          <li>
+            <span>03</span>
+            <div>
+              <strong>{t("login.traceableReview")}</strong>
+              <p>{t("login.traceableReviewCopy")}</p>
+            </div>
+          </li>
+        </ol>
+        <p className="login-proof__session">
+          OIDC Authorization Code + PKCE · private HttpOnly session
+        </p>
+      </aside>
+      </div>
     </div>
   );
 }

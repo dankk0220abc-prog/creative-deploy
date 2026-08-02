@@ -1,3 +1,5 @@
+import { useAppTranslation } from "../i18n";
+
 export type DisplayStatus = "checking" | "healthy" | "unavailable" | "unknown";
 
 interface StatusBadgeProps {
@@ -7,41 +9,39 @@ interface StatusBadgeProps {
 
 const statusDetails: Record<
   DisplayStatus,
-  { label: string; badgeClassName: string; dotClassName: string }
+  { labelKey: string; tone: string }
 > = {
   checking: {
-    label: "Checking",
-    badgeClassName: "border-amber-300/20 bg-amber-300/10 text-amber-200",
-    dotClassName: "bg-amber-300",
+    labelKey: "health.status.checking",
+    tone: "checking",
   },
   healthy: {
-    label: "Healthy",
-    badgeClassName: "border-emerald-300/20 bg-emerald-300/10 text-emerald-200",
-    dotClassName: "bg-emerald-300",
+    labelKey: "health.status.healthy",
+    tone: "healthy",
   },
   unavailable: {
-    label: "Unavailable",
-    badgeClassName: "border-rose-300/20 bg-rose-300/10 text-rose-200",
-    dotClassName: "bg-rose-300",
+    labelKey: "health.status.unavailable",
+    tone: "unavailable",
   },
   unknown: {
-    label: "Unknown",
-    badgeClassName: "border-slate-300/15 bg-slate-300/8 text-slate-300",
-    dotClassName: "bg-slate-400",
+    labelKey: "health.status.unknown",
+    tone: "unknown",
   },
 };
 
 export function StatusBadge({ label, status }: StatusBadgeProps) {
+  const { t } = useAppTranslation();
   const details = statusDetails[status];
+  const statusLabel = t(details.labelKey);
 
   return (
     <span
       role="status"
-      aria-label={`${label} status: ${details.label}`}
-      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${details.badgeClassName}`}
+      aria-label={t("health.statusAccessible", { label, status: statusLabel })}
+      className={`health-status health-status--${details.tone}`}
     >
-      <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${details.dotClassName}`} />
-      {details.label}
+      <span aria-hidden="true" className="health-status__dot" />
+      {statusLabel}
     </span>
   );
 }

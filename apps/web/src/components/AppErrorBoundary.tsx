@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from "react";
+import { i18n } from "../i18n";
 
 interface AppErrorBoundaryProps {
   children: ReactNode;
@@ -30,13 +31,11 @@ export class AppErrorBoundary extends Component<
     return (
       <main className="app-fallback">
         <div className="app-fallback__panel" role="alert">
-          <p className="eyebrow">PaintPilot</p>
-          <h1>The workspace could not be displayed</h1>
-          <p>
-            Your project data was not changed. Reload the workspace to try again.
-          </p>
+          <p className="context-label">PaintPilot</p>
+          <h1>{i18n.t("errorBoundary.heading")}</h1>
+          <p>{i18n.t("errorBoundary.copy")}</p>
           <a className="button button--primary" href="/paintpilot/projects">
-            Reload Projects
+            {i18n.t("errorBoundary.action")}
           </a>
         </div>
       </main>

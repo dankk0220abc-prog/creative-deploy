@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router";
 import { isPaintProjectId } from "../api/paintProjects";
 import { FeedbackPanel } from "../components/FeedbackPanel";
 import { RegionAnnotationWorkspace } from "../components/RegionAnnotationWorkspace";
+import { useAppTranslation } from "../i18n";
 
 type RegionPageState =
   | "current"
@@ -12,23 +13,24 @@ type RegionPageState =
   | "loading"
   | "not_found";
 
-function titleForState(state: RegionPageState): string {
+function titleKeyForState(state: RegionPageState): string {
   if (state === "not_found") {
-    return "Project Not Found — PaintPilot";
+    return "title.projectNotFound";
   }
   if (state === "error") {
-    return "Region Workspace Error — PaintPilot";
+    return "title.regionError";
   }
   if (state === "historical") {
-    return "Region History — PaintPilot";
+    return "title.regionHistory";
   }
   if (state === "loading") {
-    return "Loading Region Workspace — PaintPilot";
+    return "title.regionLoading";
   }
-  return "Region Annotation — PaintPilot";
+  return "title.regionAnnotation";
 }
 
 export function RegionWorkspacePage() {
+  const { i18n, t } = useAppTranslation();
   const { projectId } = useParams();
   const pageRef = useRef<HTMLDivElement>(null);
   const valid = isPaintProjectId(projectId);
@@ -49,19 +51,19 @@ export function RegionWorkspacePage() {
   );
 
   useLayoutEffect(() => {
-    document.title = titleForState(effectiveState);
+    document.title = t(titleKeyForState(effectiveState));
     const heading = pageRef.current?.querySelector<HTMLElement>("h1");
     if (heading !== null && heading !== undefined) {
       heading.tabIndex = -1;
       heading.focus({ preventScroll: true });
     }
-  }, [effectiveState, projectId]);
+  }, [effectiveState, i18n.resolvedLanguage, projectId, t]);
 
   return (
     <div className="page page--regions" ref={pageRef}>
       <div className="detail-breadcrumb">
         <Link to={`/paintpilot/projects/${projectId ?? ""}`}>
-          ← Back to project
+          ← {t("regionPage.back")}
         </Link>
       </div>
       {valid ? (
@@ -71,14 +73,14 @@ export function RegionWorkspacePage() {
         />
       ) : (
         <FeedbackPanel
-          eyebrow="Invalid project address"
-          heading="This project ID is not a valid UUID"
+          eyebrow={t("regionPage.invalidAddress")}
+          heading={t("regionPage.invalidId")}
           headingLevel={1}
           kind="error"
         >
-          <p>No region API request was sent.</p>
+          <p>{t("regionPage.noRequest")}</p>
           <Link className="button button--secondary" to="/paintpilot/projects">
-            View projects
+            {t("regionPage.viewProjects")}
           </Link>
         </FeedbackPanel>
       )}

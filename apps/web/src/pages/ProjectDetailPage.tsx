@@ -11,7 +11,8 @@ import { FeedbackPanel } from "../components/FeedbackPanel";
 import { ImageAssetManager } from "../components/ImageAssetManager";
 import { ProjectStatusBadge } from "../components/ProjectStatusBadge";
 import { ReviewerMembershipManager } from "../components/ReviewerMembershipManager";
-import { formatProjectTimestamp } from "../utils/format";
+import { useAppTranslation } from "../i18n";
+import { formatProjectStatus, formatProjectTimestamp } from "../utils/format";
 
 type DetailState =
   | { status: "error"; error: PaintProjectApiError; projectId: string }
@@ -45,19 +46,17 @@ function DetailError({
   error: PaintProjectApiError;
   onRetry: () => void;
 }) {
+  const { t } = useAppTranslation();
   if (error.kind === "network") {
     return (
       <FeedbackPanel
-        action={{ label: "Retry project", onClick: onRetry }}
-        eyebrow="API unavailable"
-        heading="The project service could not be reached"
+        action={{ label: t("detail.retry"), onClick: onRetry }}
+        eyebrow={t("detail.apiUnavailable")}
+        heading={t("detail.apiHeading")}
         headingLevel={1}
         kind="error"
       >
-        <p>
-          This page has no in-memory project fallback. Restart the local API if needed,
-          then retry the database-backed detail request.
-        </p>
+        <p>{t("detail.apiCopy")}</p>
       </FeedbackPanel>
     );
   }
@@ -65,37 +64,32 @@ function DetailError({
   if (error.kind === "unavailable") {
     return (
       <FeedbackPanel
-        action={{ label: "Retry project", onClick: onRetry }}
-        eyebrow="Database unavailable"
-        heading="Project data is temporarily unavailable"
+        action={{ label: t("detail.retry"), onClick: onRetry }}
+        eyebrow={t("detail.databaseUnavailable")}
+        heading={t("detail.databaseHeading")}
         headingLevel={1}
         kind="error"
       >
-        <p>
-          The API responded safely, but PostgreSQL could not read this project. Retry
-          after the database is available.
-        </p>
+        <p>{t("detail.databaseCopy")}</p>
       </FeedbackPanel>
     );
   }
 
   return (
     <FeedbackPanel
-      action={{ label: "Retry project", onClick: onRetry }}
-      eyebrow="Detail unavailable"
-      heading="The project could not be displayed"
+      action={{ label: t("detail.retry"), onClick: onRetry }}
+      eyebrow={t("detail.unavailable")}
+      heading={t("detail.unavailableHeading")}
       headingLevel={1}
       kind="error"
     >
-      <p>
-        The service returned an incomplete or unexpected response. No internal error
-        details were shown.
-      </p>
+      <p>{t("detail.unavailableCopy")}</p>
     </FeedbackPanel>
   );
 }
 
 export function ProjectDetailPage() {
+  const { i18n, t } = useAppTranslation();
   const { projectId } = useParams();
   const location = useLocation();
   const createdNavigation = wasCreatedNavigation(location.state);
@@ -116,9 +110,9 @@ export function ProjectDetailPage() {
   useLayoutEffect(() => {
     document.title =
       !projectIdIsValid || currentState.status === "not_found"
-        ? "Project Not Found — PaintPilot"
-        : "Project Details — PaintPilot";
-  }, [currentState.status, projectIdIsValid]);
+        ? t("title.projectNotFound")
+        : t("title.projectDetails");
+  }, [currentState.status, i18n.resolvedLanguage, projectIdIsValid, t]);
 
   useLayoutEffect(() => {
     const heading = pageRef.current?.querySelector<HTMLElement>("h1");
@@ -171,23 +165,22 @@ export function ProjectDetailPage() {
   return (
     <div className="page page--detail" ref={pageRef}>
       <div className="detail-breadcrumb">
-        <Link to="/paintpilot/projects">← Back to projects</Link>
+        <Link to="/paintpilot/projects">← {t("detail.back")}</Link>
       </div>
 
       {createdNavigation ? (
         <div aria-live="polite" className="success-banner" role="status">
           <span aria-hidden="true">✓</span>
-          Project created and saved. This detail view is reading the persisted API
-          record.
+          {t("detail.createdBanner")}
         </div>
       ) : null}
 
       {projectIdIsValid && currentState.status === "loading" ? (
         <section aria-busy="true" className="detail-loading">
-          <p className="eyebrow">PaintProject detail</p>
-          <h1>Loading saved project</h1>
-          <p aria-label="Reading the project from PaintPilot…" role="status">
-            Reading the project from PaintPilot…
+          <p className="context-label">{t("detail.loadingEyebrow")}</p>
+          <h1>{t("detail.loadingHeading")}</h1>
+          <p aria-label={t("detail.reading")} role="status">
+            {t("detail.reading")}
           </p>
           <div aria-hidden="true" className="detail-loading__surface" />
         </section>
@@ -195,34 +188,28 @@ export function ProjectDetailPage() {
 
       {!projectIdIsValid ? (
         <FeedbackPanel
-          eyebrow="Invalid project address"
-          heading="This project ID is not a valid UUID"
+          eyebrow={t("detail.invalidAddress")}
+          heading={t("detail.invalidId")}
           headingLevel={1}
           kind="error"
         >
-          <p>
-            No API request was sent. Return to Projects and open a project from its
-            database-backed card.
-          </p>
+          <p>{t("detail.invalidCopy")}</p>
           <Link className="button button--secondary" to="/paintpilot/projects">
-            View projects
+            {t("detail.viewProjects")}
           </Link>
         </FeedbackPanel>
       ) : null}
 
       {projectIdIsValid && currentState.status === "not_found" ? (
         <FeedbackPanel
-          eyebrow="Project not found"
-          heading="This project is unavailable"
+          eyebrow={t("detail.notFound")}
+          heading={t("detail.unavailableProject")}
           headingLevel={1}
           kind="error"
         >
-          <p>
-            The project may not exist or may not belong to the current configured demo
-            operator. PaintPilot uses the same safe response for both cases.
-          </p>
+          <p>{t("detail.notFoundCopy")}</p>
           <Link className="button button--secondary" to="/paintpilot/projects">
-            Return to projects
+            {t("detail.returnProjects")}
           </Link>
         </FeedbackPanel>
       ) : null}
@@ -241,16 +228,55 @@ export function ProjectDetailPage() {
         <article className="project-detail">
           <header className="project-detail__header">
             <div>
-              <p className="eyebrow">
-                PaintProject · {currentState.project.access_role}
+              <p className="context-label">
+                {t("detail.role", {
+                  role: currentState.project.access_role === "owner"
+                    ? t("common.owner")
+                    : t("common.reviewer"),
+                })}
               </p>
               <h1>{currentState.project.title}</h1>
               <p className="project-detail__description">
-                {currentState.project.description ?? "No description provided."}
+                {currentState.project.description ?? t("common.noDescription")}
               </p>
             </div>
             <ProjectStatusBadge status={currentState.project.status} />
           </header>
+
+          <section
+            aria-labelledby="project-next-action-heading"
+            className="project-command-strip"
+          >
+            <div className="project-command-strip__lead">
+              <p className="context-label">{t("detail.currentSequence")}</p>
+              <h2 id="project-next-action-heading">
+                {currentState.project.current_image_asset_id === null
+                  ? t("detail.startImages")
+                  : t("detail.continueWorkspace")}
+              </h2>
+              <p>
+                {currentState.project.access_role === "owner"
+                  ? t("detail.ownerSequence")
+                  : t("detail.reviewerSequence")}
+              </p>
+            </div>
+            <nav aria-label={t("detail.sectionsLabel")} className="project-local-nav">
+              <a href="#image-set-workbench">
+                <span>01</span>
+                {t("detail.imagesReadiness")}
+              </a>
+              {currentState.project.access_role === "owner" ? (
+                <a href="#reviewer-access">
+                  <span>02</span>
+                  {t("detail.reviewerAccess")}
+                </a>
+              ) : null}
+              <Link to={`/paintpilot/projects/${currentState.project.id}/regions`}>
+                <span>{currentState.project.access_role === "owner" ? "03" : "02"}</span>
+                {t("detail.regionWorkspace")}
+              </Link>
+            </nav>
+          </section>
 
           <section
             aria-labelledby="project-overview-heading"
@@ -258,34 +284,34 @@ export function ProjectDetailPage() {
           >
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Persisted project facts</p>
-                <h2 id="project-overview-heading">Project overview</h2>
+                <p className="context-label">{t("detail.persistedFacts")}</p>
+                <h2 id="project-overview-heading">{t("detail.overview")}</h2>
               </div>
             </div>
 
             <dl className="detail-facts">
               <div>
-                <dt>Target style</dt>
-                <dd>Cel Shading · Current release</dd>
+                <dt>{t("detail.targetStyle")}</dt>
+                <dd>{t("detail.targetStyleValue")}</dd>
               </div>
               <div>
-                <dt>Planning mode</dt>
-                <dd>Planning-only demo</dd>
+                <dt>{t("detail.planningMode")}</dt>
+                <dd>{t("detail.planningModeValue")}</dd>
               </div>
               <div>
-                <dt>Workflow status</dt>
-                <dd>{currentState.project.status}</dd>
+                <dt>{t("detail.workflowStatus")}</dt>
+                <dd>{formatProjectStatus(currentState.project.status)}</dd>
               </div>
               <div>
-                <dt>Access scope</dt>
+                <dt>{t("detail.accessScope")}</dt>
                 <dd>
                   {currentState.project.access_role === "owner"
-                    ? "Owner · full governed project control"
-                    : "Reviewer · read and human review"}
+                    ? t("detail.ownerScope")
+                    : t("detail.reviewerScope")}
                 </dd>
               </div>
               <div>
-                <dt>Created</dt>
+                <dt>{t("common.created")}</dt>
                 <dd>
                   <time dateTime={currentState.project.created_at}>
                     {formatProjectTimestamp(currentState.project.created_at)}
@@ -293,7 +319,7 @@ export function ProjectDetailPage() {
                 </dd>
               </div>
               <div>
-                <dt>Updated</dt>
+                <dt>{t("common.updated")}</dt>
                 <dd>
                   <time dateTime={currentState.project.updated_at}>
                     {formatProjectTimestamp(currentState.project.updated_at)}
@@ -301,7 +327,7 @@ export function ProjectDetailPage() {
                 </dd>
               </div>
               <div className="detail-facts__identifier">
-                <dt>Project ID</dt>
+                <dt>{t("detail.projectId")}</dt>
                 <dd>{currentState.project.id}</dd>
               </div>
             </dl>
@@ -316,42 +342,33 @@ export function ProjectDetailPage() {
           {currentState.project.access_role === "owner" && membershipsOpen ? (
             <ReviewerMembershipManager projectId={currentState.project.id} />
           ) : currentState.project.access_role === "owner" ? (
-            <section className="project-memberships">
-              <p className="eyebrow">Owner governed</p>
-              <h2>Reviewer access</h2>
-              <p>
-                Grant or revoke read-and-review access for existing signed-in users.
-              </p>
+            <section className="project-memberships" id="reviewer-access">
+              <p className="context-label">{t("detail.ownerGoverned")}</p>
+              <h2>{t("detail.reviewerAccess")}</h2>
+              <p>{t("detail.reviewerAccessCopy")}</p>
               <button
                 className="button button--secondary"
                 onClick={() => setMembershipsOpen(true)}
                 type="button"
               >
-                Manage reviewer access
+                {t("detail.manageReviewerAccess")}
               </button>
             </section>
           ) : null}
 
           <aside className="next-boundary" aria-labelledby="next-boundary-heading">
-            <div aria-hidden="true" className="next-boundary__visual">
-              <span />
-              <span />
-              <span />
+            <div aria-hidden="true" className="next-boundary__index">
+              {currentState.project.access_role === "owner" ? "03" : "02"}
             </div>
             <div>
-              <p className="eyebrow">Human-governed workspace</p>
-              <h2 id="next-boundary-heading">Human region annotation workspace</h2>
-              <p>
-                The current release supports drawing simple polygons over the primary
-                image, saving immutable RegionSet snapshots, browsing history, and
-                recording exact-snapshot human reviews. Subject recognition, inventory
-                matching, and PaintPlan generation remain outside this boundary.
-              </p>
+              <p className="context-label">{t("detail.humanWorkspace")}</p>
+              <h2 id="next-boundary-heading">{t("detail.regionHeading")}</h2>
+              <p>{t("detail.regionCopy")}</p>
               <Link
                 className="button button--primary next-boundary__action"
                 to={`/paintpilot/projects/${currentState.project.id}/regions`}
               >
-                Open region workspace
+                {t("detail.openRegion")}
               </Link>
             </div>
           </aside>

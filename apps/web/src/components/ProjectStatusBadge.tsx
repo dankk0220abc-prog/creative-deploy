@@ -1,4 +1,5 @@
 import type { WorkflowStatus } from "../api/paintProjects";
+import { useAppTranslation } from "../i18n";
 import { formatProjectStatus } from "../utils/format";
 
 type StatusTone = "attention" | "complete" | "draft" | "error" | "progress";
@@ -22,30 +23,21 @@ const statusTones: Record<WorkflowStatus, StatusTone> = {
   ABANDONED: "error",
 };
 
-const toneSymbols: Record<StatusTone, string> = {
-  attention: "!",
-  complete: "✓",
-  draft: "•",
-  error: "×",
-  progress: "→",
-};
-
 interface ProjectStatusBadgeProps {
   status: WorkflowStatus;
 }
 
 export function ProjectStatusBadge({ status }: ProjectStatusBadgeProps) {
+  const { t } = useAppTranslation();
   const tone = statusTones[status];
   const label = formatProjectStatus(status);
 
   return (
     <span
-      aria-label={`Workflow status: ${label}`}
+      aria-label={t("status.workflowAccessible", { status: label })}
       className={`project-status project-status--${tone}`}
     >
-      <span aria-hidden="true" className="project-status__symbol">
-        {toneSymbols[tone]}
-      </span>
+      <span aria-hidden="true" className="project-status__symbol" />
       {label}
     </span>
   );

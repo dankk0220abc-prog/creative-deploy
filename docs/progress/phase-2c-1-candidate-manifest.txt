@@ -1,0 +1,79 @@
+Phase 2C Unified Frontend and Private Publication Candidate Manifest v4
+generated_at: 2026-08-02 Asia/Shanghai
+repository: repository-relative working tree
+branch: main
+baseline_head: ce6b002a8f310e5fd7f50c3086aad88d04c65eb5
+baseline_tree: 8b5e2678d65554232c983283d6af906b82d7c5f4
+baseline_commit_count: 24
+alembic_head: 2b1c4d5e6f70
+entry_manifest_sha256: 288b72b2dc4a2a7e3965bfd88aa0e60ba0282a706642ef7b92f616c7fe1aaa0b
+loaded_skills: redesign-existing-projects, gpt-taste, impeccable v4.0.4
+supported_locales: en-US, zh-CN
+publication_target: GitHub Private preparation only
+payload_path_count: 56
+manifest_path_count: 1
+candidate_path_count: 57
+staged_path_count: 0
+status_legend: M=tracked modified, ??=untracked
+row_format: status | bytes | sha256 | path
+
+M | 2962 | 34973e919bf4eaf2712a66a461f3f5119478693c0170a1edb3e7455eb272f634 | .env.example
+M | 338 | eb054553b3290f21fb392913cc9f780844b958fa878e44a8d4c568e66e27b56c | .gitignore
+M | 38055 | 3ba7d013c3f7f9505666d7c3963ad1b362fefb8bed633bb40d7a07edffb5e9e8 | README.md
+?? | 1888 | 2d11db1de4bf7f57253f2c1e5cf63b6997f944399eb45bece8b59747c2cd120e | SECURITY.md
+M | 1146 | 39c3d0f2c893fe2d7d73b2073a2117d013035f06ec90bcb28d35b627e3dd9c6d | apps/web/package.json
+M | 15578 | 71031b8a52a719454b0a8d821093d84adf7ef0d4ed6f5d97ac984008a778c4ce | apps/web/src/__tests__/CreateProjectPage.test.tsx
+M | 20611 | d7934b1c94f59b6b91137706c9b5c44d808ea5777efb9442d92c2d707c377c86 | apps/web/src/__tests__/ImageAssetManager.test.tsx
+M | 25705 | 4e6041bc994a206905bf3a402c3cd72b33c50a6efd819fb9fe0ea130b93da46d | apps/web/src/__tests__/RegionAnnotationWorkspace.test.tsx
+?? | 3959 | 8bc15673c563571b463fc7ef8fa6d1354e7ea4c67f196fd0ae47106b4501a101 | apps/web/src/__tests__/i18n.test.tsx
+M | 1074 | 188915267bebbcf96fbae4a23776af6d573b759b02dd24b897ff4fa879def9b6 | apps/web/src/components/AppErrorBoundary.tsx
+M | 7871 | b85a682256430f163289ebd632be7b9bdd0d07d10392af3ad82dd862f94d3864 | apps/web/src/components/AppShell.tsx
+M | 1204 | a9877c980ac9bf19ac75dce48bc186ea00b31db2f3b5dfa16e27b77bf67b7151 | apps/web/src/components/FeedbackPanel.tsx
+M | 5125 | 4f2d2f3137f85f4293c85267819b811ecfe2516984c02e689beaeb7ac3a793f3 | apps/web/src/components/HealthDashboard.tsx
+M | 36242 | 7f7877704bfc39988b7f300bb8ea37a80e8bfbf18b7c01bbeeda1ffd62140928 | apps/web/src/components/ImageAssetManager.tsx
+?? | 865 | ebc28401c5b91c3aaa6037c641bfbfd2de924a2a0cd1eb8a5d0b7b61e167e7d9 | apps/web/src/components/LocaleSwitcher.tsx
+M | 2957 | 475119be5e15ebb41f195d4ab80b1f8200963ab6f4be1a430476a3d94cfaed06 | apps/web/src/components/ProjectCard.tsx
+M | 1329 | b71e9af2085cb761e3dc5c74f338da30fc38f67aaa8c9a89f35faa44145175d2 | apps/web/src/components/ProjectStatusBadge.tsx
+M | 50701 | b59172c580cda95ffa4bcd373270e47f641b8f3c090c8b21ded81d07d6fefdc5 | apps/web/src/components/RegionAnnotationWorkspace.tsx
+M | 7084 | 8e53f36e9ff1de9e726698be55e548b804bbf26d6cc37c7018f6029352a704ae | apps/web/src/components/ReviewerMembershipManager.tsx
+M | 1106 | b4c5b514ff8b5a42e74d1a78a83212c77751b6e6cc390d107354713c44ceafb1 | apps/web/src/components/StatusBadge.tsx
+M | 2265 | 85c8955e22a59a8b17f6d8321af0ad59591cb645175eac4c6606a0da45d11f5a | apps/web/src/components/UnsavedChangesDialog.tsx
+?? | 3069 | 1961d948bbd72b4d6828cd2a8905b72afa55f92b9e13ef6c5db4641649038616 | apps/web/src/i18n/index.ts
+?? | 56996 | 919a4263d05b27cf3742cb88bfad58de4a25a34d9b7cfa3df79a1142925a193e | apps/web/src/i18n/resources.ts
+M | 78806 | 6e3d57d4d8bf290f8ff1dc7e8109ca8f37c211167b6b999ae9004c94bafb5826 | apps/web/src/index.css
+M | 17066 | 3fc020c5d736bcb3e45fe62b59a76a09cd7c3fc6c2a5509cf138bd08c50cdb7a | apps/web/src/pages/CreateProjectPage.tsx
+M | 4108 | c528c71ff67ff6b41177d0dfc314b25d0bbf577ccbf4d2cba049099f9628286a | apps/web/src/pages/LoginPage.tsx
+M | 625 | 08b86487c7ca6cda7d154d483f1ea4bf8d1332e93c91d936af3cf42631346435 | apps/web/src/pages/NotFoundPage.tsx
+M | 13076 | 6cb1fc9eee8e67f2e25001093ab9a239b6a6699254da161939bddeb6a2a08478 | apps/web/src/pages/ProjectDetailPage.tsx
+M | 8075 | ecfb29dc0477dbb3e2de7e68d84343db51dc40bbcfcda1b70e1f56fb9a6c49f7 | apps/web/src/pages/ProjectsPage.tsx
+M | 2686 | 51939aadaa432db8999766fafe981ece26167681131687c1df090d80490e69c1 | apps/web/src/pages/RegionWorkspacePage.tsx
+M | 2764 | a1bae9a32bbfcfbfce41963b04ca95b87fe13953ab7bde00f9e47963277570bb | apps/web/src/utils/format.ts
+M | 168 | e78662323e79c977787d4021003c49526f16c1e32ab12370327c9232d02ce6ad | apps/web/src/vite-env.d.ts
+?? | 298520 | ba42bb2078088dd2deddb676d37306bb4a76baa46f844e4d0b42877db45f6c7d | docs/progress/evidence/phase-2c-1/image-readiness-1440-skill-backed.png
+?? | 68371 | 884d7071f32597cb70a05b91603270ea53c042ffd12efb8d25d5b4e456021563 | docs/progress/evidence/phase-2c-1/login-anonymous-1440-skill-backed.png
+?? | 68708 | 68a1e1d515ca186b6fddd42b01817f9365ef488bbed7b07d516e11efbc6b7089 | docs/progress/evidence/phase-2c-1/login-anonymous-1440.png
+?? | 81162 | d7702f60b5220d2b82d8a723450645faafa7a1ab6b34ac7c657914436ad53c67 | docs/progress/evidence/phase-2c-1/project-detail-owner-1440-skill-backed.png
+?? | 74121 | 0931d8920b34f91ee813dfedfa52bee7ab6646a77a5e665d30175a6209422c7f | docs/progress/evidence/phase-2c-1/project-detail-reviewer-1440.png
+?? | 358153 | 2925aa2e41aae8dc570c944f8d85f16c05558b00ac7b7d89129e5d4085996cf7 | docs/progress/evidence/phase-2c-1/project-detail-zh-1440-bilingual.png
+?? | 32421 | ee893c387be9c917b8953b39574cec072ebd518fb78d0e5d033130ac25fc87d4 | docs/progress/evidence/phase-2c-1/projects-en-768-bilingual.png
+?? | 31430 | 5bf90851fed8bfb7c34a0c1b701e1dac8a3c98795aa7496aad7b185fe2ce7d03 | docs/progress/evidence/phase-2c-1/projects-owner-768-skill-backed.png
+?? | 59673 | ce069b927c5d70b2a13e588061ecf7524a3ef4356189b4708c39d41c661ee86a | docs/progress/evidence/phase-2c-1/projects-owner-768.png
+?? | 91342 | e8ced32d6ae85dc22c54cb76fe2fbf279ecf7e1ac8aaa01af0c14f94fd6b0dea | docs/progress/evidence/phase-2c-1/region-owner-390-skill-backed.png
+?? | 37940 | 627bd75e8b777d1e70e6ad9c31d8a8c76c26408757667d16f788f5a3c0bce317 | docs/progress/evidence/phase-2c-1/region-owner-390.png
+?? | 85863 | a4862f0146cc50a580cd8fce77dc35aa5cc49ef52290477cd083165d21359a03 | docs/progress/evidence/phase-2c-1/region-polygon-owner-1440-skill-backed.png
+?? | 66214 | 656f29bae002201b01f0f1ed64d5bc04fbcebffea881e6c0106fc1c8163e6a3c | docs/progress/evidence/phase-2c-1/region-zh-390-bilingual.png
+?? | 81564 | 25ff59a8023b0103e2cd3607d325b779e2e1b18f904037b0e5c426c56dddbca8 | docs/progress/evidence/phase-2c-1/reviewer-management-owner-1440-skill-backed.png
+?? | 98751 | 61d366acff648988345671fc363947df1cbc5f6ffacef4b5079980b124ac04e1 | docs/progress/evidence/phase-2c-1/reviewer-submitted-region-1440-skill-backed.png
+?? | 41194 | db1d447b0b58901361a14b5270b125fa4ed13fa20c2fbd1e3338692ac85c0f3b | docs/progress/evidence/phase-2c-1/session-error-retry-1440.png
+?? | 325617 | 18ac16414738f4e703e3ce2c186a59c9ed5029b648e3763992455e4af408df02 | docs/progress/evidence/phase-2c-1/upload-error-1440-skill-backed.png
+?? | 5679 | 4cfb1faa92a775f56e1da474cd7f689911e582232c2d140c402086babfea1fa7 | docs/progress/phase-2c-1-browser-evidence.md
+?? | 4375 | 3c2efd940e6e2f115e541f17ed46af11d28dd6bff65f206996b5909609637325 | docs/progress/phase-2c-1-command-ledger.md
+?? | 7251 | f5d715702d1fcb829842f84881efa31affaeef01f2bc6f692fe7ea60767bcde7 | docs/progress/phase-2c-1-taste-audit-design-direction.md
+?? | 6340 | a7f4408c98020de4dabeab4faffa7ebbd24f55e5b547e44f85ae988cdf853b1f | docs/progress/phase-2c-1-taste-product-experience-candidate.md
+?? | 3263 | 727db133ad31f9f253746ab22a7e0f26fa03d8c0f4bcee00d52d1d021d47dd34 | docs/progress/phase-2c-1-taste-product-experience-plan.md
+?? | 156644 | a1de0364d0bf69d841c1d8371092b87eeda99973114f1f500f341721a2983d61 | docs/screenshots/paintpilot-region-workspace-en.png
+M | 103089 | faab90087059c5c89e42a42087c11327cebad82ca7b34dc6638c0705c39336d5 | pnpm-lock.yaml
+
+excluded_from_candidate: ignored private environment files, local tool state, Skill payloads, installed dependencies, build output, and temporary browser resources
+self_hash: external; compute SHA-256 over this manifest file after finalization
+git_state: unstaged and uncommitted candidate

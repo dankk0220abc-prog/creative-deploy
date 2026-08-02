@@ -1,5 +1,112 @@
 # CreativeDeploy
 
+PaintPilot is CreativeDeploy's image-first, human-governed repaint planning
+workbench. It keeps private reference images, immutable image history, reviewer
+membership, deterministic readiness checks, human-authored Polygon regions, and
+append-only review decisions in one bilingual workspace.
+
+This repository is being prepared for its first **GitHub Private** publication.
+The current Phase 2C unified frontend and publication Candidate is unstaged and
+uncommitted. It is not an independent approval, a Git seal, a production release,
+or authorization to make the repository public.
+
+## Product tour
+
+![PaintPilot Polygon workspace in English](docs/screenshots/paintpilot-region-workspace-en.png)
+
+The synthetic capture shows the image-first Polygon editor, an approved immutable
+snapshot, and append-only history. It contains no private project asset or account.
+
+The interface supports English (`en-US`) and Simplified Chinese (`zh-CN`) without
+translating user-entered titles, filenames, IDs, UUIDs, hashes, or raw enum values.
+Use the language control in the application header; the preference persists across
+refreshes in the same browser.
+
+## Implemented product boundary
+
+- Create, list, reopen, and inspect server-persisted planning-only PaintProjects.
+- Maintain four private immutable image roles with version history, deterministic
+  file checks, human rights attestation, and append-only readiness review.
+- Grant and revoke reviewer membership through server-authorized Owner controls.
+- Draw and edit human-authored Polygon regions, save immutable RegionSet snapshots,
+  submit exact snapshots, browse history, and record append-only human review.
+- Recover explicitly from loading, empty, validation, network, storage, conflict,
+  and unavailable states without substituting sample records.
+
+Automated image quality assessment, OCR, segmentation, generated regions, paint
+inventory, Agent workflows, RAG, and PaintPlan generation are not implemented.
+AI remains `NOT_AUTHORIZED`.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  browser["React and Vite Web"] -->|"same-origin /api"| api["FastAPI application"]
+  api -->|"opaque OIDC session and membership"| identity["Provider-neutral OIDC"]
+  api -->|"governed records"| database["PostgreSQL"]
+  api -->|"private API streaming only"| storage["S3-compatible object storage"]
+```
+
+The Web never receives storage credentials or public object URLs. The API owns
+authorization, workflow enforcement, idempotency, persistence, and private object
+delivery. PostgreSQL and object storage remain independent durable boundaries.
+
+## Local start
+
+Prerequisites are Node.js 24, Corepack/pnpm 11.14.0, Python 3.13 with uv, Docker
+Desktop, and Docker Compose. From the repository root:
+
+```bash
+make bootstrap
+make db-up
+make api
+make web
+```
+
+`make bootstrap` creates `.env` from `.env.example` only when `.env` is absent;
+it never overwrites a private environment file. Open `http://127.0.0.1:5173`.
+The development Web uses same-origin `/api` requests through the Vite proxy.
+
+## Authentication, storage, staging, and recovery
+
+- Local development may use the explicit configured Demo Principal and private
+  local-file adapter. Both are rejected for production.
+- Governed environments use provider-neutral OIDC Authorization Code + PKCE,
+  opaque HttpOnly sessions, server-side Owner/reviewer membership, and private
+  S3-compatible object access through the API only.
+- The staging topology is synthetic and loopback-only. It is evidence for the
+  deployment boundary, not a real environment or provider selection.
+- Backup is quiesced and manifest-bound. Restore targets a fresh isolated
+  environment; the repository does not provide destructive in-place promotion.
+
+See [Security](SECURITY.md),
+[local production-style operations](docs/runbooks/local-production-style.md), and
+[staging and backup/restore operations](docs/runbooks/staging-operations.md).
+
+## Quality commands
+
+Frontend and publication work uses the focused commands below. Full API and real
+PostgreSQL gates remain separate and are not implied by a frontend-only result.
+
+```bash
+make lint-web
+make typecheck-web
+make test-web
+make build-web
+git diff --check
+```
+
+The exact Phase 2C command results, real-browser coverage, and Candidate hashes are
+recorded under `docs/progress/phase-2c-1-*` for focused review.
+
+## Suggested GitHub Private metadata
+
+- Description: `Human-governed, image-first repaint planning with private assets, immutable review history, and bilingual React/FastAPI workflows.`
+- Topics: `react`, `typescript`, `fastapi`, `postgresql`, `oidc`, `s3`,
+  `accessibility`, `internationalization`, `image-workflow`, `polygon-annotation`
+- Visibility: keep `Private` until a separate decision authorizes any public release.
+- License: none is added by this Candidate; licensing remains an owner decision.
+
 Project Status: Phase 1D `COMPLETE` — Phase 1E-1 `CLOSED` — Phase 1E-2 `CLOSED` —
 Phase 1F `CLOSED` — Phase 2B-1 `IMPLEMENTED_PENDING_INDEPENDENT_REVIEW` —
 Phase 2B-2 `IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
@@ -251,11 +358,11 @@ Phase 1F:
 - Historical implementation-conversation verdict: `PHASE_1F_IMPLEMENTATION_FAILED`
 - Historical incident classification: `ENVIRONMENT_ISOLATION_INVALID_ATTEMPT`
 - Historical process deviation: one final supplemental browser attempt used the wrong Vite proxy variable and
-  sent one unsuccessful Create request to the unrelated service already listening on port 8000;
-  the historical no-VisualEngineer-operation completion condition therefore was not claimed
+  sent one unsuccessful Create request to an unrelated local service; the isolated completion
+  condition therefore was not claimed
 - The controller-authorized continuation used API `18160`, Vite `15160`, and a request-audit proxy
-  on `18161`, enforced an explicit not-port-8000 target guard, and performed no VisualEngineer
-  request, check, log, container, database, or file operation
+  on `18161`, enforced an explicit prohibited-target guard, and performed no operation against
+  that unrelated service
 - The isolated PostgreSQL schema, private storage, fixtures, processes, and listeners were exactly
   cleaned after the full real-browser journey; public CreativeDeploy business rows remained zero
 - Migration Revision: `7f3a2b9c4d1e`, parent `d4c8a1f7b2e9`
@@ -401,7 +508,7 @@ make web
 - `GET /api/v1/health/live`：只验证 API 进程，不访问数据库；
 - `GET /api/v1/health/ready`：使用异步 SQLAlchemy Engine 对 PostgreSQL 执行 `SELECT 1`；
 - PostgreSQL 不可用时，readiness 返回 HTTP 503 和稳定的 `DATABASE_UNAVAILABLE`，不返回连接地址或内部异常；
-- OpenAPI：`http://127.0.0.1:8000/openapi.json`。
+- OpenAPI：启动 `make api` 后访问 API origin 下的 `/openapi.json`。
 
 ## PaintProject API
 

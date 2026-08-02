@@ -29,6 +29,7 @@ import {
   persistedRegionsToDrafts,
   validateRegionDrafts,
 } from "../utils/regionGeometry";
+import { useAppTranslation } from "../i18n";
 import { formatProjectTimestamp } from "../utils/format";
 import { FeedbackPanel } from "./FeedbackPanel";
 
@@ -59,6 +60,11 @@ interface CommandAttempt {
 interface Point {
   x_ppm: number;
   y_ppm: number;
+}
+
+interface LocalizedMessage {
+  key: string;
+  values?: Record<string, string | number>;
 }
 
 type Tool = "draw" | "edit" | "pan";
@@ -112,36 +118,57 @@ function apiError(error: unknown): RegionSetApiError {
       );
 }
 
-function commandMessage(error: RegionSetApiError): string {
+function commandMessageKey(error: RegionSetApiError): string {
   if (error.kind === "network") {
-    return "The connection was interrupted. Retry keeps the same protected command.";
+    return "region.error.network";
   }
   if (error.kind === "conflict") {
-    return "The image set or region snapshot changed. Reload before reapplying edits.";
+    return "region.error.conflict";
   }
   if (error.kind === "validation") {
-    return "The command does not meet the current geometry or lifecycle contract.";
+    return "region.error.validation";
   }
   if (error.kind === "not_found") {
-    return "This project or snapshot is not available to the current operator.";
+    return "region.error.notFound";
   }
-  return "The region service returned an incomplete or unexpected response.";
+  return "region.error.unexpected";
 }
 
 function snapshotFingerprint(regions: RegionDraftInput[]): string {
   return JSON.stringify(regions);
 }
 
-function makeRegion(vertices: Point[], zIndex: number): RegionDraftInput {
+function makeRegion(vertices: Point[], zIndex: number, label: string): RegionDraftInput {
   return {
     stable_region_key: crypto.randomUUID(),
     kind: "paint",
-    label: `Region ${zIndex + 1}`,
+    label,
     z_index: zIndex,
     opacity_ppm: 500_000,
     notes: null,
     vertices,
   };
+}
+
+function geometryMessage(error: string): LocalizedMessage {
+  const exact: Record<string, string> = {
+    "A snapshot can contain at most 128 regions.": "region.validation.maxRegions",
+    "A snapshot can contain at most 8,192 vertices.": "region.validation.maxVertices",
+    "Every region needs a label of 80 characters or fewer.": "region.validation.label",
+  };
+  if (exact[error] !== undefined) return { key: exact[error] };
+  const match = /^Region “(.+)” (has a duplicate stable key|has a duplicate layer position|needs between 3 and 256 vertices|has an out-of-bounds vertex|has a zero-length edge|crosses itself|is too small)\.$/.exec(error);
+  if (match === null) return { key: "region.error.validation" };
+  const keys: Record<string, string> = {
+    "has a duplicate stable key": "region.validation.duplicateKey",
+    "has a duplicate layer position": "region.validation.duplicateLayer",
+    "needs between 3 and 256 vertices": "region.validation.vertices",
+    "has an out-of-bounds vertex": "region.validation.bounds",
+    "has a zero-length edge": "region.validation.edge",
+    "crosses itself": "region.validation.crosses",
+    "is too small": "region.validation.small",
+  };
+  return { key: keys[match[2]!] ?? "region.error.validation", values: { label: match[1]! } };
 }
 
 function exactPoint(
@@ -181,6 +208,7 @@ export function RegionAnnotationWorkspace({
   onViewStateChange,
   projectId,
 }: RegionAnnotationWorkspaceProps) {
+  const { t } = useAppTranslation();
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [viewedRegionSet, setViewedRegionSet] = useState<RegionSet | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
@@ -195,8 +223,8 @@ export function RegionAnnotationWorkspace({
   const [undoStack, setUndoStack] = useState<string[]>([]);
   const [redoStack, setRedoStack] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
-  const [commandError, setCommandError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [commandError, setCommandError] = useState<LocalizedMessage | null>(null);
+  const [notice, setNotice] = useState<LocalizedMessage | null>(null);
   const [reviewReason, setReviewReason] = useState("");
   const [draggingVertex, setDraggingVertex] = useState<{
     key: string;
@@ -419,10 +447,10 @@ export function RegionAnnotationWorkspace({
         commandKey("save", fingerprint),
       );
       completeCommand("save");
-      setNotice(`Draft v${saved.version} saved as an immutable snapshot.`);
+      setNotice({ key: "region.notice.saved", values: { version: saved.version } });
       load();
     } catch (error) {
-      setCommandError(commandMessage(apiError(error)));
+      setCommandError({ key: commandMessageKey(apiError(error)) });
     } finally {
       setBusy(null);
     }
@@ -447,10 +475,10 @@ export function RegionAnnotationWorkspace({
         commandKey("submit", target.geometry_fingerprint),
       );
       completeCommand("submit");
-      setNotice(`Snapshot v${submitted.version} submitted for human review.`);
+      setNotice({ key: "region.notice.submitted", values: { version: submitted.version } });
       load();
     } catch (error) {
-      setCommandError(commandMessage(apiError(error)));
+      setCommandError({ key: commandMessageKey(apiError(error)) });
     } finally {
       setBusy(null);
     }
@@ -468,7 +496,7 @@ export function RegionAnnotationWorkspace({
     }
     const reason = reviewReason.trim();
     if (verdict === "changes_requested" && !reason) {
-      setCommandError("Explain the requested changes before recording the decision.");
+      setCommandError({ key: "region.review.reasonRequired" });
       return;
     }
     const fingerprint = [
@@ -487,14 +515,12 @@ export function RegionAnnotationWorkspace({
       );
       completeCommand("review");
       setReviewReason("");
-      setNotice(
-        verdict === "approved"
-          ? "The exact submitted snapshot was approved."
-          : "Changes were requested against the exact submitted snapshot.",
-      );
+      setNotice({
+        key: verdict === "approved" ? "region.notice.approved" : "region.notice.changes",
+      });
       load();
     } catch (error) {
-      setCommandError(commandMessage(apiError(error)));
+      setCommandError({ key: commandMessageKey(apiError(error)) });
     } finally {
       setBusy(null);
     }
@@ -515,13 +541,17 @@ export function RegionAnnotationWorkspace({
       setRegions(persistedRegionsToDrafts(snapshot.regions));
       setSelectedKey(snapshot.regions[0]?.stable_region_key ?? null);
       setEditable(false);
-      setNotice(
-        snapshot.id === currentRegionSet?.id
-          ? `Viewing current v${snapshot.version} · ${snapshot.effective_lifecycle}.`
-          : `Viewing historical v${snapshot.version} · ${snapshot.effective_lifecycle} · read-only.`,
-      );
+      setNotice({
+        key: snapshot.id === currentRegionSet?.id
+          ? "region.notice.viewCurrent"
+          : "region.notice.viewHistorical",
+        values: {
+          version: snapshot.version,
+          lifecycle: t(`region.lifecycle.${snapshot.effective_lifecycle}`),
+        },
+      });
     } catch (error) {
-      setCommandError(commandMessage(apiError(error)));
+      setCommandError({ key: commandMessageKey(apiError(error)) });
     } finally {
       setBusy(null);
     }
@@ -544,7 +574,7 @@ export function RegionAnnotationWorkspace({
     setUndoStack([]);
     setRedoStack([]);
     setCommandError(null);
-    setNotice(`Returned to current v${currentRegionSet.version}.`);
+    setNotice({ key: "region.notice.returned", values: { version: currentRegionSet.version } });
   }
 
   async function forkHistoricalSnapshot() {
@@ -602,11 +632,12 @@ export function RegionAnnotationWorkspace({
       setDrawing([]);
       setUndoStack([]);
       setRedoStack([]);
-      setNotice(
-        `Draft v${draft.version} created from historical v${target.source.version}.`,
-      );
+      setNotice({
+        key: "region.notice.forked",
+        values: { version: draft.version, sourceVersion: target.source.version },
+      });
     } catch (error) {
-      setCommandError(commandMessage(apiError(error)));
+      setCommandError({ key: commandMessageKey(apiError(error)) });
     } finally {
       setBusy(null);
     }
@@ -614,10 +645,14 @@ export function RegionAnnotationWorkspace({
 
   function finishDrawing() {
     if (drawing.length < 3) {
-      setCommandError("Add at least three points before closing the polygon.");
+      setCommandError({ key: "region.error.points" });
       return;
     }
-    const region = makeRegion(drawing, regions.length);
+    const region = makeRegion(
+      drawing,
+      regions.length,
+      t("region.defaultLabel", { number: regions.length + 1 }),
+    );
     commitRegions([...regions, region]);
     setSelectedKey(region.stable_region_key);
     setSelectedVertex(null);
@@ -786,9 +821,9 @@ export function RegionAnnotationWorkspace({
   if (state.status === "loading") {
     return (
       <section aria-busy="true" className="region-workspace-loading">
-        <p className="eyebrow">Human region annotation</p>
-        <h1>Loading annotation workspace</h1>
-        <p role="status">Reading the current image and immutable RegionSet history…</p>
+        <p className="context-label">{t("region.loadingEyebrow")}</p>
+        <h1>{t("region.loadingHeading")}</h1>
+        <p role="status">{t("region.loadingCopy")}</p>
       </section>
     );
   }
@@ -797,27 +832,24 @@ export function RegionAnnotationWorkspace({
     if (state.error.kind === "not_found") {
       return (
         <FeedbackPanel
-          eyebrow="Region workspace not found"
-          heading="This project is unavailable"
+          eyebrow={t("region.notFound")}
+          heading={t("region.projectUnavailable")}
           headingLevel={1}
           kind="error"
         >
-          <p>
-            The project may not exist or may belong to another operator. The same safe
-            not-found response is used for both cases.
-          </p>
+          <p>{t("region.notFoundCopy")}</p>
         </FeedbackPanel>
       );
     }
     return (
       <FeedbackPanel
-        action={{ label: "Retry workspace", onClick: load }}
-        eyebrow="Region workspace unavailable"
-        heading="The annotation workspace could not be loaded"
+        action={{ label: t("region.retry"), onClick: load }}
+        eyebrow={t("region.unavailable")}
+        heading={t("region.unavailableHeading")}
         headingLevel={1}
         kind="error"
       >
-        <p>{commandMessage(state.error)}</p>
+        <p>{t(commandMessageKey(state.error))}</p>
       </FeedbackPanel>
     );
   }
@@ -830,15 +862,12 @@ export function RegionAnnotationWorkspace({
   ) {
     return (
       <FeedbackPanel
-        eyebrow="Image set required"
-        heading="Complete the human-reviewed image set first"
+        eyebrow={t("region.imageRequired")}
+        heading={t("region.imageRequiredHeading")}
         headingLevel={1}
         kind="error"
       >
-        <p>
-          Region drawing opens only when the required private image roles have a
-          current READY review.
-        </p>
+        <p>{t("region.imageRequiredCopy")}</p>
       </FeedbackPanel>
     );
   }
@@ -846,11 +875,9 @@ export function RegionAnnotationWorkspace({
   if (currentRegionSet !== null && viewedRegionSet === null) {
     return (
       <section aria-busy="true" className="region-workspace-loading">
-        <p className="eyebrow">Human region annotation</p>
-        <h1>Loading selected snapshot</h1>
-        <p role="status">
-          Lifecycle commands remain locked until the displayed snapshot is loaded.
-        </p>
+        <p className="context-label">{t("region.loadingEyebrow")}</p>
+        <h1>{t("region.loadingSnapshot")}</h1>
+        <p role="status">{t("region.loadingSnapshotCopy")}</p>
       </section>
     );
   }
@@ -887,71 +914,64 @@ export function RegionAnnotationWorkspace({
     >
       <header className="region-workspace__header">
         <div>
-          <p className="eyebrow">Phase 1F · human-governed</p>
+          <p className="context-label">{t("region.eyebrow")}</p>
           <h1 id="region-workspace-heading" ref={headingRef}>
-            Region annotation workspace
+            {t("region.heading")}
           </h1>
-          <p>
-            Draw and review simple polygons by hand. Coordinates are saved as
-            normalized integers, and every save creates a new immutable snapshot.
-          </p>
+          <p>{t("region.lede")}</p>
         </div>
-        <div className="region-status" aria-label="Displayed RegionSet status">
+        <div className="region-status" aria-label={t("region.displayedStatus")}>
           <span>
             {presentedRegionSet === null
-              ? "unsaved"
+              ? t("region.unsaved")
               : `v${presentedRegionSet.version} · ${presentedRegionSet.id}`}
           </span>
           <strong>
-            {presentedRegionSet?.effective_lifecycle.replaceAll("_", " ") ??
-              "new draft"}
+            {presentedRegionSet === null
+              ? t("region.newDraft")
+              : t(`region.lifecycle.${presentedRegionSet.effective_lifecycle}`)}
           </strong>
         </div>
       </header>
 
       {commandTargets.isViewingHistoricalSnapshot ? (
         <div className="region-banner region-banner--warning" role="status">
-          <strong>Historical snapshot · read-only.</strong> Save, Submit, Approve,
-          and Request Changes are unavailable. Create a new draft from this exact
-          version or return to the current version.
+          <strong>{t("region.historicalStrong")}</strong> {t("region.historicalCopy")}
         </div>
       ) : null}
       {!commandTargets.isViewingHistoricalSnapshot && presentedRegionSet?.stale ? (
         <div className="region-banner region-banner--warning" role="alert">
-          <strong>Source image set changed.</strong> This snapshot is read-only and
-          cannot be submitted or reviewed. Create a new draft against the current
-          READY image set.
+          <strong>{t("region.staleStrong")}</strong> {t("region.staleCopy")}
         </div>
       ) : null}
       {workbench.image_set_status !== "ready" ? (
         <div className="region-banner region-banner--warning" role="alert">
-          The current image set is {workbench.image_set_status}. Region commands are
-          locked until a new human READY review is recorded.
+          {t("region.imageLocked", {
+            status: t(`region.imageStatus.${workbench.image_set_status}`),
+          })}
         </div>
       ) : null}
       {!canEditProject ? (
         <div className="region-banner region-banner--boundary" role="note">
-          Reviewer access is read-only for geometry. You can inspect private images
-          and history, then record a decision on a submitted exact snapshot.
+          {t("region.reviewerBoundary")}
         </div>
       ) : null}
       <div className="region-banner region-banner--boundary">
-        Human-authored polygons only. This workspace does not generate regions,
-        recognize subjects, match inventory, or create paint plans.
+        {t("region.boundary")}
       </div>
       {notice !== null ? (
         <div className="region-banner region-banner--success" role="status">
-          {notice}
+          {t(notice.key, notice.values)}
         </div>
       ) : null}
       {commandError !== null ? (
         <div className="region-banner region-banner--error" role="alert">
-          {commandError}
+          {t(commandError.key, commandError.values)}
         </div>
       ) : null}
 
-      <div className="region-toolbar" aria-label="Annotation tools">
-        <div role="group" aria-label="Canvas tool">
+      <div className="region-toolbar" aria-label={t("region.toolsLabel")}>
+        <div role="group" aria-label={t("region.canvasTool")}>
           {(["edit", "draw", "pan"] as const).map((item) => (
             <button
               aria-pressed={tool === item}
@@ -961,29 +981,29 @@ export function RegionAnnotationWorkspace({
               onClick={() => setTool(item)}
               type="button"
             >
-              {item === "edit" ? "Edit vertices" : item === "draw" ? "Draw polygon" : "Pan"}
+              {t(`region.tool.${item}`)}
             </button>
           ))}
         </div>
-        <div role="group" aria-label="Edit history">
+        <div role="group" aria-label={t("region.editHistory")}>
           <button disabled={!editable || undoStack.length === 0} onClick={undo} type="button">
-            Undo
+            {t("region.undo")}
           </button>
           <button disabled={!editable || redoStack.length === 0} onClick={redo} type="button">
-            Redo
+            {t("region.redo")}
           </button>
           <button onClick={() => setViewBox(defaultViewBox)} type="button">
-            Fit image
+            {t("region.fit")}
           </button>
         </div>
         {drawing.length > 0 ? (
-          <div role="group" aria-label="Open polygon">
-            <span>{drawing.length} points</span>
+          <div role="group" aria-label={t("region.openPolygon")}>
+            <span>{t("region.points", { count: drawing.length })}</span>
             <button disabled={drawing.length < 3} onClick={finishDrawing} type="button">
-              Close polygon
+              {t("region.closePolygon")}
             </button>
             <button onClick={() => setDrawing([])} type="button">
-              Cancel
+              {t("common.cancel")}
             </button>
           </div>
         ) : null}
@@ -998,7 +1018,7 @@ export function RegionAnnotationWorkspace({
             }}
           >
             <svg
-              aria-label="Private primary image with region overlay"
+              aria-label={t("region.canvasLabel")}
               height="100%"
               onPointerDown={canvasPointerDown}
               onPointerMove={canvasPointerMove}
@@ -1053,7 +1073,7 @@ export function RegionAnnotationWorkspace({
                     pointerEvents={tool === "draw" ? "none" : "auto"}
                   >
                     <polygon
-                      aria-label={`${region.label} region`}
+                      aria-label={t("region.regionAria", { label: region.label })}
                       data-region-interactive="true"
                       data-region-kind={region.kind}
                       data-selected={region.stable_region_key === selectedKey}
@@ -1085,7 +1105,7 @@ export function RegionAnnotationWorkspace({
                     region.stable_region_key === selectedKey
                       ? region.vertices.map((vertex, index) => (
                           <circle
-                            aria-label={`${region.label} vertex ${index + 1}`}
+                            aria-label={t("region.vertexAria", { label: region.label, number: index + 1 })}
                             cx={vertex.x_ppm}
                             cy={vertex.y_ppm}
                             data-region-interactive="true"
@@ -1134,17 +1154,15 @@ export function RegionAnnotationWorkspace({
             </svg>
           </div>
           <p className="region-canvas__mobile-note">
-            <strong>Small-screen editing is limited.</strong> Use Pan and Fit image to
-            inspect the complete canvas; saved Polygon data and history remain
-            available. Use a larger screen for precise vertex placement.
+            <strong>{t("region.mobileStrong")}</strong> {t("region.mobileCopy")}
           </p>
         </div>
 
-        <aside className="region-inspector" aria-label="Region inspector">
+        <aside className="region-inspector" aria-label={t("region.inspector")}>
           <div className="region-inspector__heading">
             <div>
-              <p className="eyebrow">Snapshot contents</p>
-              <h2>{regions.length} regions</h2>
+              <p className="context-label">{t("region.snapshotContents")}</p>
+              <h2>{t("region.count", { count: regions.length })}</h2>
             </div>
             {canEditProject && commandTargets.isViewingHistoricalSnapshot ? (
               <button
@@ -1154,8 +1172,8 @@ export function RegionAnnotationWorkspace({
                 type="button"
               >
                 {busy === "fork"
-                  ? "Creating draft…"
-                  : "Create new draft from this version"}
+                  ? t("region.creatingDraft")
+                  : t("region.createFromVersion")}
               </button>
             ) : canStartDraftFromCurrent ? (
               <button
@@ -1163,17 +1181,17 @@ export function RegionAnnotationWorkspace({
                 disabled={busy !== null || workbench.image_set_status !== "ready"}
                 onClick={() => {
                   setEditable(true);
-                  setNotice("Editing a new draft based on the reviewed snapshot.");
+                  setNotice({ key: "region.notice.editing" });
                 }}
                 type="button"
               >
-                Create draft from current
+                {t("region.createFromCurrent")}
               </button>
             ) : null}
           </div>
 
           <ol
-            aria-label="Regions in back-to-front order"
+            aria-label={t("region.orderLabel")}
             className="region-list"
           >
             {regions.map((region, index) => (
@@ -1196,11 +1214,17 @@ export function RegionAnnotationWorkspace({
                   />
                   <strong>{region.label}</strong>
                   <small>
-                    {region.kind} · {region.vertices.length} vertices
+                    {t("region.summary", {
+                      kind: t(`region.kind.${region.kind}`),
+                      count: region.vertices.length,
+                    })}
                   </small>
                 </button>
                 <button
-                  aria-label={`${hiddenKeys.has(region.stable_region_key) ? "Show" : "Hide"} ${region.label}`}
+                  aria-label={t("region.visibility", {
+                    action: hiddenKeys.has(region.stable_region_key) ? t("common.show") : t("common.hide"),
+                    label: region.label,
+                  })}
                   onClick={() =>
                     setHiddenKeys((current) => {
                       const next = new Set(current);
@@ -1214,7 +1238,7 @@ export function RegionAnnotationWorkspace({
                   }
                   type="button"
                 >
-                  {hiddenKeys.has(region.stable_region_key) ? "Show" : "Hide"}
+                  {hiddenKeys.has(region.stable_region_key) ? t("common.show") : t("common.hide")}
                 </button>
               </li>
             ))}
@@ -1223,7 +1247,7 @@ export function RegionAnnotationWorkspace({
           {selected !== null ? (
             <div className="region-fields">
               <label>
-                Label
+                {t("region.field.label")}
                 <input
                   disabled={!editable}
                   maxLength={80}
@@ -1232,18 +1256,18 @@ export function RegionAnnotationWorkspace({
                 />
               </label>
               <label>
-                Kind
+                {t("region.field.kind")}
                 <select
                   disabled={!editable}
                   onChange={(event) => fieldChange("kind", event)}
                   value={selected.kind}
                 >
-                  <option value="paint">Paint</option>
-                  <option value="exclude">Exclude</option>
+                  <option value="paint">{t("region.kind.paint")}</option>
+                  <option value="exclude">{t("region.kind.exclude")}</option>
                 </select>
               </label>
               <label>
-                Opacity · {Math.round(selected.opacity_ppm / 10_000)}%
+                {t("region.field.opacity", { value: Math.round(selected.opacity_ppm / 10_000) })}
                 <input
                   disabled={!editable}
                   max="100"
@@ -1255,7 +1279,7 @@ export function RegionAnnotationWorkspace({
                 />
               </label>
               <label>
-                Notes
+                {t("region.field.notes")}
                 <textarea
                   disabled={!editable}
                   maxLength={1000}
@@ -1270,14 +1294,14 @@ export function RegionAnnotationWorkspace({
                   onClick={() => moveSelected(-1)}
                   type="button"
                 >
-                  Move backward
+                  {t("region.moveBackward")}
                 </button>
                 <button
                   disabled={!editable || selectedIndex >= regions.length - 1}
                   onClick={() => moveSelected(1)}
                   type="button"
                 >
-                  Move forward
+                  {t("region.moveForward")}
                 </button>
                 <button
                   disabled={!editable || selectedVertex === null}
@@ -1301,7 +1325,7 @@ export function RegionAnnotationWorkspace({
                   }}
                   type="button"
                 >
-                  Insert after vertex
+                  {t("region.insertVertex")}
                 </button>
                 <button
                   disabled={
@@ -1323,7 +1347,7 @@ export function RegionAnnotationWorkspace({
                   }}
                   type="button"
                 >
-                  Delete vertex
+                  {t("region.deleteVertex")}
                 </button>
                 <button
                   disabled={!editable}
@@ -1337,23 +1361,24 @@ export function RegionAnnotationWorkspace({
                   }}
                   type="button"
                 >
-                  Delete region
+                  {t("region.deleteRegion")}
                 </button>
               </div>
             </div>
           ) : (
             <p className="region-inspector__empty">
-              Choose a region or use Draw polygon to add one.
+              {t("region.emptyInspector")}
             </p>
           )}
 
           {geometryErrors.length > 0 ? (
             <div className="region-validation" role="alert">
-              <strong>Fix before saving</strong>
+              <strong>{t("region.fix")}</strong>
               <ul>
-                {geometryErrors.slice(0, 5).map((error) => (
-                  <li key={error}>{error}</li>
-                ))}
+                {geometryErrors.slice(0, 5).map((error) => {
+                  const message = geometryMessage(error);
+                  return <li key={error}>{t(message.key, message.values)}</li>;
+                })}
               </ul>
             </div>
           ) : null}
@@ -1366,7 +1391,7 @@ export function RegionAnnotationWorkspace({
                 onClick={() => void saveDraft()}
                 type="button"
               >
-                {busy === "save" ? "Saving…" : "Save new draft snapshot"}
+                {busy === "save" ? t("region.saving") : t("region.save")}
               </button>
               <button
                 className="button button--primary"
@@ -1374,17 +1399,17 @@ export function RegionAnnotationWorkspace({
                 onClick={() => void submitDraft()}
                 type="button"
               >
-                {busy === "submit" ? "Submitting…" : "Submit saved draft"}
+                {busy === "submit" ? t("region.submitting") : t("region.submit")}
               </button>
             </div>
           ) : null}
 
           {canReview ? (
             <div className="region-review">
-              <p className="eyebrow">Exact-snapshot review</p>
-              <h3>Record a human decision</h3>
+              <p className="context-label">{t("region.reviewEyebrow")}</p>
+              <h3>{t("region.reviewHeading")}</h3>
               <label>
-                Reason for requested changes
+                {t("region.reviewReason")}
                 <textarea
                   disabled={busy !== null}
                   maxLength={1000}
@@ -1395,20 +1420,22 @@ export function RegionAnnotationWorkspace({
               </label>
               <div>
                 <button
+                  aria-busy={busy === "review"}
                   className="button button--secondary"
                   disabled={busy !== null}
                   onClick={() => void review("changes_requested")}
                   type="button"
                 >
-                  Request changes
+                  {busy === "review" ? t("region.savingReview") : t("region.requestChanges")}
                 </button>
                 <button
+                  aria-busy={busy === "review"}
                   className="button button--primary"
                   disabled={busy !== null}
                   onClick={() => void review("approved")}
                   type="button"
                 >
-                  Approve exact snapshot
+                  {busy === "review" ? t("region.savingReview") : t("region.approve")}
                 </button>
               </div>
             </div>
@@ -1419,8 +1446,8 @@ export function RegionAnnotationWorkspace({
       <section className="region-history" aria-labelledby="region-history-heading">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Append-only record</p>
-            <h2 id="region-history-heading">RegionSet history</h2>
+            <p className="context-label">{t("region.historyEyebrow")}</p>
+            <h2 id="region-history-heading">{t("region.historyHeading")}</h2>
           </div>
           <div>
             {commandTargets.isViewingHistoricalSnapshot ? (
@@ -1430,16 +1457,16 @@ export function RegionAnnotationWorkspace({
                 onClick={returnToCurrent}
                 type="button"
               >
-                Return to current version
+                {t("region.returnCurrent")}
               </button>
             ) : null}
             <button className="button button--secondary" onClick={load} type="button">
-              Refresh workbench
+              {t("region.refresh")}
             </button>
           </div>
         </div>
         {workbench.history.length === 0 ? (
-          <p>No saved snapshots yet.</p>
+          <p>{t("region.historyEmpty")}</p>
         ) : (
           <ol>
             {workbench.history.map((item) => (
@@ -1450,19 +1477,23 @@ export function RegionAnnotationWorkspace({
                   type="button"
                 >
                   <strong>v{item.version}</strong>
-                  <span>{item.effective_lifecycle.replaceAll("_", " ")}</span>
+                  <span>{t(`region.lifecycle.${item.effective_lifecycle}`)}</span>
                   <span>
-                    {item.region_count} regions · {item.total_vertex_count} vertices
+                    {t("region.historyCounts", {
+                      regions: item.region_count,
+                      vertices: item.total_vertex_count,
+                    })}
                   </span>
                   <time dateTime={item.created_at}>
                     {formatProjectTimestamp(item.created_at)}
                   </time>
-                  {item.stale ? <em>stale source</em> : null}
+                  {item.stale ? <em>{t("region.staleSource")}</em> : null}
                   {item.latest_review !== null ? (
                     <span className="region-history__review">
-                      Review by{" "}
-                      {item.latest_review.actor_display_name_snapshot} ·{" "}
-                      {formatProjectTimestamp(item.latest_review.created_at)}
+                      {t("region.reviewBy", {
+                        name: item.latest_review.actor_display_name_snapshot,
+                        date: formatProjectTimestamp(item.latest_review.created_at),
+                      })}
                       {item.latest_review.reason === null ? null : (
                         <> · {item.latest_review.reason}</>
                       )}

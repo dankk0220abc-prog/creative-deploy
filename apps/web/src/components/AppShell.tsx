@@ -9,6 +9,8 @@ import { Link, Outlet, useLocation } from "react-router";
 import { loginUrl } from "../api/auth";
 import { isPaintProjectId } from "../api/paintProjects";
 import { useAuth } from "../auth/AuthContext";
+import { useAppTranslation } from "../i18n";
+import { LocaleSwitcher } from "./LocaleSwitcher";
 
 const PROJECTS_PATH = "/paintpilot/projects";
 const CREATE_PROJECT_PATH = "/paintpilot/projects/new";
@@ -45,13 +47,16 @@ function isRegionWorkspacePath(pathname: string): boolean {
   return projectId.length > 0 && !projectId.includes("/");
 }
 
-function titleForPath(pathname: string): string {
+function titleKeyForPath(pathname: string): string {
   const normalizedPathname = normalizePathname(pathname);
   if (normalizedPathname === PROJECTS_PATH) {
-    return "Projects — PaintPilot";
+    return "title.projects";
   }
   if (normalizedPathname === CREATE_PROJECT_PATH) {
-    return "Create Project — PaintPilot";
+    return "title.createProject";
+  }
+  if (normalizedPathname === "/paintpilot/login") {
+    return "title.login";
   }
   if (isRegionWorkspacePath(normalizedPathname)) {
     const projectId = normalizedPathname.slice(
@@ -59,16 +64,16 @@ function titleForPath(pathname: string): string {
       -"/regions".length,
     );
     return isPaintProjectId(projectId)
-      ? "Loading Region Workspace — PaintPilot"
-      : "Project Not Found — PaintPilot";
+      ? "title.regionLoading"
+      : "title.projectNotFound";
   }
   if (isProjectDetailPath(normalizedPathname)) {
     const projectId = normalizedPathname.slice(PROJECTS_PATH.length + 1);
     return isPaintProjectId(projectId)
-      ? "Project Details — PaintPilot"
-      : "Project Not Found — PaintPilot";
+      ? "title.projectDetails"
+      : "title.projectNotFound";
   }
-  return "Page Not Found — PaintPilot";
+  return "title.pageNotFound";
 }
 
 function focusPageHeading(main: HTMLElement | null): void {
@@ -86,6 +91,7 @@ function focusPageHeading(main: HTMLElement | null): void {
 }
 
 export function AppShell() {
+  const { i18n, t } = useAppTranslation();
   const { logout, state: authState } = useAuth();
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
@@ -99,8 +105,8 @@ export function AppShell() {
   const createProjectIsCurrent = normalizedPathname === CREATE_PROJECT_PATH;
 
   useLayoutEffect(() => {
-    document.title = titleForPath(location.pathname);
-  }, [location.pathname]);
+    document.title = t(titleKeyForPath(location.pathname));
+  }, [i18n.resolvedLanguage, location.pathname, t]);
 
   useLayoutEffect(() => {
     const routeKey = `${location.pathname}${location.search}`;
@@ -138,12 +144,16 @@ export function AppShell() {
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content" onClick={focusMainContent}>
-        Skip to main content
+        {t("shell.skip")}
       </a>
 
       <header className="platform-header">
         <div className="platform-header__inner">
-          <div className="brand-lockup" aria-label="CreativeDeploy, PaintPilot workspace">
+          <Link
+            aria-label={t("shell.brandLabel")}
+            className="brand-lockup"
+            to={PROJECTS_PATH}
+          >
             <span className="brand-lockup__platform">CreativeDeploy</span>
             <span aria-hidden="true" className="brand-lockup__divider" />
             <span className="brand-lockup__product">
@@ -152,40 +162,44 @@ export function AppShell() {
               </span>
               PaintPilot
             </span>
-          </div>
+          </Link>
 
-          <nav aria-label="PaintPilot navigation" className="shell-nav">
+          <nav aria-label={t("shell.navigationLabel")} className="shell-nav">
             <Link
               aria-current={projectsIsCurrent ? "page" : undefined}
               className={navigationClassName(projectsIsCurrent)}
               to={PROJECTS_PATH}
             >
-              Projects
+              {t("shell.projects")}
             </Link>
             <Link
               aria-current={createProjectIsCurrent ? "page" : undefined}
               className={navigationClassName(createProjectIsCurrent)}
               to={CREATE_PROJECT_PATH}
             >
-              Create project
+              {t("shell.createProject")}
             </Link>
             {authState.status === "authenticated" ? (
               <span className="shell-nav__identity">
-                <span>{authState.user.display_name}</span>
+                <span className="shell-nav__identity-copy">
+                  <small>{t("shell.signedIn")}</small>
+                  <span>{authState.user.display_name}</span>
+                </span>
                 <button
                   className="shell-nav__logout"
                   onClick={() => void logout()}
                   type="button"
                 >
-                  Log out
+                  {t("shell.logOut")}
                 </button>
               </span>
             ) : (
               <a className="shell-nav__link" href={loginUrl(location.pathname)}>
-                Sign in
+                {t("shell.signIn")}
               </a>
             )}
           </nav>
+          <LocaleSwitcher />
         </div>
       </header>
 
@@ -213,11 +227,8 @@ export function AppShell() {
 
       <footer className="workspace-footer">
         <div>
-          <span className="workspace-footer__label">Planning-only workspace</span>
-          <span>
-            Guidance is not a verified repaint outcome. Access is enforced by a
-            server-side OIDC session and project membership.
-          </span>
+          <span className="workspace-footer__label">{t("shell.footerLabel")}</span>
+          <span>{t("shell.footerCopy")}</span>
         </div>
         {isArtifactSmoke ? (
           <p className="workspace-footer__runtime-label">

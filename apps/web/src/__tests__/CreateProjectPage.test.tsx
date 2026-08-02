@@ -346,6 +346,9 @@ describe("Create PaintProject workflow", () => {
     expect(
       screen.getByRole("button", { name: "Creating project…" }),
     ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Creating project…" }),
+    ).toHaveAttribute("aria-busy", "true");
     expect(screen.getByLabelText(/project title/i)).toBeDisabled();
 
     await act(async () => {

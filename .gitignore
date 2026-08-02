@@ -17,4 +17,16 @@ __pycache__/
 .vite/
 .vscode/
 .idea/
+.agents/
+.codex/
+.impeccable/
+skills-lock.json
+.local/secrets/
+.local/backups/
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.csr
 .local/private-image-storage/

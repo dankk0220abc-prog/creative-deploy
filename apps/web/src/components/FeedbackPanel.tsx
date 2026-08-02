@@ -33,7 +33,7 @@ export function FeedbackPanel({
         <span />
       </div>
       <div className="feedback-panel__content">
-        <p className="eyebrow">{eyebrow}</p>
+        <p className="context-label">{eyebrow}</p>
         <Heading>{heading}</Heading>
         {children === undefined ? null : (
           <div className="feedback-panel__copy">{children}</div>

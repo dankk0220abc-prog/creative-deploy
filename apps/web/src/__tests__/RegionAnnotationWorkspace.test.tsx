@@ -286,7 +286,7 @@ describe("Human Region Annotation Workspace", () => {
     });
     await user.click(screen.getByRole("button", { name: "Close polygon" }));
 
-    expect(screen.getByRole("heading", { name: "1 regions" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "1 region" })).toBeInTheDocument();
     expect(screen.getByLabelText("Region 1 region")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save new draft snapshot" })).toBeEnabled();
     expect(screen.getByLabelText("Region 1 region")).toHaveAttribute(

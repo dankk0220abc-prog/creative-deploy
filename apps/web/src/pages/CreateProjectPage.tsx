@@ -14,6 +14,7 @@ import {
   type CreatePaintProjectInput,
 } from "../api/paintProjects";
 import { UnsavedChangesDialog } from "../components/UnsavedChangesDialog";
+import { useAppTranslation } from "../i18n";
 import { codePointLength } from "../utils/format";
 
 type FieldName = "description" | "title";
@@ -35,54 +36,54 @@ function validateFields(title: string, description: string): FieldErrors {
   const normalizedDescription = description.trim();
 
   if (codePointLength(normalizedTitle) === 0) {
-    errors.title = "Enter a project title.";
+    errors.title = "create.titleRequired";
   } else if (codePointLength(normalizedTitle) > 80) {
-    errors.title = "Project title must contain 80 characters or fewer.";
+    errors.title = "create.titleTooLong";
   }
 
   if (codePointLength(normalizedDescription) > 500) {
-    errors.description = "Description must contain 500 characters or fewer.";
+    errors.description = "create.descriptionTooLong";
   }
   return errors;
 }
 
-function submissionHeading(error: PaintProjectApiError): string {
+function submissionHeadingKey(error: PaintProjectApiError): string {
   switch (error.kind) {
     case "conflict":
-      return "This protected attempt conflicts with earlier details";
+      return "create.error.conflictHeading";
     case "internal":
     case "server":
-      return "The project could not be created";
+      return "create.error.genericHeading";
     case "invalid_response":
-      return "We could not confirm the create result";
+      return "create.error.invalidResponseHeading";
     case "network":
-      return "We could not confirm whether the project was created";
+      return "create.error.networkHeading";
     case "unavailable":
-      return "Project creation is temporarily unavailable";
+      return "create.error.unavailableHeading";
     case "validation":
-      return "The service needs corrected project details";
+      return "create.error.validationHeading";
     default:
-      return "The project could not be created";
+      return "create.error.genericHeading";
   }
 }
 
-function submissionCopy(error: PaintProjectApiError): string {
+function submissionCopyKey(error: PaintProjectApiError): string {
   switch (error.kind) {
     case "conflict":
-      return "The request identifier was already used with different data. Start a new protected attempt; no local project has been invented.";
+      return "create.error.conflictCopy";
     case "internal":
     case "server":
-      return "The service returned a safe non-retryable error. Your values are still here, and no success is being claimed.";
+      return "create.error.internalCopy";
     case "invalid_response":
-      return "The service response was empty, damaged, or not valid JSON. Retry safely with the same protected attempt.";
+      return "create.error.invalidResponseCopy";
     case "network":
-      return "The API connection ended without a confirmed result. Retry safely with the same project details and protected attempt.";
+      return "create.error.networkCopy";
     case "unavailable":
-      return "PostgreSQL or the project service is temporarily unavailable. Retry safely without changing the project details.";
+      return "create.error.unavailableCopy";
     case "validation":
-      return "Review the highlighted fields. The server remains the final validation authority.";
+      return "create.error.validationCopy";
     default:
-      return "Your values are still here. Review them before trying again.";
+      return "create.error.genericCopy";
   }
 }
 
@@ -97,6 +98,7 @@ function asApiError(error: unknown): PaintProjectApiError {
 }
 
 export function CreateProjectPage() {
+  const { t } = useAppTranslation();
   const navigate = useNavigate();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -199,7 +201,7 @@ export function CreateProjectPage() {
 
     const handlePopState = () => {
       const discard = window.confirm(
-        "Discard unsaved changes? Your project has not been created.",
+        t("create.confirmDiscard"),
       );
       if (discard) {
         allowNavigationRef.current = true;
@@ -211,7 +213,7 @@ export function CreateProjectPage() {
     window.addEventListener("popstate", handlePopState, { capture: true });
     return () =>
       window.removeEventListener("popstate", handlePopState, { capture: true });
-  }, [dirty, isSubmitting]);
+  }, [dirty, isSubmitting, t]);
 
   const resetAttemptAfterEdit = () => {
     attemptRef.current = null;
@@ -299,8 +301,8 @@ export function CreateProjectPage() {
         for (const fieldName of apiError.fieldNames) {
           serverFieldErrors[fieldName] =
             fieldName === "title"
-              ? "Check the project title and try again."
-              : "Check the description and try again.";
+              ? "create.checkTitle"
+              : "create.checkDescription";
         }
         setFieldErrors(serverFieldErrors);
       }
@@ -341,17 +343,9 @@ export function CreateProjectPage() {
   return (
     <div className="page page--create">
       <section className="create-intro" aria-labelledby="create-page-title">
-        <p className="eyebrow">New PaintProject</p>
-        <h1 id="create-page-title">Create paint project</h1>
-        <p>
-          Start with the two facts needed to create a real, database-backed
-          planning-only project.
-        </p>
-        <div className="create-intro__particles" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-        </div>
+        <p className="context-label">{t("create.eyebrow")}</p>
+        <h1 id="create-page-title">{t("create.heading")}</h1>
+        <p>{t("create.intro")}</p>
       </section>
 
       <form
@@ -374,24 +368,22 @@ export function CreateProjectPage() {
             <div>
               <h2 id="create-error-heading">
                 {submission.status === "error"
-                  ? submissionHeading(submission.error)
-                  : `Please correct ${
-                      Object.keys(fieldErrors).length
-                    } project field${Object.keys(fieldErrors).length === 1 ? "" : "s"}`}
+                  ? t(submissionHeadingKey(submission.error))
+                  : t("create.correctFields", { count: Object.keys(fieldErrors).length })}
               </h2>
               {submission.status === "error" ? (
-                <p>{submissionCopy(submission.error)}</p>
+                <p>{t(submissionCopyKey(submission.error))}</p>
               ) : null}
               {Object.keys(fieldErrors).length > 0 ? (
                 <ul>
                   {fieldErrors.title === undefined ? null : (
                     <li>
-                      <a href="#project-title">{fieldErrors.title}</a>
+                      <a href="#project-title">{t(fieldErrors.title)}</a>
                     </li>
                   )}
                   {fieldErrors.description === undefined ? null : (
                     <li>
-                      <a href="#project-description">{fieldErrors.description}</a>
+                      <a href="#project-description">{t(fieldErrors.description)}</a>
                     </li>
                   )}
                 </ul>
@@ -403,7 +395,7 @@ export function CreateProjectPage() {
         <div className="form-field">
           <div className="form-field__label-row">
             <label htmlFor="project-title">
-              Project title <span aria-hidden="true">*</span>
+              {t("create.titleLabel")} <span aria-hidden="true">*</span>
             </label>
             <span aria-live="polite" className="character-count">
               {codePointLength(title)} / 80
@@ -434,18 +426,18 @@ export function CreateProjectPage() {
             value={title}
           />
           <p className="form-field__help" id="project-title-help">
-            Use a clear name you can recognize later.
+            {t("create.titleHelp")}
           </p>
           {fieldErrors.title === undefined ? null : (
             <p className="form-field__error" id="project-title-error">
-              <span aria-hidden="true">!</span> {fieldErrors.title}
+              <span aria-hidden="true">!</span> {t(fieldErrors.title)}
             </p>
           )}
         </div>
 
         <div className="form-field">
           <div className="form-field__label-row">
-            <label htmlFor="project-description">Short description</label>
+            <label htmlFor="project-description">{t("create.descriptionLabel")}</label>
             <span aria-live="polite" className="character-count">
               {codePointLength(description)} / 500
             </span>
@@ -474,44 +466,43 @@ export function CreateProjectPage() {
             value={description}
           />
           <p className="form-field__help" id="project-description-help">
-            Optional context only. No AI prompt or image upload occurs here.
+            {t("create.descriptionHelp")}
           </p>
           {fieldErrors.description === undefined ? null : (
             <p className="form-field__error" id="project-description-error">
-              <span aria-hidden="true">!</span> {fieldErrors.description}
+              <span aria-hidden="true">!</span> {t(fieldErrors.description)}
             </p>
           )}
         </div>
 
         <dl className="fixed-project-facts">
           <div>
-            <dt>Target style</dt>
+            <dt>{t("create.targetStyle")}</dt>
             <dd>
-              Cel Shading <span>Current release</span>
+              {t("create.celShading")} <span>{t("create.currentRelease")}</span>
             </dd>
           </div>
           <div>
-            <dt>Planning-only demo</dt>
-            <dd>
-              Results are planning guidance and are not verified repaint outcomes.
-            </dd>
+            <dt>{t("create.planningDemo")}</dt>
+            <dd>{t("create.planningCopy")}</dd>
           </div>
         </dl>
 
         <div className="form-actions">
           <button
+            aria-busy={isSubmitting}
             className="button button--primary button--large"
             disabled={isSubmitting}
             type="submit"
           >
             {isSubmitting
-              ? "Creating project…"
+              ? t("create.submitting")
               : safeRetry
-                ? "Retry safely"
+                ? t("create.retrySafely")
                 : submission.status === "error" &&
                     submission.error.kind === "conflict"
-                  ? "Start new protected attempt"
-                  : "Create project"}
+                  ? t("create.startAttempt")
+                  : t("create.submit")}
           </button>
           <button
             className="button button--quiet"
@@ -520,23 +511,22 @@ export function CreateProjectPage() {
             ref={cancelButtonRef}
             type="button"
           >
-            Cancel
+            {t("create.cancel")}
           </button>
         </div>
 
         <p aria-live="polite" className="submission-status" role="status">
           {isSubmitting
-            ? "Sending one protected request. Duplicate submission is disabled."
+            ? t("create.sending")
             : safeRetry
-              ? "Retry will reuse the same protected request identifier while these values remain unchanged."
-              : "A successful create opens a detail page that reads the saved project from the API."}
+              ? t("create.retryCopy")
+              : t("create.successCopy")}
         </p>
       </form>
 
       <p className="create-boundary">
         <span aria-hidden="true">◇</span>
-        No image upload, analysis, Polygon editing, or paint-plan generation occurs on
-        this page.
+        {t("create.boundary")}
       </p>
 
       <UnsavedChangesDialog

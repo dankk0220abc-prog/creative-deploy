@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useAppTranslation } from "../i18n";
 
 interface UnsavedChangesDialogProps {
   onContinueEditing: () => void;
@@ -11,6 +12,7 @@ export function UnsavedChangesDialog({
   onDiscard,
   open,
 }: UnsavedChangesDialogProps) {
+  const { t } = useAppTranslation();
   const continueButtonRef = useRef<HTMLButtonElement>(null);
   const discardButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -55,11 +57,9 @@ export function UnsavedChangesDialog({
         className="confirmation-dialog"
         role="alertdialog"
       >
-        <p className="eyebrow">Unsaved project</p>
-        <h2 id="unsaved-dialog-title">Discard unsaved changes?</h2>
-        <p id="unsaved-dialog-description">
-          Your project has not been created. The current form values will be lost.
-        </p>
+        <p className="context-label">{t("unsaved.eyebrow")}</p>
+        <h2 id="unsaved-dialog-title">{t("unsaved.heading")}</h2>
+        <p id="unsaved-dialog-description">{t("unsaved.copy")}</p>
         <div className="confirmation-dialog__actions">
           <button
             className="button button--primary"
@@ -67,7 +67,7 @@ export function UnsavedChangesDialog({
             ref={continueButtonRef}
             type="button"
           >
-            Continue editing
+            {t("unsaved.continue")}
           </button>
           <button
             className="button button--danger"
@@ -75,7 +75,7 @@ export function UnsavedChangesDialog({
             ref={discardButtonRef}
             type="button"
           >
-            Discard changes
+            {t("unsaved.discard")}
           </button>
         </div>
       </section>

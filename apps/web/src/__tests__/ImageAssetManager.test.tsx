@@ -198,7 +198,7 @@ describe("ImageSet workbench", () => {
     ).toBeEnabled();
     expect(
       screen.getByRole("heading", {
-        name: "Primary front replacement is locked in IMAGE_UPLOADED",
+        name: "Primary front replacement is locked in Image uploaded",
       }),
     ).toBeInTheDocument();
 
@@ -295,7 +295,7 @@ describe("ImageSet workbench", () => {
     ).toHaveLength(5);
     expect(
       screen.getByRole("heading", {
-        name: "Primary front replacement is locked in IMAGE_VALIDATED",
+        name: "Primary front replacement is locked in Image validated",
       }),
     ).toBeInTheDocument();
   });
@@ -404,6 +404,7 @@ describe("ImageSet workbench", () => {
       "Idempotency-Key": FIRST_KEY,
     });
     expect(submit).toBeDisabled();
+    expect(submit).toHaveAttribute("aria-busy", "true");
   });
 
   it.each([
@@ -477,6 +478,14 @@ describe("ImageSet workbench", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Confirm the source, rights, and intended-use declaration.",
     );
+    const rights = screen.getByRole("checkbox", {
+      name: /I confirm that the source above is accurate/i,
+    });
+    expect(rights).toHaveAttribute("aria-invalid", "true");
+    expect(rights).toHaveAttribute(
+      "aria-describedby",
+      "image-upload-form-error",
+    );
     expect(screen.getByText(/40,000,000 pixels and 20 MiB max/i)).toBeInTheDocument();
   });
 
@@ -490,11 +499,18 @@ describe("ImageSet workbench", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Explain why this image set is not ready.",
     );
+    const reason = screen.getByLabelText("Reason (required)");
+    expect(reason).toHaveAttribute("aria-invalid", "true");
+    expect(reason).toHaveAttribute(
+      "aria-describedby",
+      "readiness-reason-help readiness-review-form-error",
+    );
 
     await user.type(
-      screen.getByLabelText("Reason (required)"),
+      reason,
       "The angle needs a safer replacement.",
     );
+    expect(reason).not.toHaveAttribute("aria-invalid");
     fetchMock().mockReturnValueOnce(pending.promise);
     const submit = screen.getByRole("button", { name: "Record NOT READY" });
     const form = submit.closest("form");

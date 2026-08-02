@@ -25,7 +25,9 @@ import {
   uploadImageAsset,
 } from "../api/imageAssets";
 import type { PaintProject, WorkflowStatus } from "../api/paintProjects";
+import { useAppTranslation } from "../i18n";
 import { formatProjectTimestamp } from "../utils/format";
+import { formatProjectStatus } from "../utils/format";
 import { FeedbackPanel } from "./FeedbackPanel";
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -41,39 +43,39 @@ const referenceMutationStates = new Set<WorkflowStatus>([
   "IMAGE_VALIDATION_FAILED",
 ]);
 
-const roleLabels: Record<ImageRole, string> = {
-  primary_front: "Primary front",
-  reference_back: "Reference back",
-  reference_angle: "Reference angle",
-  reference_detail: "Reference detail",
+const roleLabelKeys: Record<ImageRole, string> = {
+  primary_front: "image.role.primary_front",
+  reference_back: "image.role.reference_back",
+  reference_angle: "image.role.reference_angle",
+  reference_detail: "image.role.reference_detail",
 };
 
-const roleDescriptions: Record<ImageRole, string> = {
-  primary_front: "The formal front view and Phase 1E-1 compatible primary image.",
-  reference_back: "A distinct back reference for later human-guided planning.",
-  reference_angle: "A distinct angled reference for later human-guided planning.",
-  reference_detail: "An optional detail reference; it does not block minimum readiness.",
+const roleDescriptionKeys: Record<ImageRole, string> = {
+  primary_front: "image.roleDescription.primary_front",
+  reference_back: "image.roleDescription.reference_back",
+  reference_angle: "image.roleDescription.reference_angle",
+  reference_detail: "image.roleDescription.reference_detail",
 };
 
-const sourceLabels: Record<ImageSourceType, string> = {
-  user_provided: "Provided by me",
-  user_photographed: "Photographed by me",
-  user_provided_other: "Provided by another source",
+const sourceLabelKeys: Record<ImageSourceType, string> = {
+  user_provided: "image.source.user_provided",
+  user_photographed: "image.source.user_photographed",
+  user_provided_other: "image.source.user_provided_other",
 };
 
-const usageLabels: Record<ImageIntendedUsage, string> = {
-  private_project: "Private project planning",
-  portfolio_demo: "Portfolio demonstration",
-  public_repository: "Public repository",
+const usageLabelKeys: Record<ImageIntendedUsage, string> = {
+  private_project: "image.usage.private_project",
+  portfolio_demo: "image.usage.portfolio_demo",
+  public_repository: "image.usage.public_repository",
 };
 
-const checklistLabels = {
-  required_roles_present: "All required roles present",
-  deterministic_validation_accepted: "Deterministic upload checks accepted",
-  rights_complete: "Rights attestations complete",
-  content_distinct: "Required images have distinct content",
-  objects_available: "Private objects available and intact",
-  snapshot_current: "Latest review matches this image set",
+const checklistLabelKeys = {
+  required_roles_present: "image.check.required_roles_present",
+  deterministic_validation_accepted: "image.check.deterministic_validation_accepted",
+  rights_complete: "image.check.rights_complete",
+  content_distinct: "image.check.content_distinct",
+  objects_available: "image.check.objects_available",
+  snapshot_current: "image.check.snapshot_current",
 } as const;
 
 interface ImageAssetManagerProps {
@@ -136,54 +138,54 @@ function reviewFingerprint(
   return [imageSetFingerprint, verdict, reason.trim()].join("\u001f");
 }
 
-function commandErrorMessage(error: ImageAssetApiError): string {
+function commandErrorKey(error: ImageAssetApiError): string {
   if (error.kind === "network") {
-    return "The API connection was interrupted. Retry keeps the same protected command.";
+    return "image.error.network";
   }
   if (error.kind === "storage") {
-    return "Private image storage is temporarily unavailable. Retry keeps the same protected command.";
+    return "image.error.storage";
   }
   if (error.kind === "conflict") {
-    return "The saved command or current image set changed. Refresh before starting a new command.";
+    return "image.error.conflict";
   }
   if (error.kind === "validation") {
     if (error.errorCode === "REJECTED_DIMENSIONS") {
-      return "Choose an image whose shortest side is at least 768 px and whose longest side is no more than 8192 px, then upload it again.";
+      return "image.error.dimensions";
     }
     if (error.errorCode === "REJECTED_TOO_LARGE") {
-      return "Choose an image no larger than 20 MiB, then upload the smaller file.";
+      return "image.error.tooLarge";
     }
     if (error.errorCode === "REJECTED_PIXEL_LIMIT") {
-      return "Choose an image with no more than 40,000,000 total pixels, then upload it again.";
+      return "image.error.pixelLimit";
     }
     if (
       error.errorCode === "REJECTED_UNSUPPORTED_FORMAT" ||
       error.errorCode === "REJECTED_CONTENT_TYPE_MISMATCH"
     ) {
-      return "Choose a static JPEG, PNG, or WebP file. GIF, SVG, animated WebP, renamed extensions, and mismatched file bytes are not accepted.";
+      return "image.error.format";
     }
     if (error.errorCode === "REJECTED_CORRUPT") {
-      return "Export the image again as a complete static JPEG, PNG, or WebP file, then retry.";
+      return "image.error.corrupt";
     }
-    return "Check the file and declaration: use a static JPEG, PNG, or WebP; keep it within 20 MiB, 768–8192 px, and 40,000,000 pixels; choose an intended use; and confirm the rights statement before retrying.";
+    return "image.error.validation";
   }
   if (error.kind === "not_found") {
-    return "The project is no longer available to the current operator.";
+    return "image.error.notFound";
   }
-  return "The image service returned an incomplete or unexpected response.";
+  return "image.error.unexpected";
 }
 
-function statusHeading(imageSet: ImageSet): string {
+function statusHeadingKey(imageSet: ImageSet): string {
   if (imageSet.status === "ready") {
-    return "Ready — current human confirmation";
+    return "image.status.ready";
   }
   if (imageSet.status === "stale") {
-    return "Stale — image set changed after review";
+    return "image.status.stale";
   }
   if (imageSet.status === "not_ready") {
-    return "Not ready — current human decision";
+    return "image.status.notReady";
   }
-  return "Incomplete — human readiness not confirmed";
+  return "image.status.incomplete";
 }
 
 function imageMutationPermission(
@@ -206,21 +208,21 @@ function imageMutationPermission(
   };
 }
 
-function imageMutationLockMessage(
+function imageMutationLockKey(
   projectStatus: WorkflowStatus,
   role: ImageRole,
   operation: ImageMutationPermission["operation"],
 ): string {
   if (projectStatus === "IMAGE_VALIDATED") {
-    return "All image roles are frozen after image validation.";
+    return "image.lock.validated";
   }
   if (role === "primary_front") {
     if (operation === "first upload") {
-      return "The first Primary front upload is available only while the project is in DRAFT.";
+      return "image.lock.firstPrimary";
     }
-    return "Primary front replacement is available only when image review is required or image validation has failed.";
+    return "image.lock.replacePrimary";
   }
-  return `This reference-role ${operation} is locked in ${projectStatus}.`;
+  return "image.lock.reference";
 }
 
 export function ImageAssetManager({
@@ -228,6 +230,7 @@ export function ImageAssetManager({
   onProjectChanged,
   project,
 }: ImageAssetManagerProps) {
+  const { t } = useAppTranslation();
   const [state, setState] = useState<WorkbenchState>({ status: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
   const [selectedRole, setSelectedRole] =
@@ -324,11 +327,13 @@ export function ImageAssetManager({
 
   function updateSource(event: ChangeEvent<HTMLSelectElement>) {
     clearUploadAttempt();
+    setUploadFormError(null);
     setSourceType(event.target.value as ImageSourceType);
   }
 
   function toggleUsage(usage: ImageIntendedUsage) {
     clearUploadAttempt();
+    setUploadFormError(null);
     setIntendedUsage((current) =>
       current.includes(usage)
         ? current.filter((item) => item !== usage)
@@ -344,27 +349,23 @@ export function ImageAssetManager({
     setUploadFormError(null);
     setUploadSucceeded(false);
     if (file === null) {
-      setUploadFormError("Choose one JPEG, PNG, or WebP image.");
+      setUploadFormError("image.form.choose");
       return;
     }
     if (!acceptedImageTypes.has(file.type)) {
-      setUploadFormError("Choose a JPEG, PNG, or WebP image.");
+      setUploadFormError("image.form.type");
       return;
     }
     if (file.size < 1 || file.size > MAX_IMAGE_BYTES) {
-      setUploadFormError(
-        "The image must be larger than 0 bytes and no more than 20 MiB.",
-      );
+      setUploadFormError("image.form.size");
       return;
     }
     if (intendedUsage.length === 0) {
-      setUploadFormError("Choose at least one intended use.");
+      setUploadFormError("image.form.usage");
       return;
     }
     if (!rightsConfirmed) {
-      setUploadFormError(
-        "Confirm the source, rights, and intended-use declaration.",
-      );
+      setUploadFormError("image.form.rights");
       return;
     }
 
@@ -425,17 +426,15 @@ export function ImageAssetManager({
     setReviewSucceeded(false);
     const normalizedReason = reason.trim();
     if (verdict === "not_ready" && normalizedReason.length === 0) {
-      setReviewFormError("Explain why this image set is not ready.");
+      setReviewFormError("image.review.reasonRequired");
       return;
     }
     if (normalizedReason.length > 1000) {
-      setReviewFormError("Keep the readiness reason within 1000 characters.");
+      setReviewFormError("image.review.reasonLength");
       return;
     }
     if (verdict === "ready" && !imageSet.checklist.can_mark_ready) {
-      setReviewFormError(
-        "Resolve every deterministic checklist blocker before confirming READY.",
-      );
+      setReviewFormError("image.review.blockers");
       return;
     }
 
@@ -487,43 +486,36 @@ export function ImageAssetManager({
       aria-labelledby="image-set-heading"
       className="image-assets image-set-workbench"
       data-project-status={project.status}
+      id="image-set-workbench"
     >
       <div className="section-heading image-assets__heading">
         <div>
-          <p className="eyebrow">Phase 1E-2 · Governed private image set</p>
-          <h2 id="image-set-heading">Multi-role image-set workbench</h2>
+          <p className="context-label">{t("image.eyebrow")}</p>
+          <h2 id="image-set-heading">{t("image.heading")}</h2>
         </div>
-        <span className="image-assets__slot">4 formal roles</span>
+        <span className="image-assets__slot">{t("image.formalRoles")}</span>
       </div>
 
-      <p className="image-assets__boundary">
-        Upload checks, role completeness, rights records, byte distinctness, and
-        private-object availability are deterministic. READY and NOT READY are human
-        decisions. No AI analysis, angle recognition, quality score, legal
-        verification, public URL, or deletion is provided.
-      </p>
+      <p className="image-assets__boundary">{t("image.boundary")}</p>
 
       {state.status === "loading" ? (
         <div aria-busy="true" className="image-assets__loading">
-          <progress aria-label="Loading image-set workbench" />
-          <p role="status">Loading the private image set and review history…</p>
+          <progress aria-label={t("image.loadingLabel")} />
+          <p role="status">{t("image.loading")}</p>
         </div>
       ) : null}
 
       {state.status === "error" ? (
         <FeedbackPanel
           action={{
-            label: "Retry image set",
+            label: t("image.retry"),
             onClick: reloadWorkbench,
           }}
-          eyebrow="Private image set unavailable"
-          heading="The image-set workbench could not be loaded"
+          eyebrow={t("image.unavailable")}
+          heading={t("image.unavailableHeading")}
           kind="error"
         >
-          <p>
-            No image or readiness facts were inferred. Retry the owner-scoped API
-            request when the service is available.
-          </p>
+          <p>{t("image.unavailableCopy")}</p>
         </FeedbackPanel>
       ) : null}
 
@@ -533,16 +525,13 @@ export function ImageAssetManager({
             aria-labelledby="image-set-status-heading"
             className={`image-set-status image-set-status--${imageSet.status}`}
           >
-            <p className="eyebrow">Current image-set state</p>
-            <h3 id="image-set-status-heading">{statusHeading(imageSet)}</h3>
+            <p className="context-label">{t("image.currentState")}</p>
+            <h3 id="image-set-status-heading">{t(statusHeadingKey(imageSet))}</h3>
             {imageSet.status === "stale" ? (
-              <p>
-                The saved review remains immutable history. The current assets no
-                longer match its snapshot and require a new human confirmation.
-              </p>
+              <p>{t("image.staleCopy")}</p>
             ) : null}
             {imageSet.status === "ready" ? (
-              <p>Image set ready for human-guided region planning</p>
+              <p>{t("image.readyCopy")}</p>
             ) : null}
           </section>
 
@@ -563,11 +552,11 @@ export function ImageAssetManager({
                 >
                 <header>
                   <div>
-                    <p className="eyebrow">
-                      {slot.required ? "Required role" : "Optional role"}
+                    <p className="context-label">
+                      {slot.required ? t("image.requiredRole") : t("image.optionalRole")}
                     </p>
                     <h3 id={`image-role-${slot.role}`}>
-                      {roleLabels[slot.role]}
+                      {t(roleLabelKeys[slot.role])}
                     </h3>
                   </div>
                   <span
@@ -580,48 +569,51 @@ export function ImageAssetManager({
                     }`}
                   >
                     {slot.missing
-                      ? "Missing"
+                      ? t("image.missing")
                       : slot.object_available
-                        ? "Available"
-                        : "Unavailable"}
+                        ? t("image.available")
+                        : t("common.unavailable")}
                   </span>
                 </header>
-                <p>{roleDescriptions[slot.role]}</p>
+                <p>{t(roleDescriptionKeys[slot.role])}</p>
 
                 {slot.current === null ? (
                   <div className="image-role-card__empty">
                     <span aria-hidden="true">+</span>
-                    <p>No current asset</p>
+                    <p>{t("image.noCurrent")}</p>
                   </div>
                 ) : (
                   <>
                     <div className="image-card__preview">
                       <img
-                        alt={`Private preview of ${roleLabels[slot.role]}: ${slot.current.original_filename}`}
+                        alt={t("image.previewAlt", {
+                          role: t(roleLabelKeys[slot.role]),
+                          filename: slot.current.original_filename,
+                        })}
                         src={slot.current.content_url}
                       />
                     </div>
                     <dl className="image-role-card__facts">
                       <div>
-                        <dt>Version</dt>
+                        <dt>{t("common.version")}</dt>
                         <dd>{slot.current.version}</dd>
                       </div>
                       <div>
-                        <dt>Dimensions</dt>
+                        <dt>{t("image.dimensions")}</dt>
                         <dd>
                           {slot.current.width} × {slot.current.height}
                         </dd>
                       </div>
                       <div>
-                        <dt>Upload checks</dt>
-                        <dd>Accepted</dd>
+                        <dt>{t("image.uploadChecks")}</dt>
+                        <dd>{t("common.accepted")}</dd>
                       </div>
                       <div>
-                        <dt>Rights</dt>
+                        <dt>{t("image.rights")}</dt>
                         <dd>
                           {slot.current.rights_attestation_status === "confirmed"
-                            ? "Attested"
-                            : "Incomplete"}
+                            ? t("image.attested")
+                            : t("common.incomplete")}
                         </dd>
                       </div>
                     </dl>
@@ -631,7 +623,7 @@ export function ImageAssetManager({
                 {slot.history.length > 1 ? (
                   <details className="image-history image-role-card__history">
                     <summary>
-                      Version history ({slot.history.length})
+                      {t("image.versionHistory", { count: slot.history.length })}
                     </summary>
                     <ol>
                       {slot.history.map((image) => (
@@ -644,7 +636,7 @@ export function ImageAssetManager({
                             rel="noreferrer"
                             target="_blank"
                           >
-                            Open private original
+                            {t("image.openOriginal")}
                           </a>
                         </li>
                       ))}
@@ -660,15 +652,14 @@ export function ImageAssetManager({
                     onClick={() => chooseRole(slot.role)}
                     type="button"
                   >
-                    {slot.current === null ? "Add this role" : "Replace safely"}
+                    {slot.current === null ? t("image.addRole") : t("image.replaceSafely")}
                   </button>
                 ) : (
                   <p className="image-role-card__lock">
-                    {imageMutationLockMessage(
-                      project.status,
-                      slot.role,
-                      mutation.operation,
-                    )}
+                    {t(imageMutationLockKey(project.status, slot.role, mutation.operation), {
+                      operation: t(mutation.operation === "first upload" ? "image.operation.first" : "image.operation.replacement"),
+                      status: formatProjectStatus(project.status),
+                    })}
                   </p>
                 )}
                 </article>
@@ -678,28 +669,33 @@ export function ImageAssetManager({
 
           {!canManageImages ? (
             <aside className="image-assets__locked" role="note">
-              <p className="eyebrow">Reviewer access</p>
-              <h3>Image uploads and replacements are owner-only</h3>
-              <p>
-                Private originals, immutable history, readiness checks, and human
-                review remain available to you.
-              </p>
+              <p className="context-label">{t("image.reviewerAccess")}</p>
+              <h3>{t("image.ownerOnly")}</h3>
+              <p>{t("image.ownerOnlyCopy")}</p>
             </aside>
           ) : !uploadAllowed ? (
             <aside className="image-assets__locked" role="note">
-              <p className="eyebrow">Workflow-controlled</p>
+              <p className="context-label">{t("image.workflowControlled")}</p>
               <h3>
-                {roleLabels[selectedRole]} {selectedMutation?.operation ?? "change"} is
-                locked in {project.status}
+                {t("image.lockHeading", {
+                  role: t(roleLabelKeys[selectedRole]),
+                  operation: selectedMutation === null
+                    ? t("common.unknown")
+                    : t(selectedMutation.operation === "first upload" ? "image.operation.first" : "image.operation.replacement"),
+                  status: formatProjectStatus(project.status),
+                })}
               </h3>
               <p>
-                {imageMutationLockMessage(
+                {t(imageMutationLockKey(
                   project.status,
                   selectedRole,
                   selectedMutation?.operation ?? "first upload",
-                )}
+                ), {
+                  operation: t((selectedMutation?.operation ?? "first upload") === "first upload" ? "image.operation.first" : "image.operation.replacement"),
+                  status: formatProjectStatus(project.status),
+                })}
               </p>
-              <p>Existing private assets and immutable history remain readable.</p>
+              <p>{t("image.historyReadable")}</p>
             </aside>
           ) : (
             <form
@@ -709,41 +705,49 @@ export function ImageAssetManager({
               onSubmit={submitUpload}
             >
               <div>
-                <p className="eyebrow">
+                <p className="context-label">
                   {selectedSlot?.current === null
-                    ? "Fill role"
-                    : "Controlled replacement"}
+                    ? t("image.fillRole")
+                    : t("image.controlledReplacement")}
                 </p>
                 <h3 id="role-upload-heading">
                   {selectedSlot?.current === null
-                    ? `Add ${roleLabels[selectedRole]}`
-                    : `Replace ${roleLabels[selectedRole]}`}
+                    ? t("image.addHeading", { role: t(roleLabelKeys[selectedRole]) })
+                    : t("image.replaceHeading", { role: t(roleLabelKeys[selectedRole]) })}
                 </h3>
-                <p>
-                  A successful replacement creates a new immutable version. Every old
-                  row, file, and rights declaration remains retained.
-                </p>
+                <p>{t("image.replacementCopy")}</p>
               </div>
 
               <div className="image-upload__grid">
                 <div className="image-upload__field">
-                  <label htmlFor="role-image-file">Image file</label>
+                  <label htmlFor="role-image-file">{t("image.file")}</label>
                   <input
                     accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                    aria-describedby={`role-image-file-help${
+                      uploadFormError === "image.form.choose" ||
+                      uploadFormError === "image.form.type" ||
+                      uploadFormError === "image.form.size"
+                        ? " image-upload-form-error"
+                        : ""
+                    }`}
+                    aria-invalid={
+                      uploadFormError === "image.form.choose" ||
+                      uploadFormError === "image.form.type" ||
+                      uploadFormError === "image.form.size"
+                        ? true
+                        : undefined
+                    }
                     disabled={uploading}
                     id="role-image-file"
                     name="role-image-file"
                     onChange={updateFile}
                     type="file"
                   />
-                  <p>
-                    Static JPEG, PNG, or WebP · shortest side at least 768 px ·
-                    longest side at most 8192 px · 40,000,000 pixels and 20 MiB max.
-                  </p>
+                  <p id="role-image-file-help">{t("image.fileRules")}</p>
                 </div>
 
                 <div className="image-upload__field">
-                  <label htmlFor="image-source-type">Image source</label>
+                  <label htmlFor="image-source-type">{t("image.source")}</label>
                   <select
                     disabled={uploading}
                     id="image-source-type"
@@ -752,15 +756,26 @@ export function ImageAssetManager({
                   >
                     {imageSourceTypes.map((source) => (
                       <option key={source} value={source}>
-                        {sourceLabels[source]}
+                        {t(sourceLabelKeys[source])}
                       </option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              <fieldset className="image-upload__choices" disabled={uploading}>
-                <legend>Intended use</legend>
+              <fieldset
+                aria-describedby={
+                  uploadFormError === "image.form.usage"
+                    ? "image-upload-form-error"
+                    : undefined
+                }
+                aria-invalid={
+                  uploadFormError === "image.form.usage" ? true : undefined
+                }
+                className="image-upload__choices"
+                disabled={uploading}
+              >
+                <legend>{t("image.intendedUse")}</legend>
                 {imageIntendedUsages.map((usage) => (
                   <label key={usage}>
                     <input
@@ -768,67 +783,78 @@ export function ImageAssetManager({
                       onChange={() => toggleUsage(usage)}
                       type="checkbox"
                     />
-                    <span>{usageLabels[usage]}</span>
+                    <span>{t(usageLabelKeys[usage])}</span>
                   </label>
                 ))}
               </fieldset>
 
               <label className="image-upload__attestation">
                 <input
+                  aria-describedby={
+                    uploadFormError === "image.form.rights"
+                      ? "image-upload-form-error"
+                      : undefined
+                  }
+                  aria-invalid={
+                    uploadFormError === "image.form.rights" ? true : undefined
+                  }
                   checked={rightsConfirmed}
                   disabled={uploading}
                   onChange={(event) => {
                     clearUploadAttempt();
+                    setUploadFormError(null);
                     setRightsConfirmed(event.target.checked);
                   }}
                   type="checkbox"
                 />
                 <span>
-                  I confirm that the source above is accurate, that I have the rights
-                  or permission needed for the selected uses, and that this
-                  declaration will be bound to this immutable image version.
+                  {t("image.attestation")}
                 </span>
               </label>
 
               {uploadFormError === null ? null : (
-                <p className="image-upload__error" role="alert">
-                  {uploadFormError}
+                <p
+                  className="image-upload__error"
+                  id="image-upload-form-error"
+                  role="alert"
+                >
+                  {t(uploadFormError)}
                 </p>
               )}
               {uploadError === null ? null : (
                 <div className="image-upload__error" role="alert">
-                  <p>{commandErrorMessage(uploadError)}</p>
+                  <p>{t(commandErrorKey(uploadError))}</p>
                   {uploadError.retryable ? (
                     <p>
-                      Do not change the selected file, role, or declaration before
-                      retrying.
+                      {t("image.retryUnchanged")}
                     </p>
                   ) : null}
                 </div>
               )}
               {uploadSucceeded ? (
                 <p className="image-upload__success" role="status">
-                  The immutable role version was stored. Refreshing the image set…
+                  {t("image.uploadSuccess")}
                 </p>
               ) : null}
               {uploading ? (
                 <div aria-busy="true" className="image-upload__progress">
-                  <progress aria-label="Uploading and checking role image" />
-                  <p role="status">Uploading and checking the private image…</p>
+                  <progress aria-label={t("image.uploadingLabel")} />
+                  <p role="status">{t("image.uploading")}</p>
                 </div>
               ) : null}
 
               <div className="image-upload__actions">
                 <button
+                  aria-busy={uploading}
                   className="button button--primary"
                   disabled={uploading}
                   type="submit"
                 >
                   {uploading
-                    ? "Storing protected upload…"
+                    ? t("image.storing")
                     : selectedSlot?.current === null
-                      ? `Store ${roleLabels[selectedRole]}`
-                      : `Store ${roleLabels[selectedRole]} replacement`}
+                      ? t("image.store", { role: t(roleLabelKeys[selectedRole]) })
+                      : t("image.storeReplacement", { role: t(roleLabelKeys[selectedRole]) })}
                 </button>
               </div>
             </form>
@@ -840,21 +866,21 @@ export function ImageAssetManager({
           >
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Deterministic, non-AI prerequisites</p>
-                <h3 id="readiness-checklist-heading">Readiness checklist</h3>
+                <p className="context-label">{t("image.checklistEyebrow")}</p>
+                <h3 id="readiness-checklist-heading">{t("image.checklistHeading")}</h3>
               </div>
             </div>
             <ul className="readiness-checklist">
               {(
-                Object.keys(checklistLabels) as Array<
-                  keyof typeof checklistLabels
+                Object.keys(checklistLabelKeys) as Array<
+                  keyof typeof checklistLabelKeys
                 >
               ).map((key) => {
                 const passed = imageSet.checklist[key];
                 return (
                   <li className={passed ? "is-pass" : "is-blocked"} key={key}>
-                    <span aria-hidden="true">{passed ? "✓" : "!"}</span>
-                    <span>{checklistLabels[key]}</span>
+                    <span aria-hidden="true" />
+                    <span>{t(checklistLabelKeys[key])}</span>
                   </li>
                 );
               })}
@@ -862,8 +888,7 @@ export function ImageAssetManager({
             {imageSet.checklist.required_roles_present &&
             !imageSet.checklist.content_distinct ? (
               <p className="readiness-warning" role="alert">
-                Duplicate content detected across required roles. READY is blocked
-                until the current required images use distinct SHA-256 content.
+                {t("image.duplicateWarning")}
               </p>
             ) : null}
           </section>
@@ -874,48 +899,51 @@ export function ImageAssetManager({
           >
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Human decision · append-only</p>
-                <h3 id="readiness-review-heading">Readiness review</h3>
+                <p className="context-label">{t("image.reviewEyebrow")}</p>
+                <h3 id="readiness-review-heading">{t("image.reviewHeading")}</h3>
               </div>
             </div>
 
             {imageSet.latest_review === null ? (
-              <p>No human readiness review has been saved for this project.</p>
+              <p>{t("image.reviewEmpty")}</p>
             ) : (
               <article className="latest-review">
-                <p className="eyebrow">
-                  Latest review · version {imageSet.latest_review.version}
+                <p className="context-label">
+                  {t("image.latestReview", { version: imageSet.latest_review.version })}
                 </p>
                 <h4>
                   {imageSet.latest_review.verdict === "ready"
-                    ? "READY"
-                    : "NOT READY"}
+                    ? t("image.ready")
+                    : t("image.notReady")}
                 </h4>
                 <p>
                   {imageSet.latest_review.reason ??
-                    "All deterministic prerequisites were accepted at confirmation."}
+                    t("image.defaultReason")}
                 </p>
                 <p>
-                  By {imageSet.latest_review.actor_display_name_snapshot} ·{" "}
-                  {formatProjectTimestamp(imageSet.latest_review.created_at)}
+                  {t("image.by", {
+                    name: imageSet.latest_review.actor_display_name_snapshot,
+                    date: formatProjectTimestamp(imageSet.latest_review.created_at),
+                  })}
                 </p>
               </article>
             )}
 
             <form className="readiness-form" noValidate onSubmit={submitReview}>
               <fieldset disabled={reviewing}>
-                <legend>Human verdict</legend>
+                <legend>{t("image.humanVerdict")}</legend>
                 <label>
                   <input
                     checked={verdict === "ready"}
                     name="readiness-verdict"
                     onChange={() => {
                       clearReviewAttempt();
+                      setReviewFormError(null);
                       setVerdict("ready");
                     }}
                     type="radio"
                   />
-                  <span>READY</span>
+                  <span>{t("image.ready")}</span>
                 </label>
                 <label>
                   <input
@@ -923,53 +951,73 @@ export function ImageAssetManager({
                     name="readiness-verdict"
                     onChange={() => {
                       clearReviewAttempt();
+                      setReviewFormError(null);
                       setVerdict("not_ready");
                     }}
                     type="radio"
                   />
-                  <span>NOT READY</span>
+                  <span>{t("image.notReady")}</span>
                 </label>
               </fieldset>
 
               <div className="image-upload__field">
                 <label htmlFor="readiness-reason">
-                  Reason {verdict === "not_ready" ? "(required)" : "(optional)"}
+                  {verdict === "not_ready" ? t("image.reasonRequired") : t("image.reasonOptional")}
                 </label>
                 <textarea
+                  aria-describedby={`readiness-reason-help${
+                    reviewFormError === "image.review.reasonRequired" ||
+                    reviewFormError === "image.review.reasonLength"
+                      ? " readiness-review-form-error"
+                      : ""
+                  }`}
+                  aria-invalid={
+                    reviewFormError === "image.review.reasonRequired" ||
+                    reviewFormError === "image.review.reasonLength"
+                      ? true
+                      : undefined
+                  }
                   disabled={reviewing}
                   id="readiness-reason"
                   maxLength={1000}
                   onChange={(event) => {
                     clearReviewAttempt();
+                    setReviewFormError(null);
                     setReason(event.target.value);
                   }}
                   rows={4}
                   value={reason}
                 />
+                <p id="readiness-reason-help">{t("image.reasonHelp")}</p>
               </div>
 
               {reviewFormError === null ? null : (
-                <p className="image-upload__error" role="alert">
-                  {reviewFormError}
+                <p
+                  className="image-upload__error"
+                  id="readiness-review-form-error"
+                  role="alert"
+                >
+                  {t(reviewFormError)}
                 </p>
               )}
               {reviewError === null ? null : (
                 <div className="image-upload__error" role="alert">
-                  <p>{commandErrorMessage(reviewError)}</p>
+                  <p>{t(commandErrorKey(reviewError))}</p>
                   {reviewError.retryable ? (
                     <p>
-                      Do not change the verdict or reason before retrying this command.
+                      {t("image.retryReviewUnchanged")}
                     </p>
                   ) : null}
                 </div>
               )}
               {reviewSucceeded ? (
                 <p className="image-upload__success" role="status">
-                  The immutable human review was saved. Refreshing readiness…
+                  {t("image.reviewSuccess")}
                 </p>
               ) : null}
 
               <button
+                aria-busy={reviewing}
                 className="button button--primary"
                 disabled={
                   reviewing ||
@@ -979,25 +1027,25 @@ export function ImageAssetManager({
                 type="submit"
               >
                 {reviewing
-                  ? "Saving protected review…"
+                  ? t("image.savingReview")
                   : verdict === "ready"
-                    ? "Confirm READY"
-                    : "Record NOT READY"}
+                    ? t("image.confirmReady")
+                    : t("image.recordNotReady")}
               </button>
             </form>
 
             {state.status === "loaded" && state.reviews.length > 0 ? (
               <details className="review-history">
-                <summary>Review history ({state.reviews.length})</summary>
+                <summary>{t("image.reviewHistory", { count: state.reviews.length })}</summary>
                 <ol>
                   {state.reviews.map((review) => (
                     <li key={review.id}>
                       <strong>
                         v{review.version} ·{" "}
-                        {review.verdict === "ready" ? "READY" : "NOT READY"}
+                        {review.verdict === "ready" ? t("image.ready") : t("image.notReady")}
                       </strong>
                       <span>
-                        {review.reason ?? "No reason supplied"} ·{" "}
+                        {review.reason ?? t("image.noReason")} ·{" "}
                         {formatProjectTimestamp(review.created_at)}
                       </span>
                     </li>

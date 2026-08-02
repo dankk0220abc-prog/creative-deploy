@@ -1,25 +1,5 @@
 import type { WorkflowStatus } from "../api/paintProjects";
-
-const statusLabels: Record<WorkflowStatus, string> = {
-  DRAFT: "Draft",
-  IMAGE_UPLOADED: "Image uploaded",
-  IMAGE_REVIEW_REQUIRED: "Image review required",
-  IMAGE_VALIDATION_FAILED: "Image validation failed",
-  IMAGE_VALIDATED: "Image validated",
-  REGION_ANALYSIS_RUNNING: "Region analysis running",
-  REGION_REVIEW_REQUIRED: "Region review required",
-  REGIONS_CONFIRMED: "Regions confirmed",
-  PLAN_GENERATION_RUNNING: "Plan generation running",
-  PLAN_REVIEW_REQUIRED: "Plan review required",
-  PLAN_APPROVED: "Plan approved",
-  COMPLETED: "Completed",
-  BLOCKED_LOW_CONFIDENCE: "Blocked for review",
-  FAILED_RETRYABLE: "Retry available",
-  FAILED_FINAL: "Failed",
-  ABANDONED: "Abandoned",
-};
-
-const UNKNOWN_UPDATE_TIME = "Unknown update time";
+import { currentLocale, i18n, type SupportedLocale } from "../i18n";
 
 function parseTimestamp(value: string): number | null {
   const timestamp = Date.parse(value);
@@ -31,28 +11,31 @@ export function codePointLength(value: string): number {
 }
 
 export function formatProjectStatus(status: WorkflowStatus): string {
-  return statusLabels[status];
+  return i18n.t(`status.${status}`);
 }
 
-export function formatProjectTimestamp(value: string): string {
+export function formatProjectTimestamp(value: string, locale = currentLocale()): string {
   const timestamp = parseTimestamp(value);
   if (timestamp === null) {
-    return UNKNOWN_UPDATE_TIME;
+    return i18n.t("common.unknownUpdateTime");
   }
 
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(timestamp);
 }
 
-export function formatProjectAccessibleTimestamp(value: string): string {
+export function formatProjectAccessibleTimestamp(
+  value: string,
+  locale: SupportedLocale = currentLocale(),
+): string {
   const timestamp = parseTimestamp(value);
   if (timestamp === null) {
-    return UNKNOWN_UPDATE_TIME;
+    return i18n.t("common.unknownUpdateTime");
   }
 
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: "long",
     timeStyle: "long",
     timeZone: "UTC",
@@ -62,17 +45,20 @@ export function formatProjectAccessibleTimestamp(value: string): string {
 export function formatProjectRelativeTime(
   value: string,
   nowMilliseconds = Date.now(),
+  locale: SupportedLocale = currentLocale(),
 ): string {
   const timestamp = parseTimestamp(value);
   if (timestamp === null || !Number.isFinite(nowMilliseconds)) {
-    return UNKNOWN_UPDATE_TIME;
+    return i18n.t("common.unknownUpdateTime");
   }
 
   const secondsFromNow = (timestamp - nowMilliseconds) / 1_000;
   const absoluteSeconds = Math.abs(secondsFromNow);
 
   if (absoluteSeconds < 60) {
-    return secondsFromNow <= 0 ? "just now" : "in less than a minute";
+    return secondsFromNow <= 0
+      ? i18n.t("relative.justNow")
+      : i18n.t("relative.lessThanMinute");
   }
 
   let divisor: number;
@@ -88,7 +74,7 @@ export function formatProjectRelativeTime(
     unit = "day";
   }
 
-  return new Intl.RelativeTimeFormat("en", { numeric: "always" }).format(
+  return new Intl.RelativeTimeFormat(locale, { numeric: "always" }).format(
     Math.round(secondsFromNow / divisor),
     unit,
   );
@@ -104,7 +90,7 @@ export function summarizeDescription(
   maximumCodePoints = 140,
 ): string {
   if (description === null) {
-    return "No description provided.";
+    return i18n.t("common.noDescription");
   }
 
   const codePoints = Array.from(description);
