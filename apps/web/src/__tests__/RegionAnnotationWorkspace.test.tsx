@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -141,6 +141,7 @@ describe("Human Region Annotation Workspace", () => {
   });
 
   it("loads directly, focuses its heading, and exposes only human tools", async () => {
+    const user = userEvent.setup();
     fetchMock().mockResolvedValue(jsonResponse(regionWorkbenchFixture()));
     renderWorkspace();
 
@@ -162,6 +163,16 @@ describe("Human Region Annotation Workspace", () => {
     expect(screen.getByRole("link", { name: "Create project" })).not.toHaveAttribute(
       "aria-current",
     );
+
+    await user.click(screen.getByRole("button", { name: "简体中文" }));
+    await waitFor(() => {
+      expect(document.title).toBe("区域标注 — PaintPilot");
+    });
+    await user.click(screen.getByRole("button", { name: "English" }));
+    await waitFor(() => {
+      expect(document.title).toBe("Region Annotation — PaintPilot");
+    });
+
     expect(fetchMock()).toHaveBeenCalledWith(
       `/api/v1/paint-projects/${PROJECT_ID}/region-sets/workbench`,
       expect.objectContaining({ method: "GET" }),

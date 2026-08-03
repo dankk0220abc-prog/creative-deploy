@@ -1,6 +1,6 @@
 Phase 2A-1 final remediation validation and cleanup summary
 Date: 2026-07-31
-Repository: /Users/danke/Developer/CreativeDeploy
+Repository: <repository-root>
 Baseline HEAD: f0563dc1c5800f9d1ec35efaac77d169ab08c6da
 Classification: implementation evidence, not independent approval or Git sealing
 

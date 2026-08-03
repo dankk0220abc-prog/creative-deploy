@@ -120,7 +120,7 @@ variable and sent one unsuccessful Create request to the unrelated service on po
 formal classification is `ENVIRONMENT_ISOLATION_INVALID_ATTEMPT`; that deviation remains
 historical evidence and must not be rewritten. A later controller-authorized continuation started
 from the corrected 35-path baseline, used API `18160`, Vite `15160`, and a request-audit proxy on
-`18161`, enforced an explicit not-port-8000 target guard, and performed no VisualEngineer request,
+`18161`, enforced an explicit not-port-8000 target guard, and performed no unrelated local workspace request,
 check, log, container, database, or file operation. The full isolated browser journey and exact
 cleanup passed. At that historical handoff, the candidate was ready only for a fresh independent
 focused read-only review; this candidate-time status was later superseded only by the final independent PASS,

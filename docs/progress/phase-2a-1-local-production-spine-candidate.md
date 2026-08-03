@@ -2,7 +2,7 @@
 
 Candidate state: `IMPLEMENTED_READY_FOR_FOCUSED_INDEPENDENT_REVIEW`<br>
 Date: 2026-07-31<br>
-Repository: `/Users/danke/Developer/CreativeDeploy`
+Repository: `<repository-root>`
 
 ## 1. Verdict
 

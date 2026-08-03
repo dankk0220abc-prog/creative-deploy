@@ -46,11 +46,11 @@ separate authorized sealing task create implementation seal
 backdate approval.
 
 The historical implementation conversation did not reach the target verdict because its
-no-VisualEngineer-operation condition could not be asserted. The later controller-authorized
+no-operation-on-unrelated-local-workspace condition could not be asserted. The later controller-authorized
 continuation started from the corrected 35-path candidate baseline and used an explicit
 `CREATIVEDEPLOY_API_PROXY_TARGET` with a not-port-8000 guard, new API/Vite/audit-proxy ports, an
 isolated PostgreSQL schema, isolated private storage, and program-generated fixtures. It performed
-no VisualEngineer request, check, log, container, database, or file operation. Its complete
+no unrelated local workspace request, check, log, container, database, or file operation. Its complete
 browser journey and exact cleanup passed. This continuation does not erase or relabel the
 historical deviation; it supplies new, independently isolated evidence.
 
@@ -89,7 +89,7 @@ remains `NOT_SELECTED` / `NOT_STARTED`.
 - lighting, color, Cel Shading advice, materials, inventory, or PaintPlan;
 - PaintProject workflow-state changes or automatic transitions;
 - external storage, public/signed URLs, deletion, real authentication, or RBAC;
-- VisualEngineer files, containers, ports, volumes, databases, or processes.
+- unrelated local workspace files, containers, ports, volumes, databases, or processes.
 
 ## Acceptance matrix
 

@@ -1,6 +1,6 @@
 manifest_format: CreativeDeploy Phase 2B-1 remediated Candidate v2
 generated_at: 2026-08-01
-repository: /Users/danke/Developer/CreativeDeploy
+repository: <repository-root>
 baseline_branch: main
 baseline_head: 771b53914f51245d6c62c569e40ddd061ae7ec6e
 baseline_tree: 26f395ef6c217bc7f5f997309c12893618ce5634

@@ -258,7 +258,7 @@ non-image `.jpg`. No external image or network source was used.
   zero staging files. Exact reverse-lineage cleanup returned all four business tables and private
   storage to zero; migration fixture database/role counts, listeners, and the temporary root also
   returned to zero. The CreativeDeploy PostgreSQL container and named volume were retained.
-  VisualEngineer was not operated.
+  The unrelated local workspace was not operated.
 
 ## Synthetic browser acceptance continuation
 
@@ -283,7 +283,7 @@ fixtures, proxy, report, and cleanup script were removed after evidence capture.
 
 - The isolated chain was Browser → Vite `13111` → one-shot local confirmation-loss proxy
   `18112` → FastAPI `18111` → CreativeDeploy PostgreSQL `55432` → a unique private local
-  storage root. No repository `.env` or VisualEngineer resource was changed.
+  storage root. No repository `.env` or unrelated local workspace resource was changed.
 - The real browser created project `b60e5f78-66a7-45ee-beeb-f588fa4cea5a` titled
   `Synthetic browser acceptance TPgEUF` for Principal
   `phase1e1-synthetic-browser-TPgEUF`. Its initial state was `DRAFT`; the ImageAsset Manager
@@ -376,7 +376,7 @@ assets in reverse lineage order, and the single project. All four business table
 their pre-run count of zero. After database references were zero, exactly the three matching
 private objects were removed and storage returned to zero regular files. The API, Vite, proxy,
 and foreign-Principal probe listeners returned to zero; the unique temporary root was removed.
-The CreativeDeploy PostgreSQL container and named volume were retained. VisualEngineer was not
+The CreativeDeploy PostgreSQL container and named volume were retained. The unrelated local workspace was not
 operated.
 
 ## Final scope evidence
@@ -394,7 +394,7 @@ operated.
 - `git diff --check` passed.
 - `git diff --cached --quiet` passed; nothing is staged.
 - No commit, branch, tag, push, dependency upgrade outside the two reviewed image-upload
-  packages, or VisualEngineer change was made.
+  packages, or change to the unrelated local workspace was made.
 
 The companion manifest is generated last and therefore excludes only itself from its file
 entries and scope-content hash. The final whole-worktree porcelain-v2 `-z` hash is reported
@@ -404,7 +404,7 @@ hash being reported.
 ## Sealing and closure handoff
 
 Security Remediation Round 1 and its new synthetic browser gate passed without a second Migration,
-external provider, deletion, authentication, AI, or VisualEngineer operation. At that historical
+external provider, deletion, authentication, AI, or unrelated local workspace operation. At that historical
 handoff the candidate was
 `PHASE_1E_1_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`, not yet approved, commit-ready,
 sealed, production-ready, or closed. A later strict independent security and product rereview

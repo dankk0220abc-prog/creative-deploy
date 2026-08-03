@@ -1,0 +1,55 @@
+Phase 2D Public Release Final Polish Candidate Manifest v1
+generated_at: 2026-08-03 Asia/Shanghai
+repository: repository-relative working tree
+branch: main
+baseline_head: 60c6bc8f83b34b83f1ad6ac14e77983b50905c5b
+baseline_origin_main: 60c6bc8f83b34b83f1ad6ac14e77983b50905c5b
+baseline_remote_main: 60c6bc8f83b34b83f1ad6ac14e77983b50905c5b
+baseline_tree: 570687d318ded747f88ce6c20b9f733660634e9b
+baseline_commit_count: 30
+github_visibility: PRIVATE
+latest_successful_candidate_ci_run: 30799395545
+loaded_skills: redesign-existing-projects,gpt-taste,impeccable
+payload_path_count: 36
+manifest_path_count: 1
+candidate_path_count: 37
+staged_path_count: 0
+self_hash: external
+row_format: STATUS<TAB>BYTES<TAB>SHA256<TAB>REPOSITORY_RELATIVE_PATH
+
+M	27840	f3bc4274ef191c24d4078371443f18e0e91ff273329e65e8807c0780bd33daa6	AGENTS.md
+M	38294	9d093d4e976723aad7eb67cf6dd9f064caae3243e449a618a56356545990aa5b	README.md
+M	26104	e2d2c553ade0c85a753fc4b5f218f60d42ba8a53b6af4f168aa1084db54a1d74	apps/web/src/__tests__/RegionAnnotationWorkspace.test.tsx
+M	79581	1a800532b58f5e895aefc68ad8db50b6fc3988148bda909a359cc6823208d481	apps/web/src/index.css
+M	2753	84389579f61f38121b451a69af44abc00e1fb9fbd5e3fdf6d0cbbd1d01b09e74	apps/web/src/pages/RegionWorkspacePage.tsx
+M	7130	28de3e21d2c463be5752564643a796b5c8b3c78f9c1fef369965009631c949ef	docs/progress/evidence/phase-2a-1/remediation-final-20260731/10-live-svg-browser-raster-pixels.json
+M	5085	e432479f6e0576bd0db14ed1609418cc18fca4a62b417468dedf1aca4fb3f839	docs/progress/evidence/phase-2a-1/remediation-final-20260731/18-validation-and-cleanup-summary.txt
+M	4354	2a866f84ecce0c2cf6c4d1f0e1e625e75a8135f97600d2abce3215ca0fb0a5ae	docs/progress/evidence/phase-2b-1/browser-acceptance-summary.txt
+M	5767	28ee0ae400baaa7aed4ef951e95466fb2863498397725af40c03554aac3e1d7e	docs/progress/evidence/phase-2b-1/final-validation-summary.txt
+D	0	DELETED	docs/progress/evidence/phase-2c-1/image-readiness-1440-skill-backed.png
+D	0	DELETED	docs/progress/evidence/phase-2c-1/project-detail-zh-1440-bilingual.png
+D	0	DELETED	docs/progress/evidence/phase-2c-1/region-owner-390-skill-backed.png
+D	0	DELETED	docs/progress/evidence/phase-2c-1/upload-error-1440-skill-backed.png
+M	27324	ce4631a7117d3ba180ca0f0a45440b42ae97a1e435f1761a980733dbded97b23	docs/progress/phase-1e-1-imageasset-foundation-candidate.md
+M	5514	62cc5f97ffaeefa1a8da9b2de00fa1265e2607e470262f2554080643d709b6f4	docs/progress/phase-1f-candidate-manifest.txt
+M	33898	bc59fdd83f7b41eefe45018364910a2ebd0211766b0239667345b363764a1df3	docs/progress/phase-1f-human-region-annotation-candidate.md
+M	7984	0b79230612493d26defaf89593d1e6413f5bb267b21dafba1bda3b6988a48fa1	docs/progress/phase-1f-human-region-annotation-plan.md
+M	14842	2f4a2a9e803d32ab4da84387bc1c313db1b9d7936867cd92da1afa1e1a6f7e2e	docs/progress/phase-2a-1-candidate-manifest.txt
+M	18430	c287a1e9ac94054e265d08cd057563d801cf20497a1bdb4b5bd971939c531994	docs/progress/phase-2a-1-local-production-spine-candidate.md
+M	3227	ae0fba00845e8f018c331976bd4e3dd9fc6af14225c9a5fbb29b5b3614820599	docs/progress/phase-2a-1-local-production-spine-plan.md
+M	11465	1df90d0ed1e703a383e6626d10f7d4051d52c34d01e45cc6121c7ee3075f22b5	docs/progress/phase-2b-1-candidate-manifest.txt
+M	13493	e2e545ae0893eea7b6058e402e6224a264430295fc6761fb4cdf4e3996231c88	docs/progress/phase-2b-1-command-ledger.md
+M	18796	09928306457b7f23dd92148d484f86303232d582557301d97465cf3a48d9e817	docs/progress/phase-2b-1-governed-identity-private-storage-candidate.md
+M	4222	3ebc1487a337811712753d55af55f352c46b624bcac59a5ca5531360d3b512cd	docs/progress/phase-2b-1-governed-identity-private-storage-plan.md
+M	6314	cba311cbc6afafd93610cf6a22f3a69bbbc2b206a26bc1f4efefab7d85fcedd3	docs/progress/phase-2b-2-candidate-manifest.txt
+M	16031	5aaa93f91f67eea86237dedf3259e48ee7717e5ae886b1c86c03c78b3f46e1e6	docs/progress/phase-2b-2-command-ledger.md
+M	23248	93e9bd8a6145ce57a54618aeb8990d7ce53312995b8853b07af1ed10ed9d4e37	docs/progress/phase-2b-2-staging-operations-hardening-candidate.md
+M	3360	72c5a0facd938d737f807794f90238e4cd3614374469c55df4a3158a703260f2	docs/progress/phase-2b-2-staging-operations-hardening-plan.md
+M	5924	1fb1438cece13c5a67fa5bf7539c9472975fb085620cfa98e98483c7b5b48fcb	docs/progress/phase-2c-1-browser-evidence.md
+A	3301	8f1ca4775f09fba983f65e13e1621261b40c1d0ee4268dcd7299b2eeff5324b4	docs/progress/phase-2d-browser-screenshot-evidence.md
+A	3046	aec4c5de50816b660f64b4c24ec46a6e95fe549191297909b04a4bc78bd4078d	docs/progress/phase-2d-command-ledger.md
+A	6188	c6a30a644f97ccd65cb430820a9238ef5057fd62475b1bd923da01a520f4e366	docs/progress/phase-2d-public-release-polish-candidate.md
+M	10785	7813a343dca6c84830236f800f5a8c1300f4724b0253c49d3ce4bec529f27d1f	docs/runbooks/local-production-style.md
+M	13455	cfd0ede79332505be6ddb16f08fc103b7735ddb46738133f50b85be8b3c243d5	docs/runbooks/staging-operations.md
+M	437490	2a3550237f4fa81dc294229868cffd6ddb6888670dcc2d3e2b7a73cd58932fef	docs/screenshots/paintpilot-region-workspace-en.png
+A	396258	814b1962a6ba172356b9d15de7f6ab4de16d78a2a212afebfd3530a04503dd8f	docs/screenshots/paintpilot-region-workspace-zh-cn.png

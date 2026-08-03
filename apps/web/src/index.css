@@ -4173,6 +4173,44 @@ a {
   box-shadow: none;
 }
 
+/* Phase 2D mobile touch targets: enlarge hit areas without scaling the workbench. */
+
+.locale-switcher__option,
+.shell-nav__logout,
+.region-toolbar button {
+  transition:
+    color 150ms ease,
+    border-color 150ms ease,
+    background-color 150ms ease,
+    transform 100ms ease;
+}
+
+.locale-switcher__option:active,
+.shell-nav__logout:active,
+.region-toolbar button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+@media (max-width: 980px) {
+  .locale-switcher__option,
+  .shell-nav__logout,
+  .region-toolbar button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+
+  .locale-switcher__option {
+    display: inline-flex;
+    padding-block: 0.4rem;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .region-toolbar > div {
+    gap: 0.5rem;
+  }
+}
+
 @media (min-width: 46rem) {
   .project-card__link {
     display: grid;

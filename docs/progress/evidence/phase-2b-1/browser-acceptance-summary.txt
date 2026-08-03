@@ -1,6 +1,6 @@
 PHASE 2B-1 REAL BROWSER ACCEPTANCE SUMMARY
 date: 2026-07-31
-repository: /Users/danke/Developer/CreativeDeploy
+repository: <repository-root>
 run_id: phase2b1_browser_12
 runtime: in-app Chrome-compatible Browser -> loopback Web/NGINX -> API -> PostgreSQL/MinIO/OIDC
 classification: IMPLEMENTER EVIDENCE; NOT INDEPENDENT APPROVAL

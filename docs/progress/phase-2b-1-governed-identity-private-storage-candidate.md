@@ -2,7 +2,7 @@
 
 Candidate state: `REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`<br>
 Date: 2026-08-01<br>
-Repository: `/Users/danke/Developer/CreativeDeploy`
+Repository: `<repository-root>`
 
 ## 1. Verdict
 
@@ -66,7 +66,7 @@ does not authorize Phase 2B-2.
 
 ## 2. Verified Baseline
 
-- Git top-level: `/Users/danke/Developer/CreativeDeploy`
+- Git top-level: `<repository-root>`
 - Branch: `main`
 - HEAD: `771b53914f51245d6c62c569e40ddd061ae7ec6e`
 - Tree: `26f395ef6c217bc7f5f997309c12893618ce5634`
@@ -76,7 +76,7 @@ does not authorize Phase 2B-2.
 - Starting database: PostgreSQL, nine business tables plus `alembic_version`
 - Starting object storage: private local filesystem, development/test only
 
-The similarly named `/Users/danke/Documents/creativedeploy` directory was not
+The similarly named `<non-authoritative-checkout>` directory was not
 used for implementation. Phase 2A-1 was not reopened or re-reviewed.
 
 The private `.env` contained a partial legacy PostgreSQL component set and did

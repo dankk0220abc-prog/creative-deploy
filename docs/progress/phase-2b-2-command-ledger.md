@@ -1,7 +1,7 @@
 # Phase 2B-2 — Command Ledger
 
 Date: 2026-08-01<br>
-Repository: `/Users/danke/Developer/CreativeDeploy`<br>
+Repository: `<repository-root>`<br>
 Role: implementation engineer; not independent reviewer or Git sealer
 
 This ledger records safe command classes and outcomes. It never records secret

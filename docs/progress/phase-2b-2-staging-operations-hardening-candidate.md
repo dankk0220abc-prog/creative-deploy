@@ -2,7 +2,7 @@
 
 Candidate state: `FINAL_REMEDIATION_READY_FOR_INDEPENDENT_REVIEW`<br>
 Date: 2026-08-02<br>
-Repository: `/Users/danke/Developer/CreativeDeploy`
+Repository: `<repository-root>`
 
 ## 1. Verdict
 
@@ -21,7 +21,7 @@ URL, retention deletion, AI, OCR, Agent, or RAG was added.
 
 ## 2. Verified Baseline
 
-- Git root: `/Users/danke/Developer/CreativeDeploy`
+- Git root: `<repository-root>`
 - Branch: `main`
 - HEAD: `511e42ecb2adccc55e75cb4d801181206b1b337a`
 - Tree: `05420278f8da5478be39832466fc60609c215313`
@@ -339,7 +339,7 @@ artifact, migration, and security gates used fresh IDs and complete cleanup.
 - Every dedicated Chrome process/profile, debug listener, certificate, key,
   SPKI file, and CDP helper was removed. macOS Keychain/system trust was never
   changed.
-- Existing `creativedeploy` and `visualengineer` Compose projects and unknown
+- Existing in-scope and unrelated local Compose projects and unknown
   ports/processes were not touched.
 - No real provider, domain, external account, public resource, or production
   data existed to clean.

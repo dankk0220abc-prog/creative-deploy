@@ -35,7 +35,7 @@ does not claim production readiness or authorize a later product phase.
   Light/Color/PaintPlan, migrations, or ORM changes.
 - Git staging, commit, push, tag, PR creation, independent approval, or Git
   sealing.
-- Any operation in VisualEngineer.
+- Any operation in the unrelated local workspace.
 
 ## Workstreams
 

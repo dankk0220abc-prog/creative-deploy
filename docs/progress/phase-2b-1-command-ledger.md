@@ -1,7 +1,7 @@
 # Phase 2B-1 Command Ledger
 
 Date: 2026-07-31<br>
-Repository: `/Users/danke/Developer/CreativeDeploy`<br>
+Repository: `<repository-root>`<br>
 Secret policy: commands below omit/redact process-only synthetic credentials
 
 ## Baseline and Discovery
@@ -154,7 +154,7 @@ migration/role jobs are validated to have no restart policy.
 | payload / porcelain-v1-z / tracked binary patch | `b7e62e6b9f8fb27cd14057be44be895ccd5fae7cfb9bc035fe50557f13984014` / `290d753916af38fe6ab80d5338a4dbf550ef3e868833a4efdd6e187a2bfb061d` / `4e3ec5c61f743258cc31b02e55c746240775c3e4d9323732156940fa0e8dd520` |
 
 The similarly named Documents path was rejected; all implementation and verification
-used `/Users/danke/Developer/CreativeDeploy`. The private `.env` was hash/status checked
+used `<repository-root>`. The private `.env` was hash/status checked
 and left unchanged.
 
 ### Finding Reproduction and Focused Gates

@@ -1,6 +1,6 @@
 PHASE 2B-1 FINAL VALIDATION SUMMARY
 date: 2026-07-31
-repository: /Users/danke/Developer/CreativeDeploy
+repository: <repository-root>
 baseline_head: 771b53914f51245d6c62c569e40ddd061ae7ec6e
 candidate_revision: 2b1c4d5e6f70
 

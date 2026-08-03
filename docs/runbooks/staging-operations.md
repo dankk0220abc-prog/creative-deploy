@@ -5,7 +5,7 @@ does not deploy publicly and is not a production provider selection.
 
 ## Preconditions and Ownership
 
-- Run from `/Users/danke/Developer/CreativeDeploy` with Docker Desktop, uv,
+- Run from `<repository-root>` with Docker Desktop, uv,
   OpenSSL, curl, Node/Corepack, and pnpm available.
 - Choose a fresh `RUN_ID` matching `^[a-z0-9][a-z0-9_]{0,39}$` and two unused
   loopback ports. Never reuse another live attempt's ID or resources.

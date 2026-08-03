@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 
 import { isPaintProjectId } from "../api/paintProjects";
@@ -51,12 +51,15 @@ export function RegionWorkspacePage() {
   );
 
   useLayoutEffect(() => {
-    document.title = t(titleKeyForState(effectiveState));
     const heading = pageRef.current?.querySelector<HTMLElement>("h1");
     if (heading !== null && heading !== undefined) {
       heading.tabIndex = -1;
       heading.focus({ preventScroll: true });
     }
+  }, [effectiveState, projectId]);
+
+  useEffect(() => {
+    document.title = t(titleKeyForState(effectiveState));
   }, [effectiveState, i18n.resolvedLanguage, projectId, t]);
 
   return (

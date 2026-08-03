@@ -46,11 +46,15 @@ Date: 2026-08-02
 - `evidence/phase-2c-1/projects-owner-768-skill-backed.png`
 - `evidence/phase-2c-1/project-detail-owner-1440-skill-backed.png`
 - `evidence/phase-2c-1/reviewer-management-owner-1440-skill-backed.png`
-- `evidence/phase-2c-1/upload-error-1440-skill-backed.png`
-- `evidence/phase-2c-1/image-readiness-1440-skill-backed.png`
-- `evidence/phase-2c-1/region-owner-390-skill-backed.png`
 - `evidence/phase-2c-1/region-polygon-owner-1440-skill-backed.png`
 - `evidence/phase-2c-1/reviewer-submitted-region-1440-skill-backed.png`
+
+Phase 2D retired four defective historical full-page captures after visual inspection found
+repeated fixed headers and stitched-page seams:
+`project-detail-zh-1440-bilingual.png`, `image-readiness-1440-skill-backed.png`,
+`upload-error-1440-skill-backed.png`, and `region-owner-390-skill-backed.png`. Their historical
+Phase 2C hashes remain in the Phase 2C manifest as an audit record; they are not current public
+evidence.
 
 ## Scope Note
 

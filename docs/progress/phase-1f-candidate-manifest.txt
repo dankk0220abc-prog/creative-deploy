@@ -1,5 +1,5 @@
 FORMAT	phase1f_candidate_manifest.v1
-REPOSITORY	/Users/danke/Developer/CreativeDeploy
+REPOSITORY	<repository-root>
 BRANCH	main
 BASE_HEAD	91f3135041c16c8e600d963c1341cb1af1db1458
 BASE_COMMIT_COUNT	19

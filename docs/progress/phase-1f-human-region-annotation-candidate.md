@@ -25,7 +25,7 @@
   `PHASE_1F_SNAPSHOT_TARGET_REMEDIATION_IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW`
 - Historical implementation-conversation verdict: `PHASE_1F_IMPLEMENTATION_FAILED`
 - Historical incident classification: `ENVIRONMENT_ISOLATION_INVALID_ATTEMPT`
-- Historical blocking condition: `VISUALENGINEER_PORT_SCOPE_DEVIATION`
+- Historical blocking condition: `UNRELATED_WORKSPACE_PORT_SCOPE_DEVIATION`
 - Historical candidate-time independent approval: `NOT_PERFORMED`
 - Historical candidate-time Git seal: `NOT_CREATED`
 - Production readiness: `NOT_CLAIMED`
@@ -35,7 +35,7 @@ This work did not stage, commit, push, tag, or create a PR. The historical imple
 conversation's unsuccessful request to an unrelated port-8000 listener remains recorded below and
 is not reclassified. The controller-authorized continuation used a corrected 35-path baseline,
 fresh ports, an explicit proxy target plus not-port-8000 guard, isolated PostgreSQL and storage,
-and a request-audit hop. It performed no VisualEngineer request, check, log, container, database,
+and a request-audit hop. It performed no unrelated local workspace request, check, log, container, database,
 or file operation. The complete acceptance journey and exact cleanup passed. This qualifies the
 candidate for fresh independent focused read-only review only; it is not independently approved,
 ready for sealing, Git-sealed, commit-ready, production-ready, or phase-closed.
@@ -46,7 +46,7 @@ Authoritative environment-isolated continuation baseline:
 
 | Fact | Verified value |
 | --- | --- |
-| Repository | `/Users/danke/Developer/CreativeDeploy` |
+| Repository | `<repository-root>` |
 | Branch / HEAD / tree | `main` / `91f3135041c16c8e600d963c1341cb1af1db1458` / `35302def051a10b018e02556068485ae1d40a338` |
 | Commit count / staged paths | `19` / `0` |
 | Candidate scope | 14 modified tracked + 22 untracked = 36 paths including Manifest, 35 excluding Manifest |
@@ -63,7 +63,7 @@ Historical pre-implementation baseline:
 
 | Fact | Verified value |
 | --- | --- |
-| Repository | `/Users/danke/Developer/CreativeDeploy` |
+| Repository | `<repository-root>` |
 | Branch | `main` |
 | HEAD | `91f3135041c16c8e600d963c1341cb1af1db1458` |
 | Subject | `docs(progress): close phase 1e-2 image readiness` |
@@ -107,7 +107,7 @@ Scope is limited to:
 - ADR-0006, physical dictionary, Plan, Candidate, Manifest, README, and AGENTS.
 
 No `.env`, dependency declaration, lockfile, Compose, CI, production infrastructure, sealed
-migration, Golden Case asset, or VisualEngineer path changed.
+migration, Golden Case asset, or unrelated local workspace path changed.
 
 ## 5. Migration and schema
 
@@ -357,16 +357,16 @@ accessibility tests.
 - The historical Phase 1F API used port 18000. One supplemental browser attempt incorrectly used
   Vite's default port-8000 proxy and sent one unsuccessful Create request to the unrelated
   listener. This remains a historical strict scope deviation even though no successful
-  VisualEngineer write or runtime reconfiguration is known.
+  unrelated local workspace write or runtime reconfiguration is known.
 - The controller-authorized continuation used only 18160/15160/18161, included a not-port-8000
-  startup guard and request-audit proxy, and performed no VisualEngineer operation.
+  startup guard and request-audit proxy, and performed no unrelated local workspace operation.
 
 ## 16. Command ledger and invalid attempts
 
 | Attempt | Classification | Resolution |
 | --- | --- | --- |
 | Initial Alembic command inherited `.env` port 5432 | `INVALID_ATTEMPT` | `.env` was not edited; every affected command was rerun with a one-command Compose-derived 55432 URL |
-| Initial Phase 1F API bind requested port 8000 | `INVALID_ATTEMPT` | Unrelated VisualEngineer owned the port; it was not stopped or modified, and Phase 1F used 18000 |
+| Initial Phase 1F API bind requested port 8000 | `INVALID_ATTEMPT` | An unrelated local service owned the port; it was not stopped or modified, and Phase 1F used 18000 |
 | First browser vertex-drag undo path dereferenced a cleared drag snapshot | `INVALID_ATTEMPT` | Captured the snapshot before ref clear, added drag/undo/redo regression, reran frontend/full/browser gates |
 | Existing overlay intercepted clicks while drawing an overlapping Region | `INVALID_ATTEMPT` | Disabled persisted-overlay pointer events only in draw mode; reran tests and browser draw |
 | Direct `locator.setInputFiles` controller call | `INVALID_ATTEMPT` | Used the documented file-chooser event and `chooser.setFiles`; upload/replacement passed |
@@ -418,14 +418,14 @@ region_set_reviews=0
 ```
 
 Both exact private browser storage roots and the eight generated SVG/PNG fixtures no longer exist
-under `/tmp`; they were moved to named entries in `/Users/danke/.Trash` and remain recoverable.
+under `/tmp`; they were moved to named entries in `<user-trash>` and remain recoverable.
 API 18000 and Vite 5173 have no listeners. CreativeDeploy Compose retains only healthy PostgreSQL
 at 55432, and named volume `creativedeploy_creativedeploy_postgres_data` remains present.
 The baseline local private-storage root has `0` object files and `0` staging entries.
 
-VisualEngineer files, container, process, volume, and database were not inspected, stopped, or
+The unrelated local workspace files, container, process, volume, and database were not inspected, stopped, or
 reconfigured. One unsuccessful HTTP request did reach its existing port 8000, so a
-“VisualEngineer port not operated” claim is intentionally not made.
+“unrelated local workspace port not operated” claim is intentionally not made.
 
 For the later environment-isolated continuation, the exact schema
 `phase1f_cont_phase1f_continuation_vqbmyd` was protected by ownership token
@@ -434,9 +434,9 @@ Projects and their expected immutable evidence. The marker was verified before d
 schema; the residual schema count was zero. Public counts for all nine business tables were zero
 before and after the run. API 18160, Vite 15160, and audit proxy 18161 had no listeners afterward.
 The exact isolated root `/tmp/phase1f-continuation-VqBMyd` was moved recoverably to
-`/Users/danke/.Trash/phase1f-continuation-VqBMyd`; the original path is absent. Baseline local
+`<user-trash>/phase1f-continuation-VqBMyd`; the original path is absent. Baseline local
 private storage retained zero objects and zero staging entries. CreativeDeploy PostgreSQL at
-55432 and its named volume remained healthy. No VisualEngineer request, check, log, container,
+55432 and its named volume remained healthy. No unrelated local workspace request, check, log, container,
 database, or file operation occurred during this continuation.
 
 ### Snapshot-target remediation evidence
@@ -476,7 +476,7 @@ operations detected.” Migration SHA-256 remained
 The fresh real-browser chain used only Vite `15180`, API `18180`, audit proxy `18181`, PostgreSQL
 `55432`, schema `phase1f_browser_b393356c_f816_4fd2_b4b2_8628c5949a57`, Principal
 `phase1f-browser-owner`, and a task-private storage root. No request targeted port 8000, and no
-VisualEngineer file, process, service, container, database, log, or port was checked or accessed.
+unrelated local workspace file, process, service, container, database, log, or port was checked or accessed.
 The 89-entry audit log contained zero forbidden-port requests.
 
 The browser identity handshake showed current v3

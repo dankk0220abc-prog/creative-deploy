@@ -2,7 +2,7 @@
 
 Status: IMPLEMENTED_READY_FOR_INDEPENDENT_REVIEW<br>
 Date: 2026-08-01<br>
-Repository: `/Users/danke/Developer/CreativeDeploy`
+Repository: `<repository-root>`
 
 ## Verified Baseline
 

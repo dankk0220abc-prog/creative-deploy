@@ -8,7 +8,7 @@ temporary backup/restore profile, use `docs/runbooks/staging-operations.md`.
 
 ## Preconditions
 
-- Run from `/Users/danke/Developer/CreativeDeploy`.
+- Run from `<repository-root>`.
 - Docker Desktop, uv 0.11.30-compatible tooling, Node 24.17.0, and Corepack
   pnpm 11.14.0 are available.
 - The regular development PostgreSQL service, when needed, is exactly
