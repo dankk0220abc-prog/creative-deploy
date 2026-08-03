@@ -1,0 +1,291 @@
+x-demo-labels: &demo-labels
+  io.creativedeploy.runtime: PHASE_2E_SYNTHETIC_DEMO
+  io.creativedeploy.public-deployment: NOT_DEPLOYED
+  io.creativedeploy.dataset: phase2e-synthetic-v1
+
+x-runtime-environment: &runtime-environment
+  APP_ENV: test
+  APP_NAME: PaintPilot Synthetic Demo
+  APP_VERSION: 0.1.0
+  DATABASE_URL: postgresql+psycopg://${DEMO_DATABASE_RUNTIME_USER:?required}:${DEMO_DATABASE_RUNTIME_PASSWORD:?required}@postgres:5432/${DEMO_DATABASE_NAME:?required}
+  DATABASE_HEALTH_TIMEOUT_SECONDS: "2"
+  DATABASE_LOCK_TIMEOUT_MS: "2000"
+  DATABASE_STATEMENT_TIMEOUT_MS: "5000"
+  IDENTITY_PROVIDER: oidc
+  OIDC_ISSUER: http://127.0.0.1:${DEMO_WEB_PORT:?required}
+  OIDC_DISCOVERY_URL: http://127.0.0.1:${DEMO_WEB_PORT:?required}/.well-known/openid-configuration
+  OIDC_BACKCHANNEL_BASE_URL: http://oidc:18090
+  OIDC_CLIENT_ID: ${DEMO_OIDC_CLIENT_ID:?required}
+  OIDC_CLIENT_SECRET: ${DEMO_OIDC_CLIENT_SECRET:?required}
+  OIDC_REDIRECT_URI: http://127.0.0.1:${DEMO_WEB_PORT:?required}/api/v1/auth/callback
+  OIDC_ID_TOKEN_MAX_AGE_SECONDS: "300"
+  OIDC_CLOCK_SKEW_SECONDS: "30"
+  OIDC_HTTP_TIMEOUT_SECONDS: "5"
+  AUTH_SESSION_TTL_SECONDS: "3600"
+  OIDC_LOGIN_TTL_SECONDS: "300"
+  IMAGE_STORAGE_PROVIDER: s3
+  S3_ENDPOINT_URL: http://minio:9000
+  S3_REGION: us-east-1
+  S3_BUCKET: ${DEMO_S3_BUCKET:?required}
+  S3_ACCESS_KEY_ID: ${DEMO_S3_ACCESS_KEY_ID:?required}
+  S3_SECRET_ACCESS_KEY: ${DEMO_S3_SECRET_ACCESS_KEY:?required}
+  S3_FORCE_PATH_STYLE: "true"
+  S3_ALLOW_INSECURE_HTTP: "true"
+  S3_CREATE_BUCKET: "true"
+  S3_STAGING_ROOT: /tmp/s3-staging
+  IMAGE_UPLOAD_MAX_BYTES: "20971520"
+  IMAGE_MIN_SIDE_PX: "768"
+  IMAGE_MAX_SIDE_PX: "8192"
+  IMAGE_MAX_PIXELS: "40000000"
+  TRUSTED_HOSTS: '["localhost","127.0.0.1"]'
+
+x-role-environment: &role-environment
+  APP_ENV: test
+  DATABASE_URL: postgresql+psycopg://${DEMO_DATABASE_ADMIN_USER:?required}:${DEMO_DATABASE_ADMIN_PASSWORD:?required}@postgres:5432/${DEMO_DATABASE_NAME:?required}
+  DATABASE_MIGRATOR_ROLE: ${DEMO_DATABASE_MIGRATOR_USER:?required}
+  DATABASE_MIGRATOR_PASSWORD: ${DEMO_DATABASE_MIGRATOR_PASSWORD:?required}
+  DATABASE_RUNTIME_ROLE: ${DEMO_DATABASE_RUNTIME_USER:?required}
+  DATABASE_RUNTIME_PASSWORD: ${DEMO_DATABASE_RUNTIME_PASSWORD:?required}
+
+services:
+  postgres:
+    image: postgres:17.10-alpine3.24@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    labels: *demo-labels
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DEMO_DATABASE_ADMIN_USER:?required}
+      POSTGRES_PASSWORD: ${DEMO_DATABASE_ADMIN_PASSWORD:?required}
+      POSTGRES_DB: ${DEMO_DATABASE_NAME:?required}
+    volumes:
+      - phase2e_demo_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      start_period: 10s
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    labels: *demo-labels
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${DEMO_S3_ACCESS_KEY_ID:?required}
+      MINIO_ROOT_PASSWORD: ${DEMO_S3_SECRET_ACCESS_KEY:?required}
+    volumes:
+      - phase2e_demo_minio:/data
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - --fail
+        - --silent
+        - http://127.0.0.1:9000/minio/health/live
+      start_period: 10s
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  oidc:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: demo-runtime
+    labels: *demo-labels
+    restart: unless-stopped
+    command:
+      - python
+      - -m
+      - uvicorn
+      - creativedeploy_api.local_oidc:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "18090"
+      - --no-server-header
+      - --no-proxy-headers
+    environment:
+      APP_ENV: test
+      LOCAL_OIDC_ISSUER: http://127.0.0.1:${DEMO_WEB_PORT:?required}
+      LOCAL_OIDC_CLIENT_ID: ${DEMO_OIDC_CLIENT_ID:?required}
+      LOCAL_OIDC_CLIENT_SECRET: ${DEMO_OIDC_CLIENT_SECRET:?required}
+      LOCAL_OIDC_REDIRECT_URI: http://127.0.0.1:${DEMO_WEB_PORT:?required}/api/v1/auth/callback
+      LOCAL_OIDC_USERS_JSON: ${DEMO_OIDC_USERS_JSON:?required}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18090/.well-known/openid-configuration', timeout=2).read()"
+      start_period: 5s
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  role_provision:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: demo-runtime
+    labels: *demo-labels
+    command: ["python", "-m", "creativedeploy_api.tools.provision_database_roles"]
+    environment: *role-environment
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: migration
+    labels: *demo-labels
+    environment:
+      APP_ENV: test
+      DATABASE_URL: postgresql+psycopg://${DEMO_DATABASE_MIGRATOR_USER:?required}:${DEMO_DATABASE_MIGRATOR_PASSWORD:?required}@postgres:5432/${DEMO_DATABASE_NAME:?required}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      role_provision:
+        condition: service_completed_successfully
+
+  role_grant:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: demo-runtime
+    labels: *demo-labels
+    command: ["python", "-m", "creativedeploy_api.tools.provision_database_roles"]
+    environment: *role-environment
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  seed:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: demo-runtime
+    labels: *demo-labels
+    command: ["python", "-m", "creativedeploy_api.tools.seed_demo"]
+    environment:
+      <<: *runtime-environment
+      PAINTPILOT_DEMO_SEED_ENABLED: "true"
+      PAINTPILOT_DEMO_SEED_SUBJECT: ${DEMO_SEED_SUBJECT:?required}
+      PAINTPILOT_DEMO_SEED_DISPLAY_NAME: ${DEMO_SEED_DISPLAY_NAME:?required}
+      PAINTPILOT_DEMO_SEED_EMAIL: ${DEMO_SEED_EMAIL:?required}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      minio:
+        condition: service_healthy
+      oidc:
+        condition: service_healthy
+      role_grant:
+        condition: service_completed_successfully
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: demo-runtime
+    labels: *demo-labels
+    restart: unless-stopped
+    command:
+      - python
+      - -m
+      - uvicorn
+      - creativedeploy_api.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "18080"
+      - --no-server-header
+      - --no-proxy-headers
+      - --no-access-log
+    environment:
+      <<: *runtime-environment
+      PAINTPILOT_DEMO_READ_ONLY: "true"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18080/api/v1/health/live', timeout=2).read()"
+      start_period: 10s
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: demo-runtime
+      args:
+        VITE_RUNTIME_PROFILE: public-demo
+    labels: *demo-labels
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${DEMO_WEB_PORT:?required}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+      - /var/cache/nginx:rw,noexec,nosuid,size=32m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  phase2e_demo_postgres:
+    labels: *demo-labels
+  phase2e_demo_minio:
+    labels: *demo-labels

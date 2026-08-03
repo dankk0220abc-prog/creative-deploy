@@ -48,7 +48,42 @@ The Web never receives storage credentials or public object URLs. The API owns
 authorization, workflow enforcement, idempotency, persistence, and private-object
 delivery. PostgreSQL and object storage remain independent durable boundaries.
 
-## Local start
+## Five-minute synthetic Demo
+
+This is a loopback-only, read-only synthetic Demo for product evaluation. It is
+not a public website and is not production-ready. It creates no cloud account,
+uses no real credential, and does not read your private `.env` file.
+
+Prerequisites are Docker Desktop with Docker Compose, `curl`, and `python3`.
+From a fresh clone:
+
+```bash
+git clone https://github.com/dankk0220abc-prog/creative-deploy.git
+cd creative-deploy
+make demo-up
+```
+
+Open `http://127.0.0.1:18173/paintpilot/projects`, choose the single
+**PaintPilot Demo Visitor** on the synthetic local sign-in page, then open the
+preloaded project. You can inspect four synthetic images, the human READY
+review, and the approved RegionSet/Polygon workspace. The banner marks the
+entire dataset as synthetic and read-only.
+
+```bash
+make demo-status  # Web, API, readiness, database, and scoped service checks
+make demo-reset   # removes only the named Demo volumes and recreates synthetic data
+make demo-down    # stops services but keeps the synthetic Demo data
+```
+
+If port `18173` is in use, stop its known owner or leave it running; the command
+will not kill an unknown process. If a Demo service is unhealthy, run
+`make demo-status`; if the isolated dataset is incomplete, run `make demo-reset`.
+The reset guard rejects configuration drift before deleting anything.
+
+For the provider, TLS, secret, persistence, cost, and authorization requirements
+of a real public deployment, see the [Phase 2E deployment preparation](docs/runbooks/public-demo-deployment.md).
+
+## Local development start
 
 Prerequisites are Node.js 24, Corepack with pnpm 11.14.0, Python 3.13 with `uv`,
 Docker Desktop, and Docker Compose. From the repository root:

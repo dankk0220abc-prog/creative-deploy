@@ -214,6 +214,11 @@ class Settings(BaseSettings):
     secure_cookies: bool = False
     require_csrf_origin: bool = False
     structured_logs: bool = False
+    paintpilot_demo_read_only: bool = False
+    paintpilot_demo_seed_enabled: bool = False
+    paintpilot_demo_seed_subject: PrincipalIdSetting | None = None
+    paintpilot_demo_seed_display_name: PrincipalDisplayNameSetting | None = None
+    paintpilot_demo_seed_email: str | None = None
 
     @model_validator(mode="after")
     def load_mounted_secrets(self) -> "Settings":
@@ -345,6 +350,32 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Production requires HTTPS PUBLIC_ORIGIN, secure cookies, and exact CSRF origin."
             )
+        if self.paintpilot_demo_read_only and self.identity_provider != "oidc":
+            raise ValueError("PAINTPILOT_DEMO_READ_ONLY requires the OIDC identity provider.")
+        if self.paintpilot_demo_seed_enabled:
+            if self.identity_provider != "oidc":
+                raise ValueError(
+                    "PAINTPILOT_DEMO_SEED_ENABLED requires the OIDC identity provider."
+                )
+            seed_values = {
+                "PAINTPILOT_DEMO_SEED_SUBJECT": self.paintpilot_demo_seed_subject,
+                "PAINTPILOT_DEMO_SEED_DISPLAY_NAME": self.paintpilot_demo_seed_display_name,
+                "PAINTPILOT_DEMO_SEED_EMAIL": self.paintpilot_demo_seed_email,
+            }
+            missing_seed_values = [
+                name for name, value in seed_values.items() if value is None or not value.strip()
+            ]
+            if missing_seed_values:
+                raise ValueError(
+                    "PAINTPILOT_DEMO_SEED_ENABLED requires "
+                    + ", ".join(missing_seed_values)
+                    + "."
+                )
+            assert self.paintpilot_demo_seed_email is not None
+            if not self.paintpilot_demo_seed_email.endswith(".invalid"):
+                raise ValueError(
+                    "PAINTPILOT_DEMO_SEED_EMAIL must use a reserved .invalid address."
+                )
         return self
 
     @property
@@ -375,6 +406,26 @@ class Settings(BaseSettings):
         return (
             self.paintpilot_demo_principal_id,
             self.paintpilot_demo_principal_display_name,
+        )
+
+    def require_demo_seed_identity(self) -> tuple[str, str, str]:
+        """Return the explicit synthetic OIDC identity allowed for a one-shot demo seed."""
+        if not self.paintpilot_demo_seed_enabled:
+            raise ValueError(
+                "PAINTPILOT_DEMO_SEED_ENABLED=true is required for the synthetic demo seed."
+            )
+        if self.identity_provider != "oidc":
+            raise ValueError("The synthetic demo seed requires the OIDC identity provider.")
+        if (
+            self.paintpilot_demo_seed_subject is None
+            or self.paintpilot_demo_seed_display_name is None
+            or self.paintpilot_demo_seed_email is None
+        ):
+            raise ValueError("The synthetic demo seed identity is incomplete.")
+        return (
+            self.paintpilot_demo_seed_subject,
+            self.paintpilot_demo_seed_display_name,
+            self.paintpilot_demo_seed_email,
         )
 
     def require_oidc_client(self) -> tuple[str, str, str, str, str]:

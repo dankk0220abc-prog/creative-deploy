@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from creativedeploy_api.api.error_handlers import register_error_handlers
 from creativedeploy_api.api.router import api_router
 from creativedeploy_api.api.security_middleware import (
+    DemoReadOnlyMiddleware,
     ExactPublicOriginMiddleware,
     ExactTrustedHostMiddleware,
     PrivateApiNoStoreMiddleware,
@@ -111,6 +112,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             public_origin=resolved_settings.public_origin,
             require_csrf_origin=resolved_settings.require_csrf_origin,
         )
+    app.add_middleware(
+        DemoReadOnlyMiddleware,
+        enabled=resolved_settings.paintpilot_demo_read_only,
+    )
     app.add_middleware(PrivateApiNoStoreMiddleware)
     app.add_middleware(RequestCorrelationMiddleware)
     register_error_handlers(app)

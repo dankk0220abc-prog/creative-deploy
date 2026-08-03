@@ -15,6 +15,7 @@ import { LocaleSwitcher } from "./LocaleSwitcher";
 const PROJECTS_PATH = "/paintpilot/projects";
 const CREATE_PROJECT_PATH = "/paintpilot/projects/new";
 const isArtifactSmoke = import.meta.env.VITE_RUNTIME_PROFILE === "artifact-smoke";
+const isPublicDemo = import.meta.env.VITE_RUNTIME_PROFILE === "public-demo";
 
 function navigationClassName(isActive: boolean): string {
   return isActive ? "shell-nav__link shell-nav__link--active" : "shell-nav__link";
@@ -172,13 +173,15 @@ export function AppShell() {
             >
               {t("shell.projects")}
             </Link>
-            <Link
-              aria-current={createProjectIsCurrent ? "page" : undefined}
-              className={navigationClassName(createProjectIsCurrent)}
-              to={CREATE_PROJECT_PATH}
-            >
-              {t("shell.createProject")}
-            </Link>
+            {!isPublicDemo ? (
+              <Link
+                aria-current={createProjectIsCurrent ? "page" : undefined}
+                className={navigationClassName(createProjectIsCurrent)}
+                to={CREATE_PROJECT_PATH}
+              >
+                {t("shell.createProject")}
+              </Link>
+            ) : null}
             {authState.status === "authenticated" ? (
               <span className="shell-nav__identity">
                 <span className="shell-nav__identity-copy">
@@ -202,6 +205,15 @@ export function AppShell() {
           <LocaleSwitcher />
         </div>
       </header>
+
+      {isPublicDemo ? (
+        <aside aria-label={t("shell.demoLabel")} className="demo-banner">
+          <div>
+            <strong>{t("shell.demoLabel")}</strong>
+            <span>{t("shell.demoCopy")}</span>
+          </div>
+        </aside>
+      ) : null}
 
       <main
         className="workspace-main"
