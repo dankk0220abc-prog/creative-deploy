@@ -11,6 +11,11 @@ does not deploy publicly and is not a production provider selection.
   loopback ports. Never reuse another live attempt's ID or resources.
 - Keep certificate/secret/backup roots in a private external path such as
   `/tmp`. Never place them below Git or print their contents.
+- `staging-secrets` creates the backup root as the invoking attempt owner's
+  exact UID/GID with mode `0700`. Compose runs only the on-demand operations
+  container as that same non-root UID/GID; API and the other product containers
+  retain their image users and do not receive the backup mount. Do not prepare
+  this bind source with a different owner or broader mode.
 - The local certificate is self-signed and synthetic. A real deployment mounts
   files supplied by its selected certificate automation without changing the
   container contract.
@@ -35,10 +40,12 @@ make staging-up
 ```
 
 `staging-secrets` creates twelve independent synthetic files with private
-permissions and never prints their values. `staging-config` fails unless only
+permissions plus one attempt-owned `0700` backup root and never prints secret
+values. `staging-config` fails unless only
 the two loopback ingress ports are published, data/app networks are internal,
 runtime services are non-root/read-only/capability-dropped, all secrets use
-files, and migration/role ordering is intact.
+files, the operations UID/GID is non-root, only operations receives the backup
+bind mount, and migration/role ordering is intact.
 
 Deployment order is PostgreSQL → role provision → migration → role grant → API
 with MinIO/OIDC ready → Web → TLS proxy. A migration or grant failure prevents
@@ -158,6 +165,12 @@ key protects that canonical form with HMAC-SHA-256 in detached
 covered by the signed manifest. It is published only after completion. The
 backup does not contain PostgreSQL role passwords, TLS/OIDC/S3 secrets, or the
 backup signing key.
+
+The source operations mount is read/write only for backup creation. Published
+backup files are `0600` and backup directories are `0700`; the attempt root is
+also checked for the exact operations UID/GID and `0700` mode before use. A
+wrong owner, group, mode, or symlink fails closed. The restore attempt mounts
+the same selected backup root read-only.
 
 Application writes are unavailable during the measured quiesce. This gives the
 local drill a synthetic RPO of zero; production RPO/RTO and snapshot/storage

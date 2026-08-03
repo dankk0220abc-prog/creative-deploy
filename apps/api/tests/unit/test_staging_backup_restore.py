@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +15,61 @@ SIGNING_KEY = "-".join(("synthetic", "signing", "key", "material", "for", "tests
 SIGNING_KEY_ID = "synthetic-key-v1"
 OBJECT_KEY = "objects/aa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg"
 OBJECT_BYTES = b"correct-object-bytes"
+
+
+def test_backup_root_requires_exact_attempt_owner_and_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    os.chown(tmp_path, os.geteuid(), os.getegid())
+    tmp_path.chmod(0o700)
+    monkeypatch.setenv("BACKUP_ROOT", str(tmp_path))
+    assert operations._backup_root() == tmp_path.resolve()
+
+    tmp_path.chmod(0o750)
+    with pytest.raises(operations.OperationsError, match="ownership or permissions"):
+        operations._backup_root()
+
+    tmp_path.chmod(0o700)
+    monkeypatch.setattr(operations.os, "geteuid", lambda: os.getuid() + 1)
+    with pytest.raises(operations.OperationsError, match="ownership or permissions"):
+        operations._backup_root()
+
+
+def test_backup_root_refuses_a_symlink(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "target"
+    target.mkdir(mode=0o700)
+    link = tmp_path / "backup-link"
+    link.symlink_to(target, target_is_directory=True)
+    monkeypatch.setenv("BACKUP_ROOT", str(link))
+
+    with pytest.raises(operations.OperationsError, match="private directory"):
+        operations._backup_root()
+
+
+def test_backup_enforces_private_file_creation_permissions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "manifest.json"
+
+    def fake_backup(_backup_id: str, *, dry_run: bool) -> None:
+        assert dry_run is False
+        output.write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(operations, "_backup", fake_backup)
+    original_umask = os.umask(0o022)
+    try:
+        operations.backup("backup", dry_run=False)
+        observed_umask = os.umask(original_umask)
+    finally:
+        os.umask(original_umask)
+
+    assert observed_umask == 0o022
+    assert stat.S_IMODE(output.stat().st_mode) == 0o600
 
 
 def configure_signing(

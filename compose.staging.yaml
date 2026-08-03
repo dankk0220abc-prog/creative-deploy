@@ -340,6 +340,7 @@ services:
       dockerfile: apps/api/Dockerfile
       target: runtime
     labels: *staging-labels
+    user: "${STAGING_OPERATIONS_UID:?required}:${STAGING_OPERATIONS_GID:?required}"
     entrypoint: ["python", "-m", "creativedeploy_api.tools.staging_backup_restore"]
     command: ["--help"]
     environment:
@@ -356,6 +357,7 @@ services:
       - type: bind
         source: ${STAGING_BACKUP_ROOT:?required}
         target: /backups
+        read_only: ${STAGING_BACKUP_READ_ONLY:-false}
     networks:
       - data
     <<: *hardened-service

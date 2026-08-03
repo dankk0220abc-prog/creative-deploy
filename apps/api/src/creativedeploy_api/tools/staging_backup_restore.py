@@ -15,6 +15,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import tempfile
 import uuid
 from collections.abc import Sequence
@@ -117,9 +118,22 @@ def _backup_signing_config() -> BackupSigningConfig:
 
 
 def _backup_root() -> Path:
-    root = Path(os.environ.get("BACKUP_ROOT", "/backups")).resolve(strict=True)
-    if not root.is_dir() or root.is_symlink():
+    raw_root = Path(os.environ.get("BACKUP_ROOT", "/backups"))
+    try:
+        if raw_root.is_symlink():
+            raise OperationsError("BACKUP_ROOT must be an existing private directory.")
+        root = raw_root.resolve(strict=True)
+        root_stat = root.stat()
+    except OSError as error:
+        raise OperationsError("BACKUP_ROOT must be an existing private directory.") from error
+    if not root.is_dir():
         raise OperationsError("BACKUP_ROOT must be an existing private directory.")
+    if (
+        root_stat.st_uid != os.geteuid()
+        or root_stat.st_gid != os.getegid()
+        or stat.S_IMODE(root_stat.st_mode) != 0o700
+    ):
+        raise OperationsError("BACKUP_ROOT ownership or permissions are invalid.")
     return root
 
 
@@ -615,7 +629,7 @@ def _write_database_snapshot(
     return table_counts, schema
 
 
-def backup(backup_id: str, *, dry_run: bool) -> None:
+def _backup(backup_id: str, *, dry_run: bool) -> None:
     _required_flag("OPERATIONS_QUIESCED")
     signing = _backup_signing_config()
     settings = Settings.model_validate({})
@@ -683,6 +697,14 @@ def backup(backup_id: str, *, dry_run: bool) -> None:
         f"BACKUP_COMPLETE backup_id={backup_id} tables={len(TABLES)}"
         f" objects={len(inventory)} secret_values_logged=0"
     )
+
+
+def backup(backup_id: str, *, dry_run: bool) -> None:
+    previous_umask = os.umask(0o077)
+    try:
+        _backup(backup_id, dry_run=dry_run)
+    finally:
+        os.umask(previous_umask)
 
 
 def _parse_object_inventory(payload: object) -> dict[str, dict[str, object]]:

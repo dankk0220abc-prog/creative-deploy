@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -159,6 +160,33 @@ def main() -> None:
         "API receives the operations-only backup signing key",
     )
     operations_environment = services["operations"]["environment"]
+    operations_user = services["operations"].get("user")
+    require(
+        isinstance(operations_user, str)
+        and re.fullmatch(r"[1-9][0-9]*:[1-9][0-9]*", operations_user) is not None,
+        "operations must use the non-root attempt owner UID and GID",
+    )
+    backup_mounts = [
+        mount
+        for mount in services["operations"].get("volumes", [])
+        if mount.get("target") == "/backups"
+    ]
+    require(len(backup_mounts) == 1, "operations backup mount is missing or duplicated")
+    require(backup_mounts[0].get("type") == "bind", "backup mount is not a bind mount")
+    require(
+        isinstance(backup_mounts[0].get("read_only", False), bool),
+        "backup mount access mode is not explicit",
+    )
+    for service_name, service in services.items():
+        if service_name == "operations":
+            continue
+        require(
+            all(
+                mount.get("target") != "/backups"
+                for mount in service.get("volumes", [])
+            ),
+            f"{service_name} receives the operations backup mount",
+        )
     require(
         operations_environment.get("BACKUP_SIGNING_KEY_FILE")
         == "/run/secrets/backup_signing_key",

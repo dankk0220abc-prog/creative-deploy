@@ -28,6 +28,8 @@ TEMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/creativedeploy-phase2b2-drill-${RUN_STEM}
 SOURCE_SECRET_ROOT="${TEMP_ROOT}/source-secrets"
 RESTORE_SECRET_ROOT="${TEMP_ROOT}/restore-secrets"
 BACKUP_ROOT="${TEMP_ROOT}/backups"
+OPERATIONS_UID=$(id -u)
+OPERATIONS_GID=$(id -g)
 
 source_down=0
 restore_down=0
@@ -95,6 +97,9 @@ make_source() {
     STAGING_HTTPS_PORT="${STAGING_HTTPS_PORT}" \
     STAGING_SECRET_ROOT="${SOURCE_SECRET_ROOT}" \
     STAGING_BACKUP_ROOT="${BACKUP_ROOT}" \
+    STAGING_OPERATIONS_UID="${OPERATIONS_UID}" \
+    STAGING_OPERATIONS_GID="${OPERATIONS_GID}" \
+    STAGING_BACKUP_READ_ONLY=false \
     STAGING_BACKUP_SIGNING_KEY_FILE="${SOURCE_SECRET_ROOT}/backup_signing_key" \
     STAGING_BACKUP_SIGNING_KEY_ID="${SIGNING_KEY_ID}" \
     STAGING_S3_BUCKET="${BUCKET}" \
@@ -110,6 +115,9 @@ make_restore() {
     STAGING_HTTPS_PORT="${STAGING_HTTPS_PORT}" \
     STAGING_SECRET_ROOT="${RESTORE_SECRET_ROOT}" \
     STAGING_BACKUP_ROOT="${BACKUP_ROOT}" \
+    STAGING_OPERATIONS_UID="${OPERATIONS_UID}" \
+    STAGING_OPERATIONS_GID="${OPERATIONS_GID}" \
+    STAGING_BACKUP_READ_ONLY=true \
     STAGING_BACKUP_SIGNING_KEY_FILE="${SOURCE_SECRET_ROOT}/backup_signing_key" \
     STAGING_BACKUP_SIGNING_KEY_ID="${SIGNING_KEY_ID}" \
     STAGING_S3_BUCKET="${BUCKET}" \
@@ -123,6 +131,9 @@ compose_source() {
   STAGING_HTTPS_PORT="${STAGING_HTTPS_PORT}" \
   STAGING_SECRET_ROOT="${SOURCE_SECRET_ROOT}" \
   STAGING_BACKUP_ROOT="${BACKUP_ROOT}" \
+  STAGING_OPERATIONS_UID="${OPERATIONS_UID}" \
+  STAGING_OPERATIONS_GID="${OPERATIONS_GID}" \
+  STAGING_BACKUP_READ_ONLY=false \
   STAGING_BACKUP_SIGNING_KEY_FILE="${SOURCE_SECRET_ROOT}/backup_signing_key" \
   STAGING_BACKUP_SIGNING_KEY_ID="${SIGNING_KEY_ID}" \
   STAGING_DATABASE_NAME="${SOURCE_DATABASE}" \
@@ -144,6 +155,9 @@ compose_restore() {
   STAGING_HTTPS_PORT="${STAGING_HTTPS_PORT}" \
   STAGING_SECRET_ROOT="${RESTORE_SECRET_ROOT}" \
   STAGING_BACKUP_ROOT="${BACKUP_ROOT}" \
+  STAGING_OPERATIONS_UID="${OPERATIONS_UID}" \
+  STAGING_OPERATIONS_GID="${OPERATIONS_GID}" \
+  STAGING_BACKUP_READ_ONLY=true \
   STAGING_BACKUP_SIGNING_KEY_FILE="${SOURCE_SECRET_ROOT}/backup_signing_key" \
   STAGING_BACKUP_SIGNING_KEY_ID="${SIGNING_KEY_ID}" \
   STAGING_DATABASE_NAME="${RESTORE_DATABASE}" \
@@ -162,7 +176,8 @@ prepare_attempt() {
   attempt_run_id=$1
   secret_root=$2
   database_name=$3
-  uv run --project "${REPOSITORY_ROOT}/apps/api" python \
+  backup_root=${4:-}
+  set -- uv run --project "${REPOSITORY_ROOT}/apps/api" python \
     "${REPOSITORY_ROOT}/scripts/prepare_staging_attempt.py" \
     --run-id "${attempt_run_id}" \
     --secret-root "${secret_root}" \
@@ -171,9 +186,12 @@ prepare_attempt() {
     --admin-user "${database_name}_admin" \
     --migrator-user "${database_name}_migrator" \
     --runtime-user "${database_name}_runtime"
+  if [ -n "${backup_root}" ]; then
+    set -- "$@" --backup-root "${backup_root}"
+  fi
+  "$@"
 }
 
-mkdir -m 700 "${BACKUP_ROOT}"
 set -- $(/usr/bin/python3 -c '
 import socket
 ports=[]
@@ -324,7 +342,8 @@ if "do-not-log-query-marker" in logs:
 }
 
 echo "STAGING_STYLE_SYNTHETIC · NOT_REAL_PRODUCTION"
-prepare_attempt "${SOURCE_RUN_ID}" "${SOURCE_SECRET_ROOT}" "${SOURCE_DATABASE}"
+prepare_attempt \
+  "${SOURCE_RUN_ID}" "${SOURCE_SECRET_ROOT}" "${SOURCE_DATABASE}" "${BACKUP_ROOT}"
 make_source staging-up
 wait_ready
 

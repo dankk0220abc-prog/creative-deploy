@@ -153,6 +153,9 @@ STAGING_HTTP_PORT ?= 18081
 STAGING_HTTPS_PORT ?= 18443
 STAGING_SECRET_ROOT ?= /tmp/creativedeploy-phase2b2-$(RUN_ID)-secrets
 STAGING_BACKUP_ROOT ?= /tmp/creativedeploy-phase2b2-$(RUN_ID)-backups
+STAGING_OPERATIONS_UID ?= $(shell id -u)
+STAGING_OPERATIONS_GID ?= $(shell id -g)
+STAGING_BACKUP_READ_ONLY ?= $(if $(filter p2b2r,$(STAGING_DATABASE_PREFIX)),true,false)
 STAGING_BACKUP_SIGNING_KEY_FILE ?= $(STAGING_SECRET_ROOT)/backup_signing_key
 STAGING_BACKUP_SIGNING_KEY_ID ?= p2b2-$(RUN_ID)-v1
 STAGING_OIDC_CLIENT_ID ?= phase2b2-staging-client
@@ -185,6 +188,9 @@ STAGING_COMPOSE_ENV := \
 	STAGING_HTTPS_PORT=$(STAGING_HTTPS_PORT) \
 	STAGING_SECRET_ROOT=$(STAGING_SECRET_ROOT) \
 	STAGING_BACKUP_ROOT=$(STAGING_BACKUP_ROOT) \
+	STAGING_OPERATIONS_UID=$(STAGING_OPERATIONS_UID) \
+	STAGING_OPERATIONS_GID=$(STAGING_OPERATIONS_GID) \
+	STAGING_BACKUP_READ_ONLY=$(STAGING_BACKUP_READ_ONLY) \
 	STAGING_BACKUP_SIGNING_KEY_FILE=$(STAGING_BACKUP_SIGNING_KEY_FILE) \
 	STAGING_BACKUP_SIGNING_KEY_ID=$(STAGING_BACKUP_SIGNING_KEY_ID) \
 	STAGING_DATABASE_NAME=$(STAGING_DATABASE_NAME) \
@@ -335,12 +341,10 @@ artifact-isolation-test: validate-run-id
 	RUN_ID=$(RUN_ID) ./scripts/verify_attempt_isolation.sh
 
 staging-secrets: validate-run-id
-	@test ! -e "$(STAGING_BACKUP_ROOT)" || \
-		(echo "STAGING_BACKUP_ROOT already exists; use a new RUN_ID or explicit root."; exit 1)
-	@mkdir -m 700 "$(STAGING_BACKUP_ROOT)"
 	uv run --project $(PYTHON_PROJECT) python scripts/prepare_staging_attempt.py \
 		--run-id "$(RUN_ID)" \
 		--secret-root "$(STAGING_SECRET_ROOT)" \
+		--backup-root "$(STAGING_BACKUP_ROOT)" \
 		--host "$(STAGING_HOST)" \
 		--database-name "$(STAGING_DATABASE_NAME)" \
 		--admin-user "$(STAGING_DATABASE_ADMIN_USER)" \
