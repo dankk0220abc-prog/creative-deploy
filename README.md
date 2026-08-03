@@ -103,6 +103,12 @@ The sealed Phase 2C results remain under `docs/progress/phase-2c-1-*`. The local
 Phase 2D command results, real-browser coverage, and Candidate hashes are recorded
 under `docs/progress/phase-2d-*` for focused review.
 
+## License / 许可证
+
+Licensed under the Apache License 2.0. See [LICENSE](LICENSE).
+
+本项目采用 Apache License 2.0，详见 [LICENSE](LICENSE)。
+
 ## Suggested GitHub metadata for a future public release
 
 - Description: `Human-governed, image-first repaint planning with private assets, immutable review history, and bilingual React/FastAPI workflows.`
