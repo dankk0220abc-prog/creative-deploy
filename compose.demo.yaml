@@ -1,3 +1,5 @@
+name: creativedeploy-phase2e-demo
+
 x-demo-labels: &demo-labels
   io.creativedeploy.runtime: PHASE_2E_SYNTHETIC_DEMO
   io.creativedeploy.public-deployment: NOT_DEPLOYED
@@ -7,7 +9,7 @@ x-runtime-environment: &runtime-environment
   APP_ENV: test
   APP_NAME: PaintPilot Synthetic Demo
   APP_VERSION: 0.1.0
-  DATABASE_URL: postgresql+psycopg://${DEMO_DATABASE_RUNTIME_USER:?required}:${DEMO_DATABASE_RUNTIME_PASSWORD:?required}@postgres:5432/${DEMO_DATABASE_NAME:?required}
+  DATABASE_URL: postgresql+psycopg://paintpilot_demo_runtime:${DEMO_DATABASE_RUNTIME_PASSWORD:?required}@postgres:5432/paintpilot_phase2e_demo
   DATABASE_HEALTH_TIMEOUT_SECONDS: "2"
   DATABASE_LOCK_TIMEOUT_MS: "2000"
   DATABASE_STATEMENT_TIMEOUT_MS: "5000"
@@ -41,10 +43,10 @@ x-runtime-environment: &runtime-environment
 
 x-role-environment: &role-environment
   APP_ENV: test
-  DATABASE_URL: postgresql+psycopg://${DEMO_DATABASE_ADMIN_USER:?required}:${DEMO_DATABASE_ADMIN_PASSWORD:?required}@postgres:5432/${DEMO_DATABASE_NAME:?required}
-  DATABASE_MIGRATOR_ROLE: ${DEMO_DATABASE_MIGRATOR_USER:?required}
+  DATABASE_URL: postgresql+psycopg://paintpilot_demo_admin:${DEMO_DATABASE_ADMIN_PASSWORD:?required}@postgres:5432/paintpilot_phase2e_demo
+  DATABASE_MIGRATOR_ROLE: paintpilot_demo_migrator
   DATABASE_MIGRATOR_PASSWORD: ${DEMO_DATABASE_MIGRATOR_PASSWORD:?required}
-  DATABASE_RUNTIME_ROLE: ${DEMO_DATABASE_RUNTIME_USER:?required}
+  DATABASE_RUNTIME_ROLE: paintpilot_demo_runtime
   DATABASE_RUNTIME_PASSWORD: ${DEMO_DATABASE_RUNTIME_PASSWORD:?required}
 
 services:
@@ -53,11 +55,13 @@ services:
     labels: *demo-labels
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DEMO_DATABASE_ADMIN_USER:?required}
+      POSTGRES_USER: paintpilot_demo_admin
       POSTGRES_PASSWORD: ${DEMO_DATABASE_ADMIN_PASSWORD:?required}
-      POSTGRES_DB: ${DEMO_DATABASE_NAME:?required}
+      POSTGRES_DB: paintpilot_phase2e_demo
     volumes:
       - phase2e_demo_postgres:/var/lib/postgresql/data
+    networks:
+      - phase2e_demo
     healthcheck:
       test:
         - CMD-SHELL
@@ -77,6 +81,8 @@ services:
       MINIO_ROOT_PASSWORD: ${DEMO_S3_SECRET_ACCESS_KEY:?required}
     volumes:
       - phase2e_demo_minio:/data
+    networks:
+      - phase2e_demo
     healthcheck:
       test:
         - CMD
@@ -121,6 +127,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    networks:
+      - phase2e_demo
     healthcheck:
       test:
         - CMD
@@ -147,6 +155,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    networks:
+      - phase2e_demo
     depends_on:
       postgres:
         condition: service_healthy
@@ -159,7 +169,7 @@ services:
     labels: *demo-labels
     environment:
       APP_ENV: test
-      DATABASE_URL: postgresql+psycopg://${DEMO_DATABASE_MIGRATOR_USER:?required}:${DEMO_DATABASE_MIGRATOR_PASSWORD:?required}@postgres:5432/${DEMO_DATABASE_NAME:?required}
+      DATABASE_URL: postgresql+psycopg://paintpilot_demo_migrator:${DEMO_DATABASE_MIGRATOR_PASSWORD:?required}@postgres:5432/paintpilot_phase2e_demo
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=32m
@@ -167,6 +177,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    networks:
+      - phase2e_demo
     depends_on:
       role_provision:
         condition: service_completed_successfully
@@ -186,6 +198,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    networks:
+      - phase2e_demo
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -210,6 +224,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    networks:
+      - phase2e_demo
     depends_on:
       minio:
         condition: service_healthy
@@ -257,6 +273,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    networks:
+      - phase2e_demo
     depends_on:
       seed:
         condition: service_completed_successfully
@@ -280,12 +298,30 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    networks:
+      - phase2e_demo
     depends_on:
       api:
         condition: service_healthy
 
 volumes:
   phase2e_demo_postgres:
-    labels: *demo-labels
+    name: creativedeploy-phase2e-demo_phase2e_demo_postgres
+    labels:
+      <<: *demo-labels
+      com.docker.compose.project: creativedeploy-phase2e-demo
+      com.docker.compose.volume: phase2e_demo_postgres
   phase2e_demo_minio:
-    labels: *demo-labels
+    name: creativedeploy-phase2e-demo_phase2e_demo_minio
+    labels:
+      <<: *demo-labels
+      com.docker.compose.project: creativedeploy-phase2e-demo
+      com.docker.compose.volume: phase2e_demo_minio
+
+networks:
+  phase2e_demo:
+    name: creativedeploy-phase2e-demo_phase2e_demo
+    labels:
+      <<: *demo-labels
+      com.docker.compose.project: creativedeploy-phase2e-demo
+      com.docker.compose.network: phase2e_demo

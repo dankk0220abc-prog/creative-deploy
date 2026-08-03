@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -18,30 +19,87 @@ ENV_FILE = REPOSITORY_ROOT / "demo" / "demo.env"
 VALIDATOR = REPOSITORY_ROOT / "scripts" / "validate_demo_config.py"
 PROJECT_NAME = "creativedeploy-phase2e-demo"
 WEB_URL = "http://127.0.0.1:18173"
+EXPECTED_DEMO_ENV_KEYS = {
+    "DEMO_WEB_PORT",
+    "DEMO_DATABASE_ADMIN_PASSWORD",
+    "DEMO_DATABASE_MIGRATOR_PASSWORD",
+    "DEMO_DATABASE_RUNTIME_PASSWORD",
+    "DEMO_OIDC_CLIENT_ID",
+    "DEMO_OIDC_CLIENT_SECRET",
+    "DEMO_OIDC_USERS_JSON",
+    "DEMO_SEED_SUBJECT",
+    "DEMO_SEED_DISPLAY_NAME",
+    "DEMO_SEED_EMAIL",
+    "DEMO_S3_BUCKET",
+    "DEMO_S3_ACCESS_KEY_ID",
+    "DEMO_S3_SECRET_ACCESS_KEY",
+}
+DATABASE_PASSWORD_KEYS = {
+    "DEMO_DATABASE_ADMIN_PASSWORD",
+    "DEMO_DATABASE_MIGRATOR_PASSWORD",
+    "DEMO_DATABASE_RUNTIME_PASSWORD",
+}
+DEMO_RESOURCE_LABELS = {
+    "io.creativedeploy.runtime": "PHASE_2E_SYNTHETIC_DEMO",
+    "io.creativedeploy.public-deployment": "NOT_DEPLOYED",
+    "io.creativedeploy.dataset": "phase2e-synthetic-v1",
+}
+RUNTIME_RESOURCES = (
+    (
+        "volume",
+        "phase2e_demo_postgres",
+        f"{PROJECT_NAME}_phase2e_demo_postgres",
+    ),
+    (
+        "volume",
+        "phase2e_demo_minio",
+        f"{PROJECT_NAME}_phase2e_demo_minio",
+    ),
+    ("network", "phase2e_demo", f"{PROJECT_NAME}_phase2e_demo"),
+)
 
 
 def _read_demo_environment() -> dict[str, str]:
     if not ENV_FILE.is_file():
-        raise RuntimeError("demo/demo.env is missing; restore the repository Demo configuration.")
+        raise RuntimeError(
+            "demo/demo.env is missing; restore the repository Demo configuration."
+        )
     values: dict[str, str] = {}
     for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
-        if "=" not in stripped:
+        if stripped != line or "=" not in stripped:
             raise RuntimeError("demo/demo.env contains an invalid configuration line.")
         key, value = stripped.split("=", 1)
-        if not key.startswith("DEMO_") or not key or not value:
-            raise RuntimeError("demo/demo.env must contain complete DEMO_* values only.")
+        if key in values or key not in EXPECTED_DEMO_ENV_KEYS or not value:
+            raise RuntimeError(
+                "demo/demo.env must contain complete DEMO_* values only."
+            )
         values[key] = value
+    if set(values) != EXPECTED_DEMO_ENV_KEYS:
+        raise RuntimeError(
+            "demo/demo.env must contain exactly the approved synthetic Demo values."
+        )
     if values.get("DEMO_WEB_PORT") != "18173":
         raise RuntimeError("demo/demo.env must retain the fixed loopback port 18173.")
+    if any(
+        re.fullmatch(r"[A-Za-z0-9._~-]+", values[key]) is None
+        for key in DATABASE_PASSWORD_KEYS
+    ):
+        raise RuntimeError(
+            "Demo database passwords must use URL-safe unreserved characters only."
+        )
     return values
 
 
 def _subprocess_environment() -> dict[str, str]:
     values = _read_demo_environment()
-    environment = {key: value for key, value in os.environ.items() if not key.startswith("DEMO_")}
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("DEMO_") and not key.startswith("COMPOSE_")
+    }
     environment.update(values)
     return environment
 
@@ -76,10 +134,14 @@ def _run(
 
 
 def _require_tools() -> bool:
-    missing = [tool for tool in ("docker", "curl", "python3") if shutil.which(tool) is None]
+    missing = [
+        tool for tool in ("docker", "curl", "python3") if shutil.which(tool) is None
+    ]
     if missing:
         print(
-            "DEMO_DIAGNOSTIC tool_missing: install " + ", ".join(missing) + " and retry.",
+            "DEMO_DIAGNOSTIC tool_missing: install "
+            + ", ".join(missing)
+            + " and retry.",
             file=sys.stderr,
         )
         return False
@@ -119,6 +181,70 @@ def _validate_config() -> bool:
     return True
 
 
+def _resource_is_absent(kind: str, actual_name: str, stderr: str) -> bool:
+    lowered = stderr.strip().lower()
+    expected_name = actual_name.lower()
+    if kind == "volume":
+        return (
+            f"no such volume: {expected_name}" in lowered
+            or f"get {expected_name}: no such volume" in lowered
+        )
+    return (
+        f"network {expected_name} not found" in lowered
+        or f"no such network: {expected_name}" in lowered
+    )
+
+
+def _inspect_runtime_resource(kind: str, logical_name: str, actual_name: str) -> bool:
+    inspected = _run(["docker", kind, "inspect", actual_name], capture=True)
+    if inspected.returncode != 0:
+        if _resource_is_absent(kind, actual_name, inspected.stderr):
+            return True
+        print(
+            f"DEMO_DIAGNOSTIC {kind}_inspect_failed: could not prove the fixed Demo resource identity.",
+            file=sys.stderr,
+        )
+        return False
+    try:
+        payload = json.loads(inspected.stdout)
+    except json.JSONDecodeError:
+        payload = None
+    if (
+        not isinstance(payload, list)
+        or len(payload) != 1
+        or not isinstance(payload[0], dict)
+        or payload[0].get("Name") != actual_name
+    ):
+        print(
+            f"DEMO_DIAGNOSTIC {kind}_inspect_invalid: fixed Demo resource identity was ambiguous.",
+            file=sys.stderr,
+        )
+        return False
+    labels = payload[0].get("Labels")
+    expected_labels = {
+        **DEMO_RESOURCE_LABELS,
+        "com.docker.compose.project": PROJECT_NAME,
+        f"com.docker.compose.{kind}": logical_name,
+    }
+    if not isinstance(labels, dict) or any(
+        labels.get(key) != value for key, value in expected_labels.items()
+    ):
+        print(
+            f"DEMO_DIAGNOSTIC {kind}_label_mismatch: refusing to operate on a resource "
+            "without the exact Demo identity labels.",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+def _validate_runtime_resources() -> bool:
+    return all(
+        _inspect_runtime_resource(kind, logical_name, actual_name)
+        for kind, logical_name, actual_name in RUNTIME_RESOURCES
+    )
+
+
 def _service_is_running() -> bool:
     result = _run(_compose("ps", "--status", "running", "--services"), capture=True)
     return result.returncode == 0 and "web" in result.stdout.splitlines()
@@ -136,10 +262,21 @@ def _loopback_port_is_available() -> bool:
 
 def _curl(path: str) -> tuple[bool, str]:
     result = _run(
-        ["curl", "--fail", "--silent", "--show-error", "--max-time", "5", f"{WEB_URL}{path}"],
+        [
+            "curl",
+            "--fail",
+            "--silent",
+            "--show-error",
+            "--max-time",
+            "5",
+            f"{WEB_URL}{path}",
+        ],
         capture=True,
     )
-    return result.returncode == 0, result.stdout if result.returncode == 0 else result.stderr
+    return (
+        result.returncode == 0,
+        result.stdout if result.returncode == 0 else result.stderr,
+    )
 
 
 def status() -> int:
@@ -147,14 +284,20 @@ def status() -> int:
         return 2
     services = _run(_compose("ps", "--format", "json"), capture=True)
     if services.returncode != 0:
-        print("DEMO_DIAGNOSTIC compose_status_failed: run make demo-up after Docker Desktop is ready.")
+        print(
+            "DEMO_DIAGNOSTIC compose_status_failed: run make demo-up after Docker Desktop is ready."
+        )
         return 1
     try:
         parsed = json.loads(services.stdout or "[]")
         rows = parsed if isinstance(parsed, list) else [parsed]
     except json.JSONDecodeError:
         try:
-            rows = [json.loads(line) for line in services.stdout.splitlines() if line.strip()]
+            rows = [
+                json.loads(line)
+                for line in services.stdout.splitlines()
+                if line.strip()
+            ]
         except json.JSONDecodeError:
             rows = []
     states = ", ".join(
@@ -184,11 +327,11 @@ def status() -> int:
     root_ok, root = _curl("/")
     checks.append(("web_access", root_ok and "PaintPilot" in root, root))
     uses_port_8000 = any(
-        "8000" in str(row.get("Ports", ""))
-        for row in rows
-        if isinstance(row, dict)
+        "8000" in str(row.get("Ports", "")) for row in rows if isinstance(row, dict)
     )
-    checks.append(("no_port_8000", not uses_port_8000, "Demo service exposed port 8000"))
+    checks.append(
+        ("no_port_8000", not uses_port_8000, "Demo service exposed port 8000")
+    )
     database = _run(
         _compose(
             "exec",
@@ -202,7 +345,9 @@ def status() -> int:
         ),
         capture=True,
     )
-    checks.append(("database", database.returncode == 0, database.stdout or database.stderr))
+    checks.append(
+        ("database", database.returncode == 0, database.stdout or database.stderr)
+    )
     failed = False
     for name, passed, detail in checks:
         print(f"DEMO_STATUS {'PASS' if passed else 'FAIL'} {name}")
@@ -222,7 +367,11 @@ def status() -> int:
 
 
 def up() -> int:
-    if not _require_tools() or not _validate_config():
+    if (
+        not _require_tools()
+        or not _validate_config()
+        or not _validate_runtime_resources()
+    ):
         return 2
     if not _service_is_running() and not _loopback_port_is_available():
         print(
@@ -242,12 +391,18 @@ def up() -> int:
     result = status()
     if result == 0:
         print(f"DEMO_READY url={WEB_URL}/paintpilot/projects")
-        print("DEMO_ACCESS choose the single synthetic PaintPilot Demo Visitor in the local sign-in page.")
+        print(
+            "DEMO_ACCESS choose the single synthetic PaintPilot Demo Visitor in the local sign-in page."
+        )
     return result
 
 
 def down() -> int:
-    if not _require_tools() or not _validate_config():
+    if (
+        not _require_tools()
+        or not _validate_config()
+        or not _validate_runtime_resources()
+    ):
         return 2
     stopped = _run(_compose("down", "--remove-orphans"))
     if stopped.returncode == 0:
@@ -256,9 +411,13 @@ def down() -> int:
 
 
 def reset() -> int:
-    if not _require_tools() or not _validate_config():
+    if (
+        not _require_tools()
+        or not _validate_config()
+        or not _validate_runtime_resources()
+    ):
         return 2
-    removed = _run(_compose("down", "--volumes", "--remove-orphans"))
+    removed = _run(_compose("down", "--volumes"))
     if removed.returncode != 0:
         print(
             "DEMO_DIAGNOSTIC reset_stop_failed: no new stack was started and no alternate target was used.",
