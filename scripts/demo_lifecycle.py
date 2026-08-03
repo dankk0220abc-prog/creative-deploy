@@ -17,6 +17,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_FILE = REPOSITORY_ROOT / "compose.demo.yaml"
 ENV_FILE = REPOSITORY_ROOT / "demo" / "demo.env"
 VALIDATOR = REPOSITORY_ROOT / "scripts" / "validate_demo_config.py"
+PYTHON_PROJECT = REPOSITORY_ROOT / "apps" / "api"
 PROJECT_NAME = "creativedeploy-phase2e-demo"
 WEB_URL = "http://127.0.0.1:18173"
 EXPECTED_DEMO_ENV_KEYS = {
@@ -93,13 +94,17 @@ def _read_demo_environment() -> dict[str, str]:
     return values
 
 
-def _subprocess_environment() -> dict[str, str]:
-    values = _read_demo_environment()
-    environment = {
+def _base_subprocess_environment() -> dict[str, str]:
+    return {
         key: value
         for key, value in os.environ.items()
         if not key.startswith("DEMO_") and not key.startswith("COMPOSE_")
     }
+
+
+def _subprocess_environment() -> dict[str, str]:
+    values = _read_demo_environment()
+    environment = _base_subprocess_environment()
     environment.update(values)
     return environment
 
@@ -114,6 +119,19 @@ def _compose(*arguments: str) -> list[str]:
         str(ENV_FILE),
         "--file",
         str(COMPOSE_FILE),
+        *arguments,
+    ]
+
+
+def _validator(*arguments: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--frozen",
+        "--project",
+        str(PYTHON_PROJECT),
+        "python",
+        str(VALIDATOR),
         *arguments,
     ]
 
@@ -135,7 +153,9 @@ def _run(
 
 def _require_tools() -> bool:
     missing = [
-        tool for tool in ("docker", "curl", "python3") if shutil.which(tool) is None
+        tool
+        for tool in ("docker", "curl", "python3", "uv")
+        if shutil.which(tool) is None
     ]
     if missing:
         print(
@@ -156,6 +176,18 @@ def _require_tools() -> bool:
 
 
 def _validate_config() -> bool:
+    source_verified = subprocess.run(
+        _validator("--source-compose", str(COMPOSE_FILE)),
+        cwd=REPOSITORY_ROOT,
+        env=_base_subprocess_environment(),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if source_verified.returncode != 0:
+        print(source_verified.stderr.strip(), file=sys.stderr)
+        return False
+
     configured = _run(_compose("config", "--format", "json"), capture=True)
     if configured.returncode != 0:
         print(
@@ -167,8 +199,9 @@ def _validate_config() -> bool:
             print(configured.stderr.strip(), file=sys.stderr)
         return False
     verified = subprocess.run(
-        [sys.executable, str(VALIDATOR)],
+        _validator(),
         cwd=REPOSITORY_ROOT,
+        env=_base_subprocess_environment(),
         input=configured.stdout,
         check=False,
         capture_output=True,

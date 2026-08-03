@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_NAME = "creativedeploy-phase2e-demo"
 DATABASE_HOST = "postgres"
 DATABASE_PORT = 5432
@@ -40,8 +43,21 @@ EXPECTED_DATABASE_USERS = {
     "seed": "paintpilot_demo_runtime",
     "api": "paintpilot_demo_runtime",
 }
-EXPECTED_DATABASE_COMMANDS: dict[str, list[str] | None] = {
+EXPECTED_SERVICE_COMMANDS: dict[str, list[str] | None] = {
     "postgres": None,
+    "minio": ["server", "/data", "--console-address", ":9001"],
+    "oidc": [
+        "python",
+        "-m",
+        "uvicorn",
+        "creativedeploy_api.local_oidc:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "18090",
+        "--no-server-header",
+        "--no-proxy-headers",
+    ],
     "role_provision": [
         "python",
         "-m",
@@ -63,6 +79,49 @@ EXPECTED_DATABASE_COMMANDS: dict[str, list[str] | None] = {
         "--no-proxy-headers",
         "--no-access-log",
     ],
+    "web": None,
+}
+EXPECTED_SERVICE_IMAGES: dict[str, str | None] = {
+    "postgres": (
+        "postgres:17.10-alpine3.24@"
+        "sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193"
+    ),
+    "minio": (
+        "minio/minio:RELEASE.2025-09-07T16-13-09Z@"
+        "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
+    ),
+    "oidc": None,
+    "role_provision": None,
+    "migrate": None,
+    "role_grant": None,
+    "seed": None,
+    "api": None,
+    "web": None,
+}
+API_DEMO_BUILD = {
+    "context": str(REPOSITORY_ROOT),
+    "dockerfile": "apps/api/Dockerfile",
+    "target": "demo-runtime",
+}
+EXPECTED_SERVICE_BUILDS: dict[str, dict[str, Any] | None] = {
+    "postgres": None,
+    "minio": None,
+    "oidc": API_DEMO_BUILD,
+    "role_provision": API_DEMO_BUILD,
+    "migrate": {
+        "context": str(REPOSITORY_ROOT),
+        "dockerfile": "apps/api/Dockerfile",
+        "target": "migration",
+    },
+    "role_grant": API_DEMO_BUILD,
+    "seed": API_DEMO_BUILD,
+    "api": API_DEMO_BUILD,
+    "web": {
+        "context": str(REPOSITORY_ROOT),
+        "dockerfile": "apps/web/Dockerfile",
+        "target": "demo-runtime",
+        "args": {"VITE_RUNTIME_PROFILE": "public-demo"},
+    },
 }
 FORBIDDEN_DATABASE_TARGET_KEYS = {
     "DATABASE_HOST",
@@ -83,6 +142,129 @@ FORBIDDEN_DATABASE_TARGET_KEYS = {
     "PGSERVICE",
     "PGSERVICEFILE",
 }
+
+
+def _parse_yaml_event_node(
+    events: list[Any], index: int, yaml_module: Any, anchors: dict[str, dict[str, Any]]
+) -> tuple[dict[str, Any], int]:
+    if index >= len(events):
+        raise ValueError("unexpected end of YAML event stream")
+    event = events[index]
+    if isinstance(event, yaml_module.events.ScalarEvent):
+        node = {
+            "kind": "scalar",
+            "value": event.value,
+            "tag": event.tag,
+            "anchor": event.anchor,
+        }
+        if event.anchor is not None:
+            anchors[event.anchor] = node
+        return node, index + 1
+    if isinstance(event, yaml_module.events.AliasEvent):
+        return {"kind": "alias", "anchor": event.anchor}, index + 1
+    if isinstance(event, yaml_module.events.SequenceStartEvent):
+        node = {"kind": "sequence", "items": [], "anchor": event.anchor}
+        if event.anchor is not None:
+            anchors[event.anchor] = node
+        index += 1
+        while index < len(events) and not isinstance(
+            events[index], yaml_module.events.SequenceEndEvent
+        ):
+            child, index = _parse_yaml_event_node(events, index, yaml_module, anchors)
+            node["items"].append(child)
+        if index >= len(events):
+            raise ValueError("unterminated YAML sequence")
+        return node, index + 1
+    if isinstance(event, yaml_module.events.MappingStartEvent):
+        node = {"kind": "mapping", "pairs": [], "anchor": event.anchor}
+        if event.anchor is not None:
+            anchors[event.anchor] = node
+        index += 1
+        while index < len(events) and not isinstance(
+            events[index], yaml_module.events.MappingEndEvent
+        ):
+            key, index = _parse_yaml_event_node(events, index, yaml_module, anchors)
+            value, index = _parse_yaml_event_node(events, index, yaml_module, anchors)
+            node["pairs"].append((key, value))
+        if index >= len(events):
+            raise ValueError("unterminated YAML mapping")
+        return node, index + 1
+    raise ValueError("unexpected YAML node event")
+
+
+def _resolved_yaml_node(
+    node: dict[str, Any], anchors: Mapping[str, dict[str, Any]]
+) -> dict[str, Any] | None:
+    if node.get("kind") != "alias":
+        return node
+    anchor = node.get("anchor")
+    return anchors.get(anchor) if isinstance(anchor, str) else None
+
+
+def validate_source(source: str) -> list[str]:
+    """Validate the literal source-level Compose project identity."""
+    try:
+        import yaml
+    except ModuleNotFoundError:
+        return ["the locked safe YAML parser is unavailable"]
+
+    try:
+        events = list(yaml.parse(source, Loader=yaml.SafeLoader))
+        if (
+            len(events) < 5
+            or not isinstance(events[0], yaml.events.StreamStartEvent)
+            or not isinstance(events[1], yaml.events.DocumentStartEvent)
+        ):
+            raise ValueError("invalid YAML document boundary")
+        anchors: dict[str, dict[str, Any]] = {}
+        root, index = _parse_yaml_event_node(events, 2, yaml, anchors)
+        if (
+            index + 2 != len(events)
+            or not isinstance(events[index], yaml.events.DocumentEndEvent)
+            or not isinstance(events[index + 1], yaml.events.StreamEndEvent)
+        ):
+            raise ValueError("the Compose source must contain exactly one document")
+    except (ValueError, yaml.YAMLError) as error:
+        return [f"compose source YAML is invalid ({error})"]
+
+    if root.get("kind") != "mapping":
+        return ["compose source must be a top-level mapping"]
+
+    name_entries: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for key, value in root["pairs"]:
+        resolved_key = _resolved_yaml_node(key, anchors)
+        if resolved_key is None:
+            return ["compose source contains an unresolved top-level alias"]
+        if resolved_key.get("kind") != "scalar":
+            return ["compose source top-level keys must be explicit scalars"]
+        if resolved_key.get("value") == "<<":
+            return ["compose source must not merge an ambiguous top-level project name"]
+        if resolved_key.get("value") == "name":
+            name_entries.append((key, value))
+
+    if len(name_entries) != 1:
+        return ["compose source must define exactly one explicit top-level name"]
+    key, value = name_entries[0]
+    if key.get("kind") != "scalar" or key.get("anchor") is not None:
+        return ["compose source top-level name key must be explicit"]
+    if (
+        value.get("kind") != "scalar"
+        or value.get("anchor") is not None
+        or value.get("tag") not in (None, "tag:yaml.org,2002:str")
+        or value.get("value") != PROJECT_NAME
+    ):
+        return [
+            "compose source top-level name must be the fixed literal Phase 2E Demo project name"
+        ]
+    return []
+
+
+def validate_source_file(path: Path) -> list[str]:
+    try:
+        source = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        return [f"compose source could not be read safely ({error})"]
+    return validate_source(source)
 
 
 def _environment(service: Mapping[str, Any]) -> Mapping[str, str]:
@@ -286,33 +468,45 @@ def _validate_database_targets(services: Mapping[str, Any]) -> list[str]:
         if environment.get("DATABASE_RUNTIME_ROLE") != "paintpilot_demo_runtime":
             failures.append(f"{service_name} must retain the fixed Demo runtime role")
 
-    for service_name, expected_command in EXPECTED_DATABASE_COMMANDS.items():
-        raw_service = services.get(service_name)
+    return failures
+
+
+def _validate_service_execution_identities(
+    services: Mapping[str, Any], actual_services: set[str]
+) -> list[str]:
+    failures: list[str] = []
+    for name in EXPECTED_SERVICES & actual_services:
+        raw_service = services[name]
         if not isinstance(raw_service, Mapping):
             continue
-        command = raw_service.get("command")
-        if command != expected_command:
-            failures.append(
-                f"{service_name} must retain its fixed database-safe command"
-            )
-        if raw_service.get("entrypoint") not in (None, []):
-            failures.append(f"{service_name} must not override its entrypoint")
+        if raw_service.get("command") != EXPECTED_SERVICE_COMMANDS[name]:
+            failures.append(f"{name} must retain its exact approved command identity")
+        if raw_service.get("entrypoint") is not None:
+            failures.append(f"{name} must not override its entrypoint")
+        if raw_service.get("image") != EXPECTED_SERVICE_IMAGES[name]:
+            failures.append(f"{name} must retain its exact approved image identity")
+        if raw_service.get("build") != EXPECTED_SERVICE_BUILDS[name]:
+            failures.append(f"{name} must retain its exact approved build identity")
+        if raw_service.get("profiles") is not None:
+            failures.append(f"{name} must not change its approved profile membership")
     return failures
 
 
 def validate(config: Mapping[str, Any]) -> list[str]:
     failures: list[str] = []
+    services = config.get("services")
+    if not isinstance(services, Mapping):
+        return ["compose config has no services mapping"]
+    actual_services = {str(name) for name in services}
+    if actual_services != EXPECTED_SERVICES:
+        failures.append("service set must be exactly the Phase 2E Demo services")
+
+    failures.extend(_validate_service_execution_identities(services, actual_services))
+
     if config.get("name") != PROJECT_NAME:
         failures.append(
             "compose project name must be exactly the fixed Phase 2E Demo project"
         )
-
-    services = config.get("services")
-    if not isinstance(services, Mapping):
-        return [*failures, "compose config has no services mapping"]
-    actual_services = {str(name) for name in services}
-    if actual_services != EXPECTED_SERVICES:
-        failures.append("service set must be exactly the Phase 2E Demo services")
 
     failures.extend(
         _validate_resources(config, kind="volume", expected_names=EXPECTED_VOLUMES)
@@ -418,6 +612,18 @@ def validate(config: Mapping[str, Any]) -> list[str]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source-compose", type=Path)
+    arguments = parser.parse_args()
+    if arguments.source_compose is not None:
+        source_failures = validate_source_file(arguments.source_compose)
+        if source_failures:
+            for failure in source_failures:
+                print(f"DEMO_SOURCE_CONFIG_INVALID: {failure}", file=sys.stderr)
+            return 2
+        print("DEMO_SOURCE_CONFIG_VALID: fixed literal source project name accepted.")
+        return 0
+
     try:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, UnicodeDecodeError) as error:

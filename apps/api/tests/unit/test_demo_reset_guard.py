@@ -32,6 +32,23 @@ DEMO_LABELS = {
 }
 PROJECT_NAME = "creativedeploy-phase2e-demo"
 NETWORK_NAME = "phase2e_demo"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
+POSTGRES_IMAGE = (
+    "postgres:17.10-alpine3.24@"
+    "sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193"
+)
+MINIO_IMAGE = (
+    "minio/minio:RELEASE.2025-09-07T16-13-09Z@"
+    "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
+)
+
+
+def _api_build(target: str = "demo-runtime") -> dict[str, str]:
+    return {
+        "context": str(REPOSITORY_ROOT),
+        "dockerfile": "apps/api/Dockerfile",
+        "target": target,
+    }
 
 
 def _resource_labels(kind: str, logical_name: str) -> dict[str, str]:
@@ -65,6 +82,7 @@ def _valid_config() -> dict[str, Any]:
         "name": PROJECT_NAME,
         "services": {
             "postgres": _service(
+                image=POSTGRES_IMAGE,
                 environment={
                     "POSTGRES_USER": "paintpilot_demo_admin",
                     "POSTGRES_PASSWORD": "synthetic-test-password",
@@ -79,27 +97,50 @@ def _valid_config() -> dict[str, Any]:
                 ],
             ),
             "minio": _service(
-                volumes=[{"type": "volume", "source": "phase2e_demo_minio", "target": "/data"}]
+                image=MINIO_IMAGE,
+                command=["server", "/data", "--console-address", ":9001"],
+                volumes=[
+                    {
+                        "type": "volume",
+                        "source": "phase2e_demo_minio",
+                        "target": "/data",
+                    }
+                ],
             ),
             "oidc": _service(
-                build={"target": "demo-runtime"},
-                command=["python", "-m", "uvicorn", "module:app", "--port", "18090"],
+                build=_api_build(),
+                command=[
+                    "python",
+                    "-m",
+                    "uvicorn",
+                    "creativedeploy_api.local_oidc:app",
+                    "--host",
+                    "0.0.0.0",
+                    "--port",
+                    "18090",
+                    "--no-server-header",
+                    "--no-proxy-headers",
+                ],
             ),
             "role_provision": _service(
+                build=_api_build(),
                 command=role_command,
                 environment=dict(role_environment),
                 depends_on={"postgres": {"condition": "service_healthy"}},
             ),
             "migrate": _service(
+                build=_api_build("migration"),
                 environment={"DATABASE_URL": _database_url("paintpilot_demo_migrator")},
                 depends_on={"role_provision": {"condition": "service_completed_successfully"}},
             ),
             "role_grant": _service(
+                build=_api_build(),
                 command=role_command,
                 environment=dict(role_environment),
                 depends_on={"migrate": {"condition": "service_completed_successfully"}},
             ),
             "seed": _service(
+                build=_api_build(),
                 command=["python", "-m", "creativedeploy_api.tools.seed_demo"],
                 environment={
                     "DATABASE_URL": _database_url("paintpilot_demo_runtime"),
@@ -108,7 +149,7 @@ def _valid_config() -> dict[str, Any]:
                 depends_on={"role_grant": {"condition": "service_completed_successfully"}},
             ),
             "api": _service(
-                build={"target": "demo-runtime"},
+                build=_api_build(),
                 command=[
                     "python",
                     "-m",
@@ -129,7 +170,12 @@ def _valid_config() -> dict[str, Any]:
                 depends_on={"seed": {"condition": "service_completed_successfully"}},
             ),
             "web": _service(
-                build={"target": "demo-runtime", "args": {"VITE_RUNTIME_PROFILE": "public-demo"}},
+                build={
+                    "context": str(REPOSITORY_ROOT),
+                    "dockerfile": "apps/web/Dockerfile",
+                    "target": "demo-runtime",
+                    "args": {"VITE_RUNTIME_PROFILE": "public-demo"},
+                },
                 ports=[
                     {
                         "host_ip": "127.0.0.1",
@@ -165,6 +211,39 @@ def _failures_after(mutator: Callable[[dict[str, Any]], None]) -> list[str]:
 
 def test_correct_config_is_accepted() -> None:
     assert validate_demo_config.validate(_valid_config()) == []
+
+
+def test_correct_source_project_name_is_accepted() -> None:
+    source = f"name: {PROJECT_NAME}\nservices: {{}}\n"
+
+    assert validate_demo_config.validate_source(source) == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "services: {}\n",
+        "name: not-the-demo\nservices: {}\n",
+        "name: ''\nservices: {}\n",
+        "name: null\nservices: {}\n",
+        "name: 123\nservices: {}\n",
+        "name: ${DEMO_PROJECT_NAME}\nservices: {}\n",
+        f"x-project: &project {PROJECT_NAME}\nname: *project\nservices: {{}}\n",
+        f"name: {PROJECT_NAME}\nname: {PROJECT_NAME}\nservices: {{}}\n",
+    ],
+    ids=(
+        "missing",
+        "wrong",
+        "empty",
+        "null",
+        "non-string",
+        "interpolation",
+        "alias",
+        "duplicate",
+    ),
+)
+def test_invalid_source_project_name_is_rejected(source: str) -> None:
+    assert validate_demo_config.validate_source(source)
 
 
 def test_project_name_drift_is_rejected() -> None:
@@ -308,19 +387,126 @@ def test_alternate_database_target_environment_is_rejected(key: str) -> None:
     assert _failures_after(mutate)
 
 
-def test_database_service_command_override_is_rejected() -> None:
+@pytest.mark.parametrize(
+    "mutator",
+    [
+        lambda config: config["services"]["oidc"].update(
+            command=[
+                "sh",
+                "-c",
+                "write-to-external-postgres; start-oidc --port 18090",
+            ]
+        ),
+        lambda config: config["services"]["oidc"].update(command=["malicious-command", "18090"]),
+        lambda config: config["services"]["oidc"].update(
+            command=[
+                "sh",
+                "-c",
+                "python -m uvicorn creativedeploy_api.local_oidc:app --port 18090",
+            ]
+        ),
+        lambda config: config["services"]["migrate"].update(
+            command=["python", "-m", "alembic", "downgrade", "base"]
+        ),
+        lambda config: config["services"]["seed"].update(
+            command=["python", "-m", "creativedeploy_api.tools.other_seed"]
+        ),
+        lambda config: config["services"]["role_provision"].update(
+            command=["python", "-m", "creativedeploy_api.tools.other_roles"]
+        ),
+        lambda config: config["services"]["api"].update(command=["python", "other.py"]),
+        lambda config: config["services"]["web"].update(command=["sh", "-c", "nginx"]),
+        lambda config: config["services"]["api"].update(entrypoint=["sh", "-c"]),
+        lambda config: config["services"]["web"].update(entrypoint=["malicious-entrypoint"]),
+    ],
+    ids=(
+        "oidc-external-postgres-with-port-token",
+        "oidc-arbitrary-command",
+        "oidc-shell-wrapper",
+        "migration-command",
+        "seed-command",
+        "role-provision-command",
+        "api-command",
+        "web-command",
+        "api-entrypoint",
+        "web-entrypoint",
+    ),
+)
+def test_command_or_entrypoint_identity_drift_is_rejected(
+    mutator: Callable[[dict[str, Any]], None],
+) -> None:
+    assert _failures_after(mutator)
+
+
+@pytest.mark.parametrize(
+    "mutator",
+    [
+        lambda config: config["services"]["postgres"].update(image="postgres:latest"),
+        lambda config: config["services"]["postgres"].update(build={"context": "."}),
+        lambda config: config["services"]["api"]["build"].update(context="/tmp/outside"),
+        lambda config: config["services"]["oidc"]["build"].update(
+            context="https://example.invalid/source.git"
+        ),
+        lambda config: config["services"]["api"]["build"].update(
+            dockerfile="Dockerfile.unapproved"
+        ),
+        lambda config: config["services"]["migrate"]["build"].update(target="demo-runtime"),
+        lambda config: config["services"]["api"].update(image="unapproved:latest"),
+        lambda config: config["services"]["web"]["build"].update(
+            args={
+                "VITE_RUNTIME_PROFILE": "public-demo",
+                "UNAPPROVED_BUILD_ARG": "1",
+            }
+        ),
+    ],
+    ids=(
+        "image-reference",
+        "image-plus-build",
+        "absolute-outside-context",
+        "remote-context",
+        "dockerfile",
+        "target",
+        "build-plus-image",
+        "build-args",
+    ),
+)
+def test_image_or_build_identity_drift_is_rejected(
+    mutator: Callable[[dict[str, Any]], None],
+) -> None:
+    assert _failures_after(mutator)
+
+
+def test_extra_service_is_rejected() -> None:
     def mutate(config: dict[str, Any]) -> None:
-        config["services"]["seed"]["command"] = ["psql", "--host", "database.example.invalid"]
+        config["services"]["unapproved"] = _service(image="busybox:latest")
 
     assert _failures_after(mutate)
 
 
-def test_external_compose_project_environment_is_removed(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_required_service_missing_is_rejected() -> None:
+    def mutate(config: dict[str, Any]) -> None:
+        config["services"].pop("oidc")
+
+    assert _failures_after(mutate)
+
+
+def test_service_profile_membership_drift_is_rejected() -> None:
+    def mutate(config: dict[str, Any]) -> None:
+        config["services"]["seed"]["profiles"] = ["unapproved"]
+
+    assert _failures_after(mutate)
+
+
+def test_external_compose_environment_cannot_change_project_or_profiles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("COMPOSE_PROJECT_NAME", "production")
+    monkeypatch.setenv("COMPOSE_PROFILES", "unapproved")
 
     environment = demo_lifecycle._subprocess_environment()
 
     assert "COMPOSE_PROJECT_NAME" not in environment
+    assert "COMPOSE_PROFILES" not in environment
     assert demo_lifecycle._compose("config")[:4] == [
         "docker",
         "compose",
@@ -392,10 +578,11 @@ def test_runtime_volume_label_mismatch_prevents_destructive_command(
     assert not any("down" in command for command in commands)
 
 
-def test_validator_nonzero_prevents_down_migration_and_seed(
+def test_source_name_failure_precedes_render_and_prevents_mutation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     lifecycle_commands: list[list[str]] = []
+    validator_commands: list[list[str]] = []
 
     def fake_lifecycle_run(
         command: list[str], *, capture: bool = False
@@ -406,7 +593,58 @@ def test_validator_nonzero_prevents_down_migration_and_seed(
 
     def fake_validator_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         del kwargs
-        return subprocess.CompletedProcess(command, 2, stdout="", stderr="invalid")
+        validator_commands.append(command)
+        return subprocess.CompletedProcess(command, 2, stdout="", stderr="source invalid")
+
+    monkeypatch.setattr(demo_lifecycle, "_require_tools", lambda: True)
+    monkeypatch.setattr(demo_lifecycle, "_run", fake_lifecycle_run)
+    monkeypatch.setattr(demo_lifecycle.subprocess, "run", fake_validator_run)
+
+    assert demo_lifecycle.reset() == 2
+    assert lifecycle_commands == []
+    assert len(validator_commands) == 1
+    assert "--source-compose" in validator_commands[0]
+    assert "--project-name" not in validator_commands[0]
+
+
+@pytest.mark.parametrize(
+    "mutator",
+    [
+        lambda config: config["services"]["oidc"].update(
+            command=["sh", "-c", "external-postgres-write; normal-oidc --port 18090"]
+        ),
+        lambda config: config["services"]["web"].update(entrypoint=["sh", "-c"]),
+        lambda config: config["services"]["postgres"].update(image="postgres:latest"),
+        lambda config: config["services"]["api"]["build"].update(context="/tmp/outside"),
+    ],
+    ids=("command", "entrypoint", "image", "build"),
+)
+def test_execution_identity_failure_prevents_destructive_or_mutating_commands(
+    mutator: Callable[[dict[str, Any]], None],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _valid_config()
+    mutator(config)
+    lifecycle_commands: list[list[str]] = []
+
+    def fake_lifecycle_run(
+        command: list[str], *, capture: bool = False
+    ) -> subprocess.CompletedProcess[str]:
+        del capture
+        lifecycle_commands.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps(config), stderr="")
+
+    def fake_validator_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if "--source-compose" in command:
+            return subprocess.CompletedProcess(command, 0, stdout="source valid", stderr="")
+        rendered = json.loads(kwargs["input"])
+        failures = validate_demo_config.validate(rendered)
+        return subprocess.CompletedProcess(
+            command,
+            2 if failures else 0,
+            stdout="" if failures else "valid",
+            stderr="invalid" if failures else "",
+        )
 
     monkeypatch.setattr(demo_lifecycle, "_require_tools", lambda: True)
     monkeypatch.setattr(demo_lifecycle, "_run", fake_lifecycle_run)
