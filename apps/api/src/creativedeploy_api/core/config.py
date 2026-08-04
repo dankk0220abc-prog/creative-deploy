@@ -367,15 +367,11 @@ class Settings(BaseSettings):
             ]
             if missing_seed_values:
                 raise ValueError(
-                    "PAINTPILOT_DEMO_SEED_ENABLED requires "
-                    + ", ".join(missing_seed_values)
-                    + "."
+                    "PAINTPILOT_DEMO_SEED_ENABLED requires " + ", ".join(missing_seed_values) + "."
                 )
             assert self.paintpilot_demo_seed_email is not None
             if not self.paintpilot_demo_seed_email.endswith(".invalid"):
-                raise ValueError(
-                    "PAINTPILOT_DEMO_SEED_EMAIL must use a reserved .invalid address."
-                )
+                raise ValueError("PAINTPILOT_DEMO_SEED_EMAIL must use a reserved .invalid address.")
         return self
 
     @property
