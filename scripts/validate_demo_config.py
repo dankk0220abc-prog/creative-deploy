@@ -232,13 +232,13 @@ def validate_source(source: str) -> list[str]:
 
     name_entries: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for key, value in root["pairs"]:
+        if key.get("value") == "<<" or key.get("tag") == "tag:yaml.org,2002:merge":
+            return ["compose source must not contain YAML merge keys"]
         resolved_key = _resolved_yaml_node(key, anchors)
         if resolved_key is None:
             return ["compose source contains an unresolved top-level alias"]
         if resolved_key.get("kind") != "scalar":
             return ["compose source top-level keys must be explicit scalars"]
-        if resolved_key.get("value") == "<<":
-            return ["compose source must not merge an ambiguous top-level project name"]
         if resolved_key.get("value") == "name":
             name_entries.append((key, value))
 

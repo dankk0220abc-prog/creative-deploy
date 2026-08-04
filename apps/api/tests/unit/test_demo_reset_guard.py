@@ -41,6 +41,10 @@ MINIO_IMAGE = (
     "minio/minio:RELEASE.2025-09-07T16-13-09Z@"
     "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
 )
+MERGE_SOURCE_CASES = (
+    f"name: {PROJECT_NAME}\nbase: &base\n  services: {{}}\n\n<<: *base\n",
+    f"name: {PROJECT_NAME}\nbase: &base\n  services: {{}}\n\n!!merge alternate: *base\n",
+)
 
 
 def _api_build(target: str = "demo-runtime") -> dict[str, str]:
@@ -217,6 +221,17 @@ def test_correct_source_project_name_is_accepted() -> None:
     source = f"name: {PROJECT_NAME}\nservices: {{}}\n"
 
     assert validate_demo_config.validate_source(source) == []
+
+
+def test_source_name_tracked_demo_source_is_accepted() -> None:
+    assert validate_demo_config.validate_source_file(REPOSITORY_ROOT / "compose.demo.yaml") == []
+
+
+@pytest.mark.parametrize("source", MERGE_SOURCE_CASES, ids=("plain-key", "explicit-tag"))
+def test_yaml_merge_source_key_is_rejected(source: str) -> None:
+    assert validate_demo_config.validate_source(source) == [
+        "compose source must not contain YAML merge keys"
+    ]
 
 
 @pytest.mark.parametrize(
@@ -605,6 +620,45 @@ def test_source_name_failure_precedes_render_and_prevents_mutation(
     assert len(validator_commands) == 1
     assert "--source-compose" in validator_commands[0]
     assert "--project-name" not in validator_commands[0]
+
+
+@pytest.mark.parametrize("source", MERGE_SOURCE_CASES, ids=("plain-key", "explicit-tag"))
+def test_source_merge_failure_precedes_render_and_prevents_mutation(
+    source: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidate = tmp_path / "compose.demo.yaml"
+    candidate.write_text(source, encoding="utf-8")
+    lifecycle_commands: list[list[str]] = []
+    validator_commands: list[list[str]] = []
+
+    def fake_lifecycle_run(
+        command: list[str], *, capture: bool = False
+    ) -> subprocess.CompletedProcess[str]:
+        del capture
+        lifecycle_commands.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="{}", stderr="")
+
+    def fake_validator_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        validator_commands.append(command)
+        source_path = Path(command[command.index("--source-compose") + 1])
+        failures = validate_demo_config.validate_source_file(source_path)
+        return subprocess.CompletedProcess(
+            command,
+            2 if failures else 0,
+            stdout="",
+            stderr="YAML merge key rejected" if failures else "",
+        )
+
+    monkeypatch.setattr(demo_lifecycle, "COMPOSE_FILE", candidate)
+    monkeypatch.setattr(demo_lifecycle, "_require_tools", lambda: True)
+    monkeypatch.setattr(demo_lifecycle, "_run", fake_lifecycle_run)
+    monkeypatch.setattr(demo_lifecycle.subprocess, "run", fake_validator_run)
+
+    assert demo_lifecycle.reset() == 2
+    assert lifecycle_commands == []
+    assert len(validator_commands) == 1
+    assert "--source-compose" in validator_commands[0]
 
 
 @pytest.mark.parametrize(
