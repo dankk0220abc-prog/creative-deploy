@@ -1,6 +1,6 @@
 # Phase 3A — BYOK Multi-Provider Multimodal Foundation
 
-Status: architecture-freeze Candidate for focused independent review
+Status: security-contract-remediated architecture-freeze Candidate pending focused independent rereview
 
 Scope: Phase 3A design only; no Provider, credential, model call, migration, API, or UI is implemented by this document.
 
@@ -41,13 +41,13 @@ Focused tests already demonstrate secret-file refusal/redaction, OIDC secret non
 
 ### Unknowns and stop conditions
 
-No encryption library, KMS integration, generic sensitive-column type, Provider adapter, Provider catalog, background worker, quota service, or platform settings route exists today. Key-management ownership, retention periods, exact billing currency source, Provider legal terms, and a production custom-Provider network egress design are unknown.
+No encryption library, KMS integration, generic sensitive-column type, Provider adapter, Provider catalog, background worker, quota service, or platform settings route exists today. Production key-management ownership, retention duration, exact billing currency source, Provider legal terms, and the operations/allowlist ownership for a future real-Provider safe transport are unknown. Sections 4.3, 4.5, 4.6, 7, and 8 nevertheless freeze the First Slice implementation contracts and fail-closed boundaries rather than deferring those choices to implementation.
 
 Implementation MUST stop before enabling saved credentials or real remote invocation if an envelope-key source, redaction proof, outbound URL safety gate, authorization model, budget enforcement, or audit retention decision is absent. A missing/expired model catalog is not permission to guess a replacement.
 
 ## 3. Product and platform boundaries
 
-Platform objects are reusable across CreativeDeploy product spaces. `product_space_key` identifies the caller (initially `paintpilot`) and is not a disguised replacement for business aggregates.
+Platform objects are reusable across CreativeDeploy product spaces. `product_space` identifies the caller (initially `paintpilot`) and is not a disguised replacement for business aggregates.
 
 The following remain PaintPilot-only and MUST NOT be renamed or generalized in this slice: `PaintProject`, its owner/member authorization semantics, `ImageAsset`, `ImageSetReadinessReview`, `RegionSet`, `Region`, `RegionVertex`, human readiness/review facts, and PaintPilot workflow states. A future Vision task may reference immutable `ImageAsset` IDs through an artifact-reference policy, but it does not own, mutate, or reinterpret image/region history.
 
@@ -76,44 +76,135 @@ All identifiers below are UUIDs unless named as a normalized string. Provider ke
 
 | Mode | Contract |
 | --- | --- |
-| Temporary use | Raw key is accepted only in the HTTPS request body, kept in request-local memory, passed directly to the selected adapter, excluded from logs/traces/errors/audit/browser storage, and released when the request completes. It has no database row, no browser echo, and cannot be referenced by a later request. |
-| Encrypted saved credential | Created only after an explicit user save confirmation. The service envelope-encrypts the plaintext before persistence; the API returns only a generated ID, alias, Provider, last four or a non-reversible fingerprint, status, timestamps, and validation summary. |
+| Temporary use | Raw key is accepted only in the HTTPS request body, kept in request-local memory, passed directly to the selected adapter after admission commits, excluded from logs/traces/errors/audit/browser storage, and destroyed when the synchronous request completes. It has no database row, no browser echo, and cannot be referenced by a later request. |
+| Encrypted saved credential | Created only after explicit user save confirmation. The service completes the envelope-encryption contract in section 4.3 before persistence; the API returns only a generated ID, alias, Provider, last four or a non-reversible fingerprint, status, timestamps, and validation summary. |
 
-Persisted fields are `id`, `owner_user_id`, `provider_key`, `encrypted_payload`, `encryption_version`, `key_fingerprint`, `last_four`, `alias`, `status`, `created_at`, `updated_at`, `revoked_at`, `last_successful_validation_at`, and `revision`. `encrypted_payload` is opaque binary/ciphertext plus non-secret encryption metadata; it MUST NOT be JSON containing a plaintext key. `key_fingerprint` is a keyed, rotation-aware HMAC-style fingerprint of normalized key bytes, not an unsalted digest suitable for offline guessing. `last_four` is presentation-only and optional when a scheme has no meaningful suffix.
+Persisted identity and lifecycle fields are `id`, `owner_user_id`, `provider_key`, `key_fingerprint`, `last_four`, `alias`, `status`, `created_at`, `updated_at`, `revoked_at`, `replaced_at`, `replaces_credential_id`, `last_successful_validation_at`, and `revision`. The encryption fields are the explicit logical fields in section 4.3; they MUST NOT be hidden inside JSON or a plaintext-capable ordinary domain field. `status` is one of `active`, `revoked`, `replaced`, or `erased`. `key_fingerprint` is a keyed, rotation-aware HMAC-style fingerprint of normalized key bytes, not an unsalted digest suitable for offline guessing. `last_four` is presentation-only and optional when a scheme has no meaningful suffix.
 
-`CredentialProjectGrant` is a separate relation: `credential_id`, `paint_project_id`, `granted_by_owner_user_id`, `created_at`, `revoked_at`, and `revision`. It does not transfer ownership. A project may use a saved credential only when its owner still owns the credential, the credential is active, a live grant exists, the caller has authorized project access, and the project policy allows that credential. Initial Slice mutation is owner-only; reviewer use is not enabled merely by reviewer visibility.
+`CredentialGrant` (stored as `credential_project_grants`) is a separate relation: `credential_id`, `project_id`, `granted_by_user_id`, `created_at`, `revoked_at`, and `revision`. It does not transfer ownership. A project may use a saved credential only when its owner still owns the credential, the credential is active, a live grant exists, the caller has current authorized project access, and the project policy allows that credential. First Slice mutation is owner-only; reviewer visibility alone does not grant use.
 
-Revoke is irreversible for use, not physical erasure: set `revoked_at`, `status=revoked`, increment revision, deny all future decryption/invocation, retain minimal non-secret audit facts, and remove active grants transactionally. Replace creates a new credential row and revokes the old row; it never overwrites ciphertext in place.
+Revoke and replace are irreversible for the old credential. Both deny future admission, revoke active grants, and immediately cryptographically erase the old row by setting every ciphertext, wrapped-DEK, nonce, authentication-tag, algorithm, and encryption/AAD-version field to `NULL`. Minimal non-secret audit metadata and replacement lineage remain. Replace creates a new encrypted row and never overwrites the old ciphertext in place or transfers old grants.
 
 ### 4.3 Encryption boundary
 
-Define a replaceable server-side port:
+Every saved credential uses a distinct envelope. The implementation MUST:
+
+1. pre-generate the credential UUID;
+2. obtain an independent 256-bit DEK from a CSPRNG;
+3. obtain an independent, never-reused 96-bit data nonce from a CSPRNG;
+4. encrypt the API key with `AES-256-GCM`, retaining and verifying its authentication tag;
+5. wrap the DEK through the replaceable key-encryption port below using a distinct, never-reused 96-bit CSPRNG nonce and authenticated encryption; and
+6. persist the complete envelope only after both authenticated operations succeed.
+
+AES-CBC, ECB, encryption without authentication, nonce reuse, a shared DEK between credentials, and custom cryptographic constructions are prohibited. The database/domain contract exposes these logical fields:
+
+| Field | Contract |
+| --- | --- |
+| `encryption_version` | Approved envelope/KEK version used to select decryption behavior; non-empty while active. |
+| `data_algorithm` | Exactly `AES-256-GCM` in Phase 3A. |
+| `ciphertext` | Encrypted API-key bytes, never plaintext or JSON. |
+| `data_nonce` | Exactly 12 bytes and unique for every encryption under a DEK. |
+| `data_authentication_tag` | Exactly 16 bytes and always verified before plaintext is returned. |
+| `wrapped_dek` | Authenticated encrypted representation of the per-row DEK. |
+| `wrap_algorithm` | Approved wrapping algorithm identifier; the fixture implementation uses `AES-256-GCM`. |
+| `wrap_nonce` | Independent from `data_nonce`, exactly 12 bytes for the fixture wrapping algorithm, and never reused under a KEK. |
+| `wrap_authentication_tag` | Exactly 16 bytes for fixture `AES-256-GCM` wrapping and always verified. |
+| `aad_version` | Canonical AAD encoding version, initially `credential-aad-v1`. |
+
+A standard library MAY return ciphertext and tag as one blob internally, but the domain and database contract still treats them as the two logical components above and validates both lengths. Enabling a future wrapping algorithm with different nonce/tag lengths requires an additive constraint update before use; it does not require replacing the credential business table.
+
+`credential-aad-v1` is a stable length-prefixed binary tuple encoding: every variable-width item is encoded as a 32-bit unsigned big-endian byte length followed by its bytes; UUIDs use their fixed 16-byte representation; strings are normalized UTF-8 values. The data AAD tuple is, in order, `creativedeploy`, `credential-aad-v1`, `credential-secret`, `credential_id`, `owner_user_id`, `provider_key`, and `encryption_version`. The wrap AAD tuple uses the same encoding and identities with purpose `credential-dek`. Alias, last four, fingerprint, timestamps, and other mutable presentation metadata MUST NOT be required AAD fields.
+
+The service reconstructs AAD from immutable columns, rejects any unsupported algorithm/version before decryption, verifies the wrap tag before releasing a DEK, and verifies the data tag before releasing the API key. Exchanging ciphertext, wrapped DEK, nonce/tag, encryption metadata, or immutable identity between credentials MUST fail authentication; no failure may fall back to plaintext, an old credential, another KEK, or another credential.
+
+Define replaceable server-side ports:
 
 ```text
 EnvelopeCipher.encrypt(plaintext, *, aad: CredentialAAD) -> EncryptedCredentialPayload
 EnvelopeCipher.decrypt(payload, *, aad: CredentialAAD) -> SecretBytes
 EnvelopeCipher.current_version() -> str
+
+KeyEncryptionService.wrap_dek(dek, *, aad: CredentialWrapAAD) -> WrappedDEK
+KeyEncryptionService.unwrap_dek(payload, *, aad: CredentialWrapAAD) -> SecretDEK
 ```
 
-AAD MUST bind credential ID, owner user ID, provider key, and encryption version. The first implementation may use a test-only/local envelope-key provider injected from a strictly validated secret source; it MUST NOT choose, name, or hard-code a cloud KMS. The root/master key MUST come from a separately governed runtime secret source and MUST NOT sit in the same ordinary configuration/database field as ciphertext. Rotation writes new ciphertext with a new version; decryption supports only approved historical versions until every active row is rewrapped. Plaintext lifetime is limited to the narrow validation/invocation call and must not cross task queues, ORM reprs, exception messages, response snapshots, or log context.
+The KEK/master key is separated from database ciphertext. A future KMS replaces `KeyEncryptionService` without changing the credential table. First Slice may use only a fixture root-key provider in `development` or `test`, with the key supplied through a dedicated `CREDENTIAL_FIXTURE_ROOT_KEY_FILE` path setting. Direct plaintext environment-variable input and default keys are forbidden. Provisioning MUST generate this key independently from every other application secret as 32 CSPRNG bytes. The referenced file MUST be a regular, non-symlink file with owner-only permissions, stable identity during read, and exactly 32 bytes; missing files, wrong length or permissions, symlinks, unsafe sources, and read errors fail startup closed. `production` and `staging` MUST reject the fixture provider even if the file is present. The key and its bytes MUST NOT enter Git, CI logs, fixture output, exceptions, or browser-visible data.
+
+Saved-credential creation is atomic:
+
+1. pre-generate `credential_id` and canonical data/wrap AAD;
+2. generate the DEK and both independent nonces, then complete data AEAD and DEK wrapping outside any database row;
+3. only after every cryptographic operation succeeds, insert the active row in one database transaction;
+4. require every active encryption field to be non-null and satisfy the algorithm-specific length checks; and
+5. on encryption failure create no row; on database rollback destroy request-local plaintext and DEK and leave no partial record.
+
+Plaintext and DEKs live only in narrow request-local secret buffers. Ordinary domain objects MUST redact or omit them from `repr`, serialization, copying, exception context, snapshots, logs, and task payloads. Rotation writes a new authenticated envelope under an approved version; decryption supports only explicitly approved historical versions until active rows are rewrapped.
 
 ### 4.4 ModelDefinition and selections
 
 `ModelDefinition` stores Provider-scoped catalog facts, not a global database enum: `id`, `provider_key`, `model_id`, `display_name`, `catalog_source`, `catalog_fresh_at`, `status` (`active`, `disabled`, `unknown`, `unsupported`, `retired`), `context_window`, capability overrides, `supports_structured_output`, `supports_vision`, optional pricing metadata/currency/unit, raw-metadata reference only if redacted and size-bounded, and `revision`. Uniqueness is `(provider_key, model_id)`. A user-entered model ID is represented as a selection value plus `catalog_status=unknown`, not silently materialized as a trusted catalog model. Unknown or unsupported models cannot be invoked until adapter validation makes their required capability explicit.
 
-`UserProviderPreference` has one row per user and stores nullable `default_provider_key`, `default_model_id`, `default_credential_id`, bounded timeout, streaming preference, cost-warning threshold/currency, `updated_at`, and `revision`. Null means inherit; it does not mean an arbitrary system choice.
+`UserProviderPreference` has one row per user and stores `enabled`, nullable `default_provider_key`, `default_model_id`, `default_credential_id`, bounded timeout, streaming preference, cost-warning threshold/currency, `updated_at`, and `revision`. Null means inherit; it does not mean an arbitrary system choice.
 
-`ProjectModelPolicy` has one row per PaintProject: allowed Provider/capability/credential sets represented by child allowlist tables, nullable default Provider/model/credential reference, a decimal per-invocation budget ceiling/currency, `allow_manual_model_id`, `allow_fallback` (default false), `require_paid_call_confirmation`, `updated_by_user_id`, `updated_at`, and `revision`. A project policy constrains rather than grants: it cannot make a non-owner credential owned by the project or override a revoked credential.
+`ProjectModelPolicy` has one row per PaintProject: `enabled`, allowed Provider/capability/credential sets represented by child allowlist tables, nullable default Provider/model/credential reference, per-invocation budget ceiling/currency, cumulative project budget-policy reference, `allow_unknown_cost` (default false), a non-zero `unknown_cost_reservation_minor_units` when that exception is enabled, `allow_manual_model_id`, `allow_fallback` (default false), `require_paid_call_confirmation`, `updated_by_user_id`, `updated_at`, and `revision`. A project policy constrains rather than grants: it cannot make a non-owner credential owned by the project or override a revoked credential. User and project cumulative budget policies are independent constraints and must both admit an attempt.
+
+`UserBudgetPolicy` has one active row per `(user_id, product_space, currency)` and stores the user's per-invocation ceiling, cumulative counter/window reference, `allow_unknown_cost` (default false), `unknown_cost_reservation_minor_units`, and `revision`. Project policy may only narrow these terms. A project invocation uses the stricter ceiling/unknown reservation across both policies; a no-project invocation still requires the user policy.
 
 ### 4.5 InvocationRequest, InvocationAttempt, and UsageAudit
 
-An `InvocationRequest` represents what a human or product asked for. An `InvocationAttempt` represents one actual adapter attempt, including retry or explicitly confirmed fallback. A request has zero or more attempts; attempts are append-only once started.
+An `InvocationRequest` represents what a human or product asked for. An `InvocationAttempt` represents one actual adapter attempt, including retry or explicitly confirmed fallback. A request has zero or more attempts. Retry and fallback create attempts beneath the original request; neither creates another invocation.
 
-Required request fields: `id`, `product_space_key`, nullable `paint_project_id`, `requested_by_user_id`, `requested_capabilities`, requested Provider/model/credential references or temporary-credential indicator, `request_id`, scope-specific idempotency key and payload hash, timeout, budget snapshot, confirmation snapshot, prompt/version reference, input/output artifact references, state, cancellation request time, created/updated timestamps, and revision.
+Required request fields include `id`, `requesting_user_id`, `product_space`, nullable `project_id`, non-null `project_scope_id`, `invocation_family`, `idempotency_key`, `canonical_request_payload_hash`, requested capabilities and Provider/model/credential references or temporary-credential indicator, `request_id`, timeout/total-elapsed ceiling, budget and confirmation snapshots, prompt/version reference, input/output artifact references, `status`, `started_at`, `terminal_at`, `cancellation_requested_at`, `final_error_category`, `output_reference`, created/updated timestamps, and `revision`.
 
-Required attempt fields: `id`, `invocation_request_id`, `attempt_number`, resolved Provider/model/credential reference (never plaintext), adapter version, retry/fallback lineage, start/end timestamps, terminal status, normalized error category, Provider raw error code and request ID when safe, rate-limit metadata, latency, normalized usage, estimated/actual cost with currency or explicit `unknown`, cancellation outcome, and immutable artifact references. `attempt_number` is unique per request. The first Slice records contract-level attempts but performs only fake/fixture execution.
+Invocation idempotency has exactly this database unique scope:
 
-`UsageAudit` is a user/project-visible, append-only projection or table with a reference to the immutable request/attempt. It contains actor, product space, authorized project, Provider/model identifiers, credential alias/fingerprint reference (not payload), capability set, status, safe error code, usage/cost state, timestamps, request/correlation IDs, and redacted artifact/prompt references. It MUST NOT contain API keys, Authorization headers, connection strings, ungoverned complete private prompts, raw Provider request/response bodies, or unbounded error text.
+```text
+(requesting_user_id,
+ product_space,
+ project_scope_id,
+ invocation_family,
+ idempotency_key)
+```
+
+`project_scope_id` is `NOT NULL`. A no-project invocation uses the reserved all-zero UUID `00000000-0000-0000-0000-000000000000`, never SQL `NULL`; a database check requires `project_id IS NULL` exactly when the sentinel is used and otherwise requires `project_scope_id = project_id`. The request payload is UTF-8 JSON canonicalized with RFC 8785 JSON Canonicalization Scheme and hashed with SHA-256; the stored value is lowercase hexadecimal with a fixed `sha256:` prefix. Same scope/key/hash returns the original invocation; same scope/key with a different hash returns a structured idempotency conflict; different user, product space, project, or invocation family cannot collide. The scope belongs to the Phase 3A invocation table and cannot fall back to the older command scope. Cross-project replay is therefore rejected by construction.
+
+Required attempt fields include `id`, `invocation_id`, `attempt_number`, resolved Provider/model, immutable saved `credential_id` and `credential_encryption_version_snapshot` or a temporary-credential indicator (never plaintext), adapter version, retry/fallback lineage, `status`, `started_at`, `terminal_at`, `cancellation_requested_at`, `final_error_category`, `output_reference`, Provider raw error code and request ID when safe, rate-limit metadata, latency, cancellation outcome, and `revision`. Usage and cost are append-only ledger facts described in section 4.6, not mutable attempt truth. `attempt_number` is unique per invocation. Once admitted, an attempt never changes to a different credential because a default, grant, policy, or replacement later changes.
+
+The frozen states are:
+
+- `InvocationStatus`: `pending`, `admitted`, `running`, `succeeded`, `failed`, `cancelled`, `outcome_unknown`.
+- `AttemptStatus`: `created`, `admitted`, `running`, `succeeded`, `failed`, `cancelled`, `outcome_unknown`.
+
+The only legal invocation transitions are `pending → admitted|cancelled|failed`, `admitted → running|cancelled|failed`, and `running → succeeded|failed|cancelled|outcome_unknown`. The only legal attempt transitions are `created → admitted|cancelled|failed`, `admitted → running|cancelled|failed`, and `running → succeeded|failed|cancelled|outcome_unknown`. `succeeded`, `failed`, `cancelled`, and `outcome_unknown` are execution-terminal; none may transition back to an active state. `outcome_unknown` may receive later reconciliation events but its displayed result and state history are not silently rewritten.
+
+Every state update runs in a transaction that locks the row with `SELECT ... FOR UPDATE`, revalidates the caller-supplied `revision`, and increments it. The attempt admission transaction writes `created → admitted` together with credential authorization and budget reservation. After that commit, a separate guarded `admitted → running` transition must succeed before dispatch. If cancellation wins before `running` commits, there is no adapter call. For cancellation versus completion, the first transaction that commits a legal terminal transition wins. Completion first makes cancellation return `already_terminal`; cancellation first prevents a later success. A late Provider response appends `late_result_received`, and any late usage appends a deduplicated reconciliation ledger entry; neither overwrites the terminal status, output, or timestamp.
+
+Started invocation/attempt identities cannot be deleted or rewritten. Terminal fields are write-once. Audit, event, usage, and cost ledgers are append-only; any summary cost field is a rebuildable cache, never the audit source. Invocation reduction is deterministic: an attempt selected as the final successful result yields `succeeded`; a user cancellation that wins yields `cancelled`; with no success, any `outcome_unknown` yields `outcome_unknown`; otherwise, after all allowed attempts have deterministically failed, the invocation yields `failed`.
+
+`UsageAudit` is a user/project-visible, append-only projection or table with a reference to the immutable invocation/attempt. It contains actor, product space, authorized project, Provider/model identifiers, credential alias/fingerprint reference (not payload), capability set, status, safe error code, usage/cost state, timestamps, request/correlation IDs, and redacted artifact/prompt references. It MUST NOT contain API keys, Authorization headers, connection strings, ungoverned complete private prompts, raw Provider request/response bodies, or unbounded error text.
+
+### 4.6 Budget, reservation, retry, and cost ledger
+
+Admission enforces three simultaneous constraints: the invocation ceiling, the requesting user's cumulative budget, and the project's cumulative budget when a project exists. An active `UserBudgetPolicy` and matching counter are required for every attempt; a project invocation additionally requires its active project policy and counter. Missing policy/counter fails admission. The effective per-invocation ceiling is the lower of the user and applicable project ceilings captured in the invocation snapshot. Both cumulative budgets MUST pass; the stricter remaining amount is effective. There is no either/or selection.
+
+Every cumulative budget counter contains `currency`, `window_start`, `window_end`, `limit_minor_units`, `committed_minor_units`, `reserved_minor_units`, and `revision`, with non-negative checks and `committed + reserved <= limit` enforced at reservation time. Counters are unique by governed subject, currency, and window. Phase 3A performs no implicit currency conversion: the invocation pricing/reservation currency must match every applicable counter, otherwise admission fails.
+
+Each attempt owns one `BudgetReservation`. In the same admission transaction that authorizes the credential and creates the attempt, the service locks the invocation aggregate, then the user counter, then the project counter when present with `SELECT ... FOR UPDATE`; revalidates each revision; calculates `committed + reserved + requested_reservation`; and checks the invocation's uncommitted remainder and both cumulative remainders. Only if every check passes does it create the reservation and increase each applicable `reserved_minor_units`. Any failure creates neither an admitted attempt nor a Provider side effect. The fixed lock order prevents concurrent admissions from overspending or deadlocking each other.
+
+Known-cost reservation is conservatively derived from the requested usage ceiling and approved pricing snapshot. Unknown pricing MUST NOT be treated as zero. It is denied by default and is allowed only when every applicable user/project policy explicitly sets `allow_unknown_cost=true`, the preview names the uncertainty and the user confirms it, and the higher (stricter) applicable `unknown_cost_reservation_minor_units` value is non-zero and reserved. Its audit cost source is `unknown_reserved`.
+
+Retry is constrained as follows:
+
+- `max_attempts` is an integer from 1 through 3, inclusive.
+- `total_elapsed_time_limit_ms` is explicit and from 1 through the First Slice platform hard maximum of 120,000 ms. Each attempt timeout is capped by Provider policy, the configured per-attempt limit, and the remaining total time.
+- First Slice retryable categories are exactly `rate_limited`, `provider_unavailable`, and `connection_failure_before_dispatch`; adding a category requires a later contract change and tests.
+- `authentication_failed`, `permission_denied`, `invalid_request`, `safety_rejected`, `quota_exceeded`, and `cost_limit_exceeded` are never retryable.
+- `Retry-After` is honored only when valid and within the remaining elapsed ceiling; cancellation forbids a new attempt.
+- Retry retains Provider/model/credential intent, is separate from fallback, and executes a fresh authorization, revocation/grant/policy check and fresh budget reservation every time. It cannot reuse a revoked saved credential.
+
+If a timeout or connection loss occurs after request dispatch and the platform cannot prove that the Provider did not execute, the attempt becomes `outcome_unknown`. Automatic retry is forbidden unless that Provider exposes a verified idempotency protocol bound to this attempt. The reservation deterministically moves to `pending_reconciliation`; its full reserved amount remains in `reserved_minor_units` and is not released until a deduplicated receipt or separately governed reconciliation event settles it.
+
+Every attempt records usage/cost through an append-only ledger. Invocation total cost is the sum of all retry and fallback attempt ledger facts. Settlement locks the reservation and applicable counters, converts actual cost from reserved to committed, and releases only the unused amount. Actual cost is never truncated if it exceeds a reservation; the full amount is appended and committed, the budget breach is audited, and further attempts are blocked. Duplicate or late receipts are deduplicated by unique `(provider_key, provider_receipt_id)` when available, otherwise by `(attempt_id, source, canonical_sequence)`. Late receipts and corrections append reconciliation/correction entries instead of updating prior facts. Ordinary users have no ledger mutation operation.
 
 ## 5. Selection, validation, and fallback rules
 
@@ -164,42 +255,105 @@ The canonical error codes are `authentication_failed`, `permission_denied`, `mod
 - Secrets never enter frontend source, `localStorage`, `sessionStorage`, ordinary plaintext database columns, response snapshots, logs, traces, screenshots, Git, CI, or normal error details.
 - The browser posts a temporary key only to a same-origin protected endpoint; the UI clears its controlled field after completion and never reloads it. Saved-key views return aliases/fingerprint/last four only.
 - Credential list/detail/update/revoke/replace queries filter by `owner_user_id` in the repository, not by a client-supplied user ID. Project access checks are additional, not substitutes for credential ownership.
-- Revocation and replacement must lock/recheck the credential before the provider attempt is admitted. Cancellation/revocation races resolve fail-closed: an attempt not already handed to a fake/Provider adapter is cancelled; no new retry/fallback may start.
-- Validation is rate-limited per owner, credential, source/session, and Provider; validation records a safe status/time only. The first Slice fake validation must have no remote network path.
+- Validation is rate-limited per owner, credential, source/session, and Provider; validation records a safe status/time only. First Slice fake validation has no remote network path.
+
+Every saved-credential Provider attempt uses one admission transaction:
+
+1. begin a database transaction and lock the selected `CredentialRecord` with `SELECT ... FOR UPDATE`;
+2. lock relevant rows with `SELECT ... FOR UPDATE` in this order—active `CredentialGrant`, `ProjectModelPolicy`, invocation aggregate, user budget counter, then project budget counter—and revalidate each revision;
+3. verify the requesting user, current membership, credential ownership or explicit active grant, `status=active`, absence of revoke/replacement, Provider/model/capability policy, required confirmation, and final budget reservation;
+4. create the `InvocationAttempt` and its `BudgetReservation` in this transaction;
+5. while all checks and locks remain valid, unwrap and decrypt the credential into request-local secret memory;
+6. commit the admission transaction; this commit is the authorization linearization point; and
+7. only after a successful commit hand the secret to the Adapter. Commit failure destroys request-local plaintext and DEK and makes no Adapter call.
+
+Decryption MUST occur after the final permission, membership, grant, revoke/replacement, policy, and budget checks. Caches may help select candidates but are never the final authorization source. A temporary credential has no row to lock, but it follows the same membership/policy/confirmation/budget transaction and is handed off only after commit.
+
+The lock order defines race behavior. If revoke acquires the credential lock before admission commits, admission fails. If admission commits first, that specific attempt may continue using its request-local secret; the later revoke blocks every new admission. If replacement commits first, the old credential cannot be selected. An admitted attempt remains bound to its immutable `credential_id` and encryption-version snapshot even if user defaults change. Each retry performs a new admission and reservation and cannot reuse a now-revoked saved credential.
+
+Revoke is one transaction: lock the credential, verify the owner and active status, set `status=revoked`, `revoked_at`, and the next revision, revoke every active grant, set all encryption/ciphertext/wrapped-DEK/nonce/tag/algorithm/version fields to `NULL`, append the audit event, and commit. After commit, every new admission fails.
+
+Replace is one transaction: lock the old credential, verify owner and active status, complete all encryption for a new pre-generated credential ID, insert the new active row with `replaces_credential_id`, mark the old row `replaced`, set revoke/replace timestamps, cryptographically erase its envelope fields, revoke its active grants, append create/replace/revoke audit events, and commit. Failure rolls back both rows and audit events. Old grants are never copied; future grant of the new credential is an explicit user command.
+
+### Temporary-key implementation clarification
+
+Within one synchronous request, retry against the same Provider may reuse the request-local temporary key buffer, but every retry still performs fresh authorization and budget admission. First Slice MUST NOT carry a temporary key across a queue, background task, process, later request, or persisted retry record. Reverse proxies and request logging MUST disable request-body capture for these routes. Validation/debug instrumentation may record only allowlisted field names and a redacted-present/absent state, never the key or raw request body.
 
 ### Custom Provider egress / SSRF gate
 
-The custom OpenAI-compatible definition is catalog-only in the first Slice. Any future URL field is rejected unless a dedicated outbound policy validates HTTPS scheme, explicit port policy, no embedded credentials, no redirects, no loopback, link-local, unspecified, multicast, metadata-service, or RFC1918/private destination; DNS resolution and the connected peer must be checked to resist rebinding; proxies and alternate IP forms must be governed. This is a future implementation Gate, not a claim that Python URL parsing alone prevents SSRF.
+The custom OpenAI-compatible definition is catalog-only in First Slice. First Slice rejects every custom Provider URL and has no real Provider egress. Before any real network Provider operation is enabled, credential validation, model catalog, and invocation MUST all use one reviewed safe-transport component that enforces:
+
+- URL canonicalization before policy evaluation, including IDNA/punycode host normalization;
+- parsing every recognized unusual IPv4 spelling and IPv4-mapped IPv6 form into one canonical numeric address before policy evaluation, with ambiguous/unrecognized forms rejected;
+- complete CNAME-chain and DNS-answer validation against prohibited loopback, link-local, unspecified, multicast, metadata-service, RFC1918/private, and other policy-denied destinations;
+- validation of both resolved IPs and the actual connected peer IP to resist DNS rebinding;
+- full revalidation for every redirect rather than inherited trust;
+- ignoring/disabling system environment proxies; any future explicit proxy configuration requires its own reviewed safe-transport policy and cannot bypass destination validation;
+- HTTPS and port allowlists/policy, no embedded credentials, bounded connect/read/total timeouts, maximum response-body size, and bounded connection-pool concurrency.
+
+This safe transport is a mandatory future Gate, not a claim that URL parsing or the First Slice fixture implements network safety.
 
 ### Budget and cost control
 
-Admission checks project capability/policy, credential status/grant, Provider/model enabled state, confirmation requirement, and a conservative per-invocation budget before an adapter call. No price is fabricated: missing pricing or usage produces `cost_status=unknown`, and a policy that requires a known ceiling must reject it. Actual normalized usage/cost is recorded after the attempt; estimated cost and actual cost are distinct values with source/time. Budget rejection has no Provider side effect. Rate limit/quota errors remain visible as normalized safe results.
+Section 4.6 is the normative budget contract. Admission checks policy, pricing source, confirmation, all three budget layers, and atomic reservation before an Adapter call. Missing pricing is never zero; unknown-cost use requires its explicit exception and non-zero reservation. Budget rejection has zero Provider side effect. Estimated, reserved, actual, and reconciled cost remain distinct append-only facts.
 
 ### Immutable and privacy-bounded audit
 
-Audits are append-only at the request/attempt boundary. Redacted prompt and artifact references must be versioned, access-checked, and size-bounded. If a complete private input is needed later, it belongs in a separate authorized encrypted artifact design, not JSON audit metadata. Audit query visibility is limited to the owner and authorized project role; credential value is never revealed by audit access.
+Audits are append-only at the invocation/attempt boundary. Redacted prompt and artifact references must be versioned, access-checked, and size-bounded. If a complete private input is needed later, it belongs in a separate authorized encrypted artifact design, not JSON audit metadata. Audit query visibility is limited to the owner and authorized project role; credential value is never revealed by audit access.
 
 ## 8. Database and migration plan
 
-### Suggested tables
+### Retention and deletion boundary
 
-| Layer | Tables | Isolation, constraints, and indexes |
-| --- | --- | --- |
-| Platform registry | `provider_definitions`, `capability_definitions`, `provider_capability_definitions`, `model_definitions` | Unique Provider key, unique capability key, unique `(provider_key, model_id)`; catalog freshness/status indexes. Registry edits are privileged configuration, not end-user writes. |
-| User-owned secrets | `credential_records`, `credential_project_grants`, `user_provider_preferences` | FK credential owner to `user_accounts`; unique active alias per `(owner_user_id, provider_key)` if aliases are user-visible; encrypted payload non-null only while active; index `(owner_user_id, status, updated_at desc)` and active grant `(paint_project_id, credential_id)`. |
-| Project policy | `project_model_policies`, provider/capability/credential allowlist children | One policy per `paint_projects.id`; policy mutator and revision fields; composite FKs/queries prevent a grant or selected credential from escaping owner/project scope. |
-| Invocation/audit | `invocation_requests`, `invocation_attempts`, `usage_audits` | Request idempotency unique by `(scope_key, idempotency_key)` or a Phase-3-specific `CommandIdempotencyRecord` integration; unique `(invocation_request_id, attempt_number)`; indexes for owner/project/time/status and audit pagination. |
+First Slice forbids physical deletion of `UserAccount`, `PaintProject`, `CredentialRecord`, `InvocationRequest`, `InvocationAttempt`, and every audit/event/usage/cost ledger row. Supported lifecycle actions are user deactivation, project archival, credential revoke plus cryptographic erase, and a future separately designed purge after an approved retention period. That purge is not part of First Slice.
 
-All creation/replacement/policy mutation uses named check/unique/FK constraints and a `revision` column for optimistic updates. Rows carrying immutable audit facts do not expose UPDATE/DELETE repository commands. `encrypted_payload` should use a binary/large-object-safe ciphertext column plus explicit non-secret version fields; it must not use `JSONB` to serialize a secret. `Numeric` amounts require explicit currency and scale; unknown is represented by null cost plus status, never zero.
+The FK deletion policy is frozen:
 
-### Migration order and risk
+| Child reference | Delete action |
+| --- | --- |
+| `CredentialRecord.owner_user_id → UserAccount` | `ON DELETE RESTRICT` |
+| `CredentialGrant.credential_id → CredentialRecord` | `ON DELETE RESTRICT` |
+| `CredentialGrant.project_id → PaintProject` | `ON DELETE RESTRICT` |
+| `CredentialGrant.granted_by_user_id → UserAccount` | `ON DELETE RESTRICT` |
+| `UserProviderPreference.user_id → UserAccount` | `ON DELETE RESTRICT` |
+| `ProjectModelPolicy.project_id → PaintProject` | `ON DELETE RESTRICT` |
+| `UserBudgetPolicy.user_id → UserAccount` | `ON DELETE RESTRICT` |
+| project budget policy/counter `project_id → PaintProject` | `ON DELETE RESTRICT` |
+| `BudgetReservation.attempt_id → InvocationAttempt` | `ON DELETE RESTRICT` |
+| `InvocationRequest.requesting_user_id → UserAccount` | `ON DELETE RESTRICT` |
+| nullable `InvocationRequest.project_id → PaintProject` | `ON DELETE RESTRICT` |
+| `InvocationAttempt.invocation_id → InvocationRequest` | `ON DELETE RESTRICT` |
+| every audit/event/usage/cost parent reference | `ON DELETE RESTRICT` |
 
-1. Add registry, credential, preference, and policy tables after `2b1c4d5e6f70` with no backfill and no real secret data.
-2. Add invocation request/attempt/audit tables and indexes; introduce no PaintProject workflow mutation.
-3. Add repository/service/API/UI in a later implementation commit after migration contract review.
-4. Only after fake-provider/security review, separately consider a real adapter and remote egress gate.
+Audit rows retain bounded actor/project/Provider snapshot columns for historical readability, but snapshots never replace the authorization FKs.
 
-Downgrade must drop Phase-3 tables in reverse FK order only when they contain no protected history or under a separately approved data-retention plan. Once real encrypted credentials or audit histories exist, destructive downgrade is an operational risk and must stop rather than silently discard user data. This Candidate creates no migration.
+User deactivation is one governed fail-closed workflow: deny new sessions and invocations, revoke and cryptographically erase all user credentials, revoke their active grants, disable their preferences, and retain the `UserAccount`, invocations, and audits. Project archival blocks new invocation, disables its model policy, revokes that project's active credential grants, and retains the project, user-owned credentials, invocations, and audits.
+
+### Grant, replacement, and ciphertext constraints
+
+`CredentialGrant` has a partial unique index:
+
+```text
+UNIQUE (credential_id, project_id)
+WHERE revoked_at IS NULL
+```
+
+Grant/revoke operations lock the grant identity with `SELECT ... FOR UPDATE`, revalidate the required `revision`, and increment it. `CredentialRecord.replaces_credential_id` is a nullable self-FK with `ON DELETE RESTRICT`, a unique constraint (one old credential can have at most one replacement), and a check forbidding self-reference. Replacement locks the old row and requires it to be active. A database constraint trigger plus the service transaction verifies that old and new rows have the same `owner_user_id` and `provider_key`; the unique constraint and lock close concurrent replacement. Grants are not copied.
+
+Named database checks enforce the envelope lifecycle. For `status=active`, `encryption_version`, `data_algorithm`, `ciphertext`, `data_nonce`, `data_authentication_tag`, `wrapped_dek`, `wrap_algorithm`, `wrap_nonce`, `wrap_authentication_tag`, and `aad_version` are all non-null; `data_algorithm='AES-256-GCM'`, data nonce/tag lengths are 12/16 bytes, and fixture `wrap_algorithm='AES-256-GCM'` requires wrap nonce/tag lengths 12/16 bytes. Ciphertext and wrapped DEK are non-empty. For `status IN ('revoked','replaced','erased')`, every one of those envelope fields is `NULL`. An unrecognized algorithm/version fails closed.
+
+Revoke and replace immediately satisfy the erased-state check in the same transaction. They retain only credential ID, owner, Provider, alias, keyed fingerprint/last four, creation/revoke/replace timestamps, replacement lineage, revision, and security-audit metadata. No decryptable old ciphertext remains.
+
+### Four additive migrations
+
+Phase 3A uses at least four independently testable child revisions after `2b1c4d5e6f70`; it MUST NOT use a single giant migration:
+
+1. **Migration A — Registries:** add `ProviderDefinition`, `CapabilityDefinition`, `ModelDefinition`, join tables, named constraints/indexes, and fixture-safe definition structure. It contains no credentials or network enablement.
+2. **Migration B — Credential security:** add `CredentialRecord` and every explicit encryption field, `CredentialGrant`, statuses/revisions, active-grant partial unique index, envelope lifecycle/length checks, replacement self-FK/unique/check/constraint trigger, and `ON DELETE RESTRICT` FKs.
+3. **Migration C — Policies, budget, and invocation:** add `UserProviderPreference`, `ProjectModelPolicy` plus allowlists, user/project budget policy/counter/reservation tables, `InvocationRequest`, `InvocationAttempt`, the exact idempotency scope/check/unique constraint, and append-only audit/event/usage/cost ledgers.
+4. **Migration D — Fixture enablement:** insert only Fake Provider definitions and fixture model/capability facts behind an application feature flag that defaults off. Enable it only after application compatibility verification.
+
+All four migrations are additive, do not backfill invented credentials/invocations/audit, and do not change existing PaintPilot table semantics or generalize `PaintProject`, `ImageSet`, or `RegionSet` into an AI object. Each revision requires its own upgrade and downgrade verification. A downgrade first checks for protected credentials, invocations, reservations, or audit/usage/cost history and fails closed when any exist; destructive retention handling requires a future separately approved purge design. This architecture Candidate creates no migration.
 
 ## 9. API contract plan
 
@@ -241,11 +395,11 @@ The maximum-safe implementation batch is:
 
 1. provider and capability registries with only a Fake/Fixture adapter;
 2. model/catalog metadata and conservative capability resolution;
-3. temporary credential request contract and an envelope-encryption interface backed by a test/local fixture seam, with no real KMS choice;
-4. user defaults, owner-governed project policy, credential grant relation, and safe preview resolver;
-5. invocation request/attempt/audit base persistence with fake only execution;
+3. temporary credential handling plus saved-credential persistence using the frozen AEAD/envelope contract and a development/test file-only fixture key provider, with no real KMS choice;
+4. user defaults, owner-governed project policy, credential grant relation, cumulative budget counters/reservations, and safe preview resolver;
+5. invocation request/attempt/audit/usage/cost persistence with exact idempotency, state-machine, and fake-only execution contracts;
 6. focused Provider/Model and Credential settings UI plus bilingual labels and safe empty/error/confirmation states;
-7. focused authorization, redaction, idempotency, migration, catalog, cost-admission, and fake-provider tests.
+7. focused encryption-integrity, authorization/race, budget/retry, idempotency, state-machine, migration, redaction, catalog, cost-admission, and fake-provider tests.
 
 It explicitly excludes real paid Provider calls, real API keys, auto fallback, RAG, embeddings, reranking, Paint Plan, Arcana, public deployment, production KMS, subscriptions, billing, background execution, and any PaintPilot workflow change.
 
@@ -255,22 +409,26 @@ Sol implementation is required for this batch because it combines cryptographic-
 
 Focused implementation tests must prove at least:
 
-- direct/file root-key configuration rejects ambiguity, unsafe files, and redacts values;
+- the fixture root-key provider is file-only, development/test-only, exactly 32 bytes, rejects missing/unsafe/symlink/wrong-mode/wrong-length files and production/staging, and redacts values;
 - temporary credentials are absent from ORM/audit/log/error/response/browser-storage paths after success and failure;
-- saved ciphertext cannot be returned or decrypted across users, revoked credentials fail closed, and project grants cannot transfer ownership;
+- data and wrap AEAD detect swapped credential identity, ciphertext, DEK, nonce/tag, and metadata; encryption/database failure leaves no partial active credential;
+- saved ciphertext cannot be returned or decrypted across users; revoke/replace erase every envelope field, block new admission, preserve only allowed metadata, and never transfer grants;
 - owner/reviewer/missing-project access has non-disclosing responses; policy and invocation queries remain project scoped;
+- real PostgreSQL concurrency proves admission/revoke/replace linearization, retry re-admission, grant revision conflicts, and zero Adapter calls on failed/rolled-back admission;
 - a model without a proven required capability returns a structured error with zero fake-provider calls;
-- preview/budget/confirmation rejection produces zero provider side effect; unknown cost stays unknown;
-- retries and explicit fallback form distinct attempts; automatic credential/Provider/model escalation is rejected;
+- concurrent reservations cannot overspend invocation/user/project limits; unknown price is rejected unless explicitly confirmed with a non-zero reservation; retries/fallback and late receipts all reconcile into the append-only total;
+- exact invocation idempotency distinguishes user/product/project/family scope, rejects payload conflicts and cross-project replay, and keeps retry/fallback under one invocation;
+- every legal and illegal state transition plus cancel/completion/late-result races preserve one immutable terminal outcome;
+- retries and explicit fallback form distinct attempts; post-dispatch uncertainty does not auto-retry; automatic credential/Provider/model escalation is rejected;
 - custom Provider URLs are rejected before any resolver/adapter network call;
 - Provider raw errors, Authorization headers, and fake secrets are redacted from logs/audits/error details;
-- migration upgrade/downgrade/catalog constraints and revision conflicts behave as designed; and
+- all four migrations independently upgrade/downgrade, enforce `RESTRICT`, grant/lineage/envelope constraints, and refuse destructive downgrade with protected history; and
 - frontend contract parsing, bilingual keys, secret-input clearing, no storage persistence, destructive confirmation, narrow viewport behavior, and safe error states pass.
 
 No real key, Provider endpoint, paid token, browser screenshot containing a key, or external Provider test belongs in Phase 3A evidence.
 
 ## 13. Risks and explicit non-goals
 
-Principal-string versus internal-user-ID ownership must be reviewed carefully at every bridge to `PaintProject`. Envelope cryptography, KMS selection, DNS rebinding defenses, pricing accuracy, Provider terms, audit retention, cancellation after a remote request starts, and use of private image input each require later implementation/operations decisions. The ability to display a Provider definition is not evidence that it is configured, safe to call, or affordable.
+Principal-string versus internal-user-ID ownership must be reviewed carefully at every bridge to `PaintProject`. Production KMS selection/operations, audited implementation of the mandatory safe transport, real-Provider pricing accuracy and terms, exact audit-retention duration, and use of private image input require later approvals. The frozen encryption, admission, budget, idempotency, state, and deletion contracts in this document MUST NOT be weakened while making those later choices. The ability to display a Provider definition is not evidence that it is configured, safe to call, or affordable.
 
 This document does not authorize an AI feature, a Provider selection, a cloud KMS, an outbound network exception, a migration, a secret, a paid API request, a public deployment, Arcana, RAG, retrieval, model training, billing, or changes to PaintPilot business objects/workflow.
