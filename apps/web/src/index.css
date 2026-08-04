@@ -124,6 +124,30 @@ a {
   gap: 2rem;
 }
 
+.demo-banner {
+  border-bottom: 1px solid rgb(197 166 107 / 42%);
+  color: var(--canvas-ink);
+  background: var(--gold);
+}
+
+.demo-banner > div {
+  display: flex;
+  width: min(calc(100% - 3rem), var(--page-width));
+  min-height: 2.65rem;
+  margin: 0 auto;
+  align-items: center;
+  gap: 0.8rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.demo-banner strong {
+  flex: none;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
 .brand-lockup {
   display: flex;
   align-items: center;

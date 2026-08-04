@@ -133,10 +133,14 @@ API_UNIT_COMMAND_ENV := env \
 	artifact-smoke-up artifact-smoke-down artifact-smoke database-role-provision \
 	image-storage-migrate secret-scan audit-api audit-web \
 	immutable-reference-check supply-chain-check staging-secrets staging-config staging-build \
-	staging-up staging-down staging-backup staging-restore staging-drill
+	staging-up staging-down staging-backup staging-restore staging-drill \
+	demo-up demo-status demo-down demo-reset
 
 ARTIFACT_COMPOSE := compose.artifact-smoke.yaml
 STAGING_COMPOSE := compose.staging.yaml
+DEMO_COMPOSE := compose.demo.yaml
+DEMO_PROJECT := creativedeploy-phase2e-demo
+DEMO_LIFECYCLE := python3 scripts/demo_lifecycle.py
 ATTEMPT_ID ?=
 RUN_ID ?= $(if $(strip $(ATTEMPT_ID)),$(ATTEMPT_ID),local_$(shell date -u +%Y%m%d%H%M%S)_$(shell uuidgen | tr '[:upper:]' '[:lower:]' | tr -d '-' | cut -c1-12))
 ARTIFACT_PROJECT := creativedeploy-phase2b1-$(RUN_ID)
@@ -255,6 +259,18 @@ api: require-env
 
 web:
 	$(WEB_COMMAND_ENV) $(PNPM) --filter $(WEB_PACKAGE) dev --host 127.0.0.1 --port 5173
+
+demo-up:
+	$(DEMO_LIFECYCLE) up
+
+demo-status:
+	$(DEMO_LIFECYCLE) status
+
+demo-down:
+	$(DEMO_LIFECYCLE) down
+
+demo-reset:
+	$(DEMO_LIFECYCLE) reset
 
 test-api:
 	$(API_UNIT_COMMAND_ENV) uv run --project $(PYTHON_PROJECT) pytest apps/api/tests/unit \

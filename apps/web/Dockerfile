@@ -23,6 +23,15 @@ EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=6 \
     CMD ["wget", "-qO-", "http://127.0.0.1:8080/health/live"]
 
+FROM ${NGINX_IMAGE} AS demo-runtime
+COPY deploy/demo-nginx.conf /etc/nginx/nginx.conf
+COPY deploy/security-headers.conf /etc/nginx/security-headers.conf
+COPY --from=builder /build/apps/web/dist /usr/share/nginx/html
+USER 101:101
+EXPOSE 8080
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=6 \
+    CMD ["wget", "-qO-", "http://127.0.0.1:8080/health/live"]
+
 FROM ${NGINX_IMAGE} AS staging-runtime
 COPY deploy/staging-nginx-base.conf /etc/nginx/nginx.conf
 COPY deploy/staging-web.conf.template /etc/nginx/staging-web.conf.template

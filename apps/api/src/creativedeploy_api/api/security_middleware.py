@@ -7,7 +7,7 @@ from time import perf_counter_ns
 from urllib.parse import urlparse
 
 from starlette.datastructures import Headers, MutableHeaders
-from starlette.responses import PlainTextResponse
+from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from creativedeploy_api.core.config import canonical_trusted_host
@@ -225,3 +225,37 @@ class PrivateApiNoStoreMiddleware:
             await send(message)
 
         await self.app(scope, receive, send_with_no_store)
+
+
+class DemoReadOnlyMiddleware:
+    """Reject demo data mutations while preserving the normal OIDC boundary."""
+
+    def __init__(self, app: ASGIApp, *, enabled: bool) -> None:
+        self.app = app
+        self.enabled = enabled
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if (
+            not self.enabled
+            or scope["type"] != "http"
+            or scope["method"] in SAFE_METHODS
+            or not scope["path"].startswith("/api/v1/")
+        ):
+            await self.app(scope, receive, send)
+            return
+        request_id = str(scope.get("state", {}).get("request_id", uuid.uuid4()))
+        response = JSONResponse(
+            {
+                "error_code": "DEMO_READ_ONLY",
+                "category": "CONFLICT",
+                "message": "This synthetic public demo is read-only.",
+                "retryable": False,
+                "request_id": request_id,
+                "current_state": None,
+                "allowed_actions": ["inspect_demo_data", "run_demo_reset"],
+                "safe_details": {},
+            },
+            status_code=403,
+            headers={"Cache-Control": "no-store"},
+        )
+        await response(scope, receive, send)

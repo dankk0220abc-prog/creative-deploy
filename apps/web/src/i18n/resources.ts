@@ -44,6 +44,8 @@ const entries: readonly TranslationEntry[] = [
   ["shell.signedIn", "Signed in", "已登录"],
   ["shell.logOut", "Log out", "退出登录"],
   ["shell.signIn", "Sign in", "登录"],
+  ["shell.demoLabel", "Public Demo", "公开演示"],
+  ["shell.demoCopy", "Synthetic data · read-only · not production-ready", "合成数据 · 只读 · 未达到生产就绪标准"],
   ["shell.footerLabel", "Planning-only workspace", "仅用于规划的工作区"],
   ["shell.footerCopy", "Guidance is not a verified repaint outcome. Access is enforced by a server-side OIDC session and project membership.", "这里的指导不代表经过验证的重涂结果。访问权限由服务端 OIDC 会话和项目成员关系控制。"],
   ["errorBoundary.heading", "The workspace could not be displayed", "无法显示工作区"],
