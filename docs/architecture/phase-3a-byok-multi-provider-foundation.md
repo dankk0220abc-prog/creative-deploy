@@ -153,6 +153,8 @@ Plaintext and DEKs live only in narrow request-local secret buffers. Ordinary do
 
 `ProjectModelPolicy` has one row per PaintProject: `enabled`, allowed Provider/capability/credential sets represented by child allowlist tables, nullable default Provider/model/credential reference, per-invocation budget ceiling/currency, cumulative project budget-policy reference, `allow_unknown_cost` (default false), a non-zero `unknown_cost_reservation_minor_units` when that exception is enabled, `allow_manual_model_id`, `allow_fallback` (default false), `require_paid_call_confirmation`, `updated_by_user_id`, `updated_at`, and `revision`. A project policy constrains rather than grants: it cannot make a non-owner credential owned by the project or override a revoked credential. User and project cumulative budget policies are independent constraints and must both admit an attempt.
 
+The Project Model Policy allowlists are explicit association tables, never serialized Registry identifiers: `ProjectModelPolicyProvider`, `ProjectModelPolicyModel`, `ProjectModelPolicyCapability`, and, where the retained credential allowlist is implemented, `ProjectModelPolicyCredential`. Each has `project_model_policy_id`, its named target ID, and `created_at`, with `UNIQUE (project_model_policy_id, target_id)` and lookup indexes on both the policy and target sides. The Provider, Model, and Capability associations constrain only their respective registry choice; the Credential association references `CredentialRecord`, not a Registry object. A credential allowlist may narrow choices only when that Credential is owned by the requesting current user and, for a project-scoped call, has an active exact `CredentialGrant`; it never substitutes for the Grant, and a revoked or replaced Credential cannot pass policy admission.
+
 `UserBudgetPolicy` has one active row per `(user_id, product_space, currency)` and stores the user's per-invocation ceiling, cumulative counter/window reference, `allow_unknown_cost` (default false), `unknown_cost_reservation_minor_units`, and `revision`. Project policy may only narrow these terms. A project invocation uses the stricter ceiling/unknown reservation across both policies; a no-project invocation still requires the user policy.
 
 For First Slice, every pricing/currency field in these registry, preference, policy, and budget objects is either absent where optional or exactly `FIXTURE_CREDITS`; section 4.6 is normative. No ISO legal-tender value is accepted in this Slice.
@@ -332,13 +334,13 @@ All transactions involving Admission, Grant, Revoke, Replace, user deactivation,
 3. project membership/access rows;
 4. `CredentialRecord` rows; multiple credentials by ascending UUID;
 5. `CredentialGrant` rows;
-6. `ProjectModelPolicy` / `UserProviderPreference` rows;
-7. `BudgetCounter` rows, always user counter before project counter;
+6. policy/preference rows in this fixed internal order: `UserProviderPreference`, `ProjectModelPolicy`, `UserBudgetPolicy`, then `ProjectBudgetPolicy`;
+7. `BudgetCounter` rows in this fixed internal order: `UserBudgetCounter`, then `ProjectBudgetCounter`;
 8. `InvocationRequest`;
 9. `InvocationAttempt`;
 10. `BudgetReservation`.
 
-No transaction may hold a later resource and then acquire an earlier resource or acquire same-class rows in a different UUID order. Grant/revoke/replace and lifecycle commands must discover and revalidate their affected identities before acquiring locks; if the locked set changes, they fail/retry the transaction rather than extending it out of order.
+No transaction may hold a later resource and then acquire an earlier resource or acquire same-class rows in a different UUID or stable composite-key order. In particular, no transaction may lock a `BudgetCounter` before its corresponding `UserBudgetPolicy` or `ProjectBudgetPolicy`. Grant create/revoke, credential revoke/replace, user deactivation, project archival, membership/access mutation, `UserBudgetPolicy` mutation, `ProjectBudgetPolicy` mutation, and admission must discover and revalidate their affected identities before acquiring locks; if the locked set changes, they fail/retry the transaction rather than extending it out of order.
 
 Saved-credential attempt admission uses that order and performs the following final checks while locks remain held:
 
@@ -346,10 +348,11 @@ Saved-credential attempt admission uses that order and performs the following fi
 2. for project-scoped invocation, the `PaintProject` is not archived, current membership/owner access is valid, `CredentialRecord.owner_user_id` equals the requesting user, and one active Grant relates that exact Credential to that exact project;
 3. for projectless invocation, the active Credential is owned by the requesting user and no Grant is required;
 4. the Credential remains `active`, has not been revoked or replaced, and still satisfies Provider/model/capability policy and confirmation;
-5. User and applicable Project policy/preferences still permit the exact selection; and
-6. the `FIXTURE_CREDITS` reservation remains admissible under every applicable counter.
+5. locks the current effective `UserBudgetPolicy` and then current effective `ProjectBudgetPolicy`, verifies both are enabled/current and have `FIXTURE_CREDITS`, and resolves their current windows, limits, and revisions; a disabled/replaced/revised policy, changed window, or non-`FIXTURE_CREDITS` currency requires recalculation or a structured admission failure, never use of a stale cache;
+6. only after those policy locks and resolution, locks `UserBudgetCounter` and then `ProjectBudgetCounter`, reads their current window/limit state, and verifies the exact selection and `FIXTURE_CREDITS` reservation remain admissible under every applicable policy and counter; and
+7. applies the existing no-policy contract exactly as already defined; an implementation may not invent a hidden default when a required policy is absent.
 
-Only after all checks pass does admission create the single `Attempt(status=admitted)` and `Reservation(state=reserved)`. While the authorization locks still hold, a saved credential may be unwrapped/decrypted into narrow request-local secret memory. Admission commit is the authorization linearization point. Commit failure destroys plaintext/DEK and creates no Adapter side effect. The separate dispatch transaction in section 4.5 must then commit `Attempt/Invocation=running` and `Reservation=dispatch_committed`; only that later commit permits Adapter handoff. If dispatch fails or cancellation wins first, request-local secret material is destroyed without an Adapter call.
+Only after all checks pass does admission atomically create the single `Attempt(status=admitted)` and `Reservation(state=reserved)` while updating the locked counters. While the authorization locks still hold, a saved credential may be unwrapped/decrypted into narrow request-local secret memory. Admission commit is the authorization and budget linearization point. Commit failure destroys plaintext/DEK and creates no Adapter side effect. The separate dispatch transaction in section 4.5 must then commit `Attempt/Invocation=running` and `Reservation=dispatch_committed`; only that later commit permits Adapter handoff. If dispatch fails or cancellation wins first, request-local secret material is destroyed without an Adapter call.
 
 Decryption MUST occur after the final user, project, membership, ownership-and-Grant, revoke/replacement, policy, and budget checks. Caches may select candidates but are never final authority. A temporary credential has no grantable row and is therefore projectless-only in First Slice; it follows the same active-user, preference/policy, confirmation, invocation, and budget transaction and the same post-dispatch-commit handoff rule.
 
@@ -360,8 +363,10 @@ The global order fixes lifecycle races:
 - Membership/access revocation committing first makes new admission fail. Admission committing first permits the current attempt to continue; every new attempt rechecks access and fails.
 - Revoke committing before admission makes admission fail. Admission committing first permits only that admitted attempt to continue with its request-local secret; every new attempt fails.
 - Replacement committing first prevents selection of the old credential. Admission committing first remains bound to its immutable credential/encryption-version snapshot; replacement affects every later admission.
+- A User or Project BudgetPolicy mutation committing first makes every later admission lock and use the new policy/window/limit. Admission committing first retains its already committed Reservation; later retry/fallback admission re-locks policy and counters and must satisfy the new policy.
+- Disabling or tightening a User or Project BudgetPolicy does not revoke an already admitted Attempt, but blocks every retry/fallback admission that does not meet the new terms.
 
-Grant mutation follows the same order and verifies an active credential owner, a non-archived project, the owner's current project access, exact credential/project identity, and revision before creating or revoking the grant. Membership mutation, project archival, and user deactivation lock and revalidate every affected row in global order; none may use membership or owner status as a substitute for a project Grant.
+Grant mutation follows the same order and verifies an active credential owner, a non-archived project, the owner's current project access, exact credential/project identity, and revision before creating or revoking the grant. Membership mutation, project archival, user deactivation, and either BudgetPolicy mutation lock and revalidate every affected row in global order; none may use membership or owner status as a substitute for a project Grant. Policy caches may serve only display or candidate resolution; final admission always reads and locks the current database rows.
 
 Revoke is one transaction in global order: verify the active owner and affected grants, set `status=revoked`, set `revoked_at` while keeping `replaced_at=NULL`, increment revision, revoke every active grant, set all envelope fields to `NULL`, append the audit event, and commit. After commit, every new admission fails.
 
@@ -397,7 +402,7 @@ Audits are append-only at the invocation/attempt boundary. Redacted prompt and a
 
 ### Retention and deletion boundary
 
-First Slice forbids physical deletion of `ProviderDefinition`, `ModelDefinition`, `CapabilityDefinition`, `UserAccount`, `PaintProject`, `CredentialRecord`, `InvocationRequest`, `InvocationAttempt`, and every audit/event/usage/cost ledger row. Registry lifecycle is only `disabled` or `retired`; retirement prevents new admission without changing historical display. Other supported lifecycle actions are user deactivation, project archival, and credential revoke/replace plus cryptographic erase. A future separately designed purge after an approved retention period is outside First Slice.
+First Slice forbids physical deletion of `ProviderDefinition`, `ModelDefinition`, `CapabilityDefinition`, `UserAccount`, `PaintProject`, `CredentialRecord`, `InvocationRequest`, `InvocationAttempt`, and every audit/event/usage/cost ledger row. Registry lifecycle is only `disabled` or `retired`; retirement prevents new admission without changing historical display. In particular, a `CapabilityDefinition` is never physically deleted in First Slice: it may only be disabled/retired, remains queryable when referenced by Project Policy, Provider/Model Capability, Attempt snapshot, or Audit, blocks new policy selection and new Invocation use after retirement, and cannot alter historical Invocation or Attempt semantics. Other supported lifecycle actions are user deactivation, project archival, and credential revoke/replace plus cryptographic erase. A future separately designed purge after an approved retention period is outside First Slice.
 
 The FK deletion policy is frozen:
 
@@ -410,7 +415,14 @@ The FK deletion policy is frozen:
 | `ModelCapability.model_definition_id → ModelDefinition` | `ON DELETE RESTRICT` |
 | `ModelCapability.capability_definition_id → CapabilityDefinition` | `ON DELETE RESTRICT` |
 | `UserProviderPreference` Provider/model references | `ON DELETE RESTRICT` |
-| `ProjectModelPolicy` and its allowlist Provider/model references | `ON DELETE RESTRICT` |
+| `ProjectModelPolicyProvider.project_model_policy_id → ProjectModelPolicy` | `ON DELETE RESTRICT` |
+| `ProjectModelPolicyProvider.provider_definition_id → ProviderDefinition` | `ON DELETE RESTRICT` |
+| `ProjectModelPolicyModel.project_model_policy_id → ProjectModelPolicy` | `ON DELETE RESTRICT` |
+| `ProjectModelPolicyModel.model_definition_id → ModelDefinition` | `ON DELETE RESTRICT` |
+| `ProjectModelPolicyCapability.project_model_policy_id → ProjectModelPolicy` | `ON DELETE RESTRICT` |
+| `ProjectModelPolicyCapability.capability_definition_id → CapabilityDefinition` | `ON DELETE RESTRICT` |
+| `ProjectModelPolicyCredential.project_model_policy_id → ProjectModelPolicy` | `ON DELETE RESTRICT` |
+| `ProjectModelPolicyCredential.credential_record_id → CredentialRecord` | `ON DELETE RESTRICT` |
 | `InvocationAttempt.provider_definition_id → ProviderDefinition` | `ON DELETE RESTRICT` |
 | `InvocationAttempt.model_definition_id → ModelDefinition` | `ON DELETE RESTRICT` |
 | every usage/cost/audit Provider/model/capability reference | `ON DELETE RESTRICT` |
@@ -466,7 +478,7 @@ It MUST NOT use a single giant migration, a branch, or an alternate parent depen
 
 1. **Migration A — Registries:** add `ProviderDefinition`, `CapabilityDefinition`, `ModelDefinition`, association tables, lifecycle status, named constraints/indexes, and `RESTRICT` registry FKs. It contains no credentials or network enablement. Its downgrade executes SQL inside the migration and proceeds only when every registry and association table is empty and no Provider/Model/Capability record exists.
 2. **Migration B — Credential security:** add `CredentialRecord`, every explicit envelope field, `CredentialGrant`, the three lifecycle states, replacement lineage, active-grant partial unique index, state/ciphertext checks, registry FKs, and all `RESTRICT` relationships. Its in-migration downgrade SQL requires `CredentialRecord=0` and `CredentialGrant=0`, with no active/revoked/replaced credential or historical replacement lineage.
-3. **Migration C — Policies, budget, invocation, and ledgers:** add `UserProviderPreference`, `ProjectModelPolicy` plus allowlists, user/project budget policies/counters/reservations, `InvocationRequest`, `InvocationAttempt`, the single-active-attempt index, exact idempotency/canonicalization/sentinel constraints, and append-only audit/event/usage/cost ledgers. Before adding the `PaintProject.id` zero-UUID check, upgrade SQL proves no existing project uses the sentinel. Downgrade SQL requires every preference, policy, budget policy/counter/reservation, invocation, attempt, usage/cost ledger, and AI audit/event table to be empty and confirms no remaining row references Migration A or B objects.
+3. **Migration C — Policies, budget, invocation, and ledgers:** add `UserProviderPreference`, `ProjectModelPolicy`, `ProjectModelPolicyProvider`, `ProjectModelPolicyModel`, `ProjectModelPolicyCapability`, and the retained `ProjectModelPolicyCredential` association when credential allowlisting is implemented; each association has explicit unique constraints, lookup indexes, and `ON DELETE RESTRICT` FKs with no orphan rows. It also adds user/project budget policies/counters/reservations, `InvocationRequest`, `InvocationAttempt`, the single-active-attempt index, exact idempotency/canonicalization/sentinel constraints, and append-only audit/event/usage/cost ledgers. Before adding the `PaintProject.id` zero-UUID check, upgrade SQL proves no existing project uses the sentinel. Downgrade SQL requires `ProjectModelPolicy`, `ProjectModelPolicyProvider`, `ProjectModelPolicyModel`, `ProjectModelPolicyCapability`, retained `ProjectModelPolicyCredential` when present, `UserProviderPreference`, `UserBudgetPolicy`, `ProjectBudgetPolicy`, `BudgetCounter`, `BudgetReservation`, `InvocationRequest`, `InvocationAttempt`, every usage/cost ledger, and every AI audit/event table to be empty; any row fails closed before destructive DDL and leaves the schema unchanged. It also confirms no remaining row references Migration A or B objects; Migration A may not delete `CapabilityDefinition` while any later Policy association remains.
 4. **Migration D — Fake Fixture enablement:** insert only exact Fake Provider, Fixture Model, and Capability rows. It inserts no Credential, secret, Invocation, usage, or cost record, and the feature flag defaults off. Downgrade SQL first checks whether any Credential, Policy, Attempt, Usage, Cost, or Audit row references those exact fixture identities; any reference fails closed, otherwise only the exact fixture rows are deleted.
 
 All downgrade gates are SQL executed by the migration itself, not application-only checks. A protected-data result exits non-zero before destructive DDL and leaves schema/data unchanged. Each revision requires independent upgrade/downgrade verification. Destructive retention handling requires a future separately approved purge design.
@@ -491,6 +503,8 @@ All four migrations are additive. The old application must continue to ignore th
 | Project-scoped Credential | Requesting-user ownership **and** an active exact project Grant are always required; ownership/access never replaces Grant. |
 | Projectless Credential | Requesting user may use only their own saved/request-local credential; no project Grant is required. |
 | Lifecycle linearization | Admission, Grant, Revoke, Replace, user deactivation, project archival, and membership mutation share section 7's global lock order and commit-defined race outcomes. |
+| Budget policy/counter order | `UserBudgetPolicy` precedes `ProjectBudgetPolicy`, and `UserBudgetCounter` precedes `ProjectBudgetCounter`, in the one global lock order. |
+| Budget-policy linearization | Admission locks current Policy rows before counters; Policy mutation and Admission linearize through database locks/revisions, so stale cache cannot admit. |
 | Idempotency replay | Replay returns the original pending-or-later invocation and never creates another Attempt or Reservation. |
 | Retry identity | Retry stays under the original invocation, waits for definitive failure, and performs fresh Admission/reservation. |
 | Active Attempt | The partial unique index and service transaction allow at most one `created`/`admitted`/`running` Attempt per invocation. |
@@ -499,7 +513,11 @@ All four migrations are additive. The old application must continue to ignore th
 | Currency reduction | First Slice uses only `FIXTURE_CREDITS`; an Invocation aggregates only same-currency Attempts and fails on mismatch. |
 | Credential lifecycle | `revoked` and `replaced` both require cryptographic erase; there is no separate lifecycle state for erase. |
 | Registry lifecycle | Provider/Model/Capability definitions are disabled/retired, never physically deleted; all historical FKs are `RESTRICT`. |
+| Project capability allowlist | `ProjectModelPolicyCapability` references `CapabilityDefinition` with `ON DELETE RESTRICT`; it limits capability choice only and never grants Credential use. |
+| Project-scoped Credential authorization | An active exact Grant remains necessary even when a Project Policy credential allowlist contains the Credential. |
+| Registry retirement history | Registry retirement blocks new selection without changing historical Attempt or Audit facts. |
 | Migration lineage | A → B → C → D is linear, additive, SQL-gated on downgrade, and deployed with the feature flag off. |
+| Migration C policy associations | Migration C creates every Project Policy association/FK, and its downgrade SQL covers every Policy association. |
 | First Slice boundary | Fake/Fixture-only: no real Provider, real key, real fee, fallback, binary invocation, resident background task, or outbound Provider network call. |
 
 ## 9. API contract plan
@@ -562,6 +580,8 @@ Focused implementation tests must prove at least:
 - saved ciphertext cannot be returned or decrypted across users; revoke/replace erase every envelope field, block new admission, preserve only allowed metadata, and never transfer grants;
 - owner/reviewer/member/missing-project access has non-disclosing responses; project-scoped use requires requesting-user ownership and an exact active Grant, while policy/invocation queries remain project scoped;
 - real PostgreSQL concurrency proves Admission/Grant/Revoke/Replace/user-deactivation/project-archival/membership linearization, retry re-admission, grant revision conflicts, global lock order, and zero Adapter calls on failed/rolled-back admission or dispatch;
+- unified lock-order tests prove `UserBudgetPolicy` then `ProjectBudgetPolicy`, followed by `UserBudgetCounter` then `ProjectBudgetCounter`, for concurrent Admission and with no policy/counter reverse order;
+- real PostgreSQL concurrency proves both UserBudgetPolicy-mutation/Admission and ProjectBudgetPolicy-mutation/Admission races, rejects stale-policy-revision cache admission, preserves an already committed Reservation when Admission wins, and re-evaluates new retry/fallback admission under a Policy mutation that wins first;
 - a model without a proven required capability returns a structured error with zero fake-provider calls;
 - concurrent reservations cannot overspend invocation/user/project limits; expired never-dispatched reservations recover safely; dispatched uncertainty retains funds; unknown price is rejected unless explicitly confirmed with a non-zero reservation; sequential retry and late receipts reconcile into the append-only `FIXTURE_CREDITS` total;
 - exact invocation idempotency distinguishes user/product/project/family scope, rejects payload conflicts and cross-project replay, uses `phase3a-v1` canonicalization and immutable Artifact identity, protects the zero-UUID sentinel, and never duplicates Attempt/Reservation on replay;
@@ -569,7 +589,8 @@ Focused implementation tests must prove at least:
 - retries form distinct sequential attempts; First Slice fallback creation is rejected; post-dispatch uncertainty does not auto-retry; automatic credential/Provider/model escalation is rejected;
 - custom Provider URLs are rejected before any resolver/adapter network call;
 - Provider raw errors, Authorization headers, and fake secrets are redacted from logs/audits/error details;
-- all four linearly dependent migrations independently upgrade/downgrade, enforce Registry `RESTRICT`, grant/lineage/envelope/sentinel constraints, and refuse destructive downgrade through in-migration SQL when protected history exists; and
+- all four linearly dependent migrations independently upgrade/downgrade, enforce Registry `RESTRICT`, grant/lineage/envelope/sentinel constraints, and refuse destructive downgrade through in-migration SQL when protected history exists;
+- `ProjectModelPolicyCapability` rejects duplicate policy/capability pairs, rejects physical CapabilityDefinition deletion while referenced, rejects retired capability selection for a new Policy or Invocation, preserves historical Attempt snapshots after retirement, verifies ProjectModelPolicy deletion/physical-deletion `RESTRICT` behavior, fails Migration C downgrade when a capability association exists, and proves that a capability allowlist never substitutes for a CredentialGrant; and
 - frontend contract parsing, bilingual keys, secret-input clearing, no storage persistence, destructive confirmation, narrow viewport behavior, and safe error states pass.
 
 No real key, Provider endpoint, paid token, browser screenshot containing a key, or external Provider test belongs in Phase 3A evidence.
