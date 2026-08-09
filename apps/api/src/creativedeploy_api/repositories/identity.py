@@ -177,26 +177,56 @@ class SqlAlchemyIdentityRepository:
         user_id: uuid.UUID | None,
         for_update: bool = False,
     ) -> ProjectAccess | None:
-        statement = select(PaintProject).where(
-            PaintProject.id == project_id,
-            or_(
-                PaintProject.owner_principal_id == principal_id,
-                PaintProject.id.in_(
-                    select(ProjectMembership.paint_project_id).where(
-                        ProjectMembership.user_id == user_id
-                    )
-                    if user_id is not None
-                    else select(ProjectMembership.paint_project_id).where(text("false"))
-                ),
-            ),
-        )
+        if for_update and user_id is not None:
+            user = (
+                await self._session.execute(
+                    select(UserAccount).where(UserAccount.id == user_id).with_for_update()
+                )
+            ).scalar_one_or_none()
+            if user is None or not user.is_active:
+                return None
+
+        statement = select(PaintProject).where(PaintProject.id == project_id)
         if for_update:
             statement = statement.with_for_update()
         project = (await self._session.execute(statement)).scalar_one_or_none()
         if project is None:
             return None
-        role = "owner" if project.owner_principal_id == principal_id else "reviewer"
-        return ProjectAccess(project=project, role=role)
+        if project.owner_principal_id == principal_id:
+            return ProjectAccess(project=project, role="owner")
+        if user_id is None:
+            return None
+
+        membership_statement = select(ProjectMembership).where(
+            ProjectMembership.paint_project_id == project_id,
+            ProjectMembership.user_id == user_id,
+        )
+        if for_update:
+            membership_statement = membership_statement.with_for_update()
+        membership = (await self._session.execute(membership_statement)).scalar_one_or_none()
+        if membership is None:
+            return None
+        return ProjectAccess(project=project, role="reviewer")
+
+    async def lock_active_users(self, user_ids: list[uuid.UUID]) -> list[UserAccount]:
+        ordered_ids = sorted(set(user_ids))
+        if not ordered_ids:
+            return []
+        return list(
+            (
+                await self._session.execute(
+                    select(UserAccount)
+                    .where(
+                        UserAccount.id.in_(ordered_ids),
+                        UserAccount.is_active.is_(True),
+                    )
+                    .order_by(UserAccount.id)
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
 
     async def list_accessible_projects(
         self,

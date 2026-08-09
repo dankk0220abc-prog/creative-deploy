@@ -770,6 +770,10 @@ class InvocationRequest(Base):
             name=conv("ck_invocation_requests_status_allowed"),
         ),
         CheckConstraint(
+            "final_attempt_id IS NULL OR status = 'succeeded'",
+            name=conv("ck_invocation_requests_final_attempt_success_only"),
+        ),
+        CheckConstraint(
             "(project_id IS NULL AND project_scope_id = '00000000-0000-0000-0000-000000000000'::uuid) OR (project_id IS NOT NULL AND project_id = project_scope_id AND project_scope_id <> '00000000-0000-0000-0000-000000000000'::uuid)",
             name=conv("ck_invocation_requests_project_scope"),
         ),

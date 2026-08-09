@@ -351,3 +351,43 @@ Restore the resolved PostgreSQL service through separately authorized environmen
   architecture review, and visual review were intentionally not repeated.
 - No real Provider, real API key, real model call, real model cost, push, pull request, independent
   review, deployment, or next-phase work was performed by this executor.
+
+## Security/concurrency remediation metadata expectation resume — 2026-08-09
+
+- Frozen Candidate baseline: `edb62dbe2ce20b4090eddff877583459f56ff39f`; this resume began from
+  its unchanged tree with the uncommitted H-01 and BM-01 through BM-09 remediation present.
+- Prior implementation evidence reused: H-01/BM-01 through BM-09 production remediation and the
+  focused real-PostgreSQL concurrency group (`9 passed / 15 deselected`) had already passed. Those
+  focused concurrency, membership-race, budget, cancellation/completion, recovery, catalog, and
+  Migration D suites were intentionally not rerun here.
+- Initial canonical diagnosis: the one preceding canonical run reached API unit tests and failed
+  only because four exact metadata-contract assertions omitted
+  `ck_invocation_requests_final_attempt_success_only` from their frozen expectation sets.
+- Production-contract verification: the ORM and Migration C
+  (`3a03e9a1d6f4_add_phase3a_policies_invocations_ledgers.py`) both declare the same 49-byte
+  PostgreSQL `CheckConstraint` on `invocation_requests`:
+  `final_attempt_id IS NULL OR status = 'succeeded'`. It matches the final-attempt success-only
+  remediation and remains compatible with the existing final-attempt FK and write-once trigger.
+  No production ORM, migration, service, repository, identity, route, encryption, frontend,
+  dependency, or lockfile change was made by this metadata-expectation resume.
+- Metadata-contract change: `apps/api/tests/unit/test_paint_project_models.py` now adds that
+  identifier to the exact Phase 3A CheckConstraint contract and the exact
+  `invocation_requests` table map, and updates the exact identifier cardinality from 371 to 372.
+  Equality-based actual-metadata, ORM/Migration, identifier-limit, collision, 39-table, legacy-14,
+  and Phase-3A-25 governance assertions remain unchanged.
+- Focused metadata validation: the pre-change reproduction was exactly `4 failed, 40 passed`; after
+  synchronization, `apps/api/.venv/bin/pytest -q apps/api/tests/unit/test_paint_project_models.py`
+  passed `44 passed`. Ruff check, Ruff format check, and `git diff --check` passed.
+- Supply-chain freshness: dependency declarations, lockfiles, Web dependencies, Secret scanner,
+  supply-chain scripts/configuration, and immutable-reference configuration remain unchanged.
+  Aggregate evidence `phase3a_supply_20260808b` is therefore reused; aggregate supply-chain was
+  not rerun. A pinned, redacted, network-disabled diff-scoped gitleaks scan of the remediation
+  paths found no leaks.
+- Final canonical: after `make ensure-db ENV_FILE=.env.example` confirmed the existing repository
+  PostgreSQL at `127.0.0.1:55432/creativedeploy`, the single authorized
+  `make check ENV_FILE=.env.example` invocation exited `0`: 434 API unit tests passed, 62
+  integration tests passed, and Web lint, typecheck, 15 Vitest files / 163 tests, and production
+  build passed. The only warning was the existing external Starlette/httpx deprecation warning.
+- Visual evidence reused: `PHASE_3A_VISUAL_ACCEPTANCE_PASS`; no frontend path changed and no
+  browser or visual acceptance was repeated. No real Provider, key, external model call, or cost
+  was used. Final independent focused re-review remains pending and is not claimed as passed.

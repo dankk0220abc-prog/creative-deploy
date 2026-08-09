@@ -51,6 +51,7 @@ ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 @router.get("/providers", response_model=ProviderListResponse, responses=ERROR_RESPONSES)
 async def list_providers(
     service: AIFoundationServiceDependency,
+    principal: PrincipalDependency,
 ) -> ProviderListResponse:
     return await service.list_providers()
 
@@ -62,6 +63,7 @@ async def list_providers(
 )
 async def list_models(
     service: AIFoundationServiceDependency,
+    principal: PrincipalDependency,
     provider_key: Annotated[str, Path(pattern=r"^[a-z0-9_]{1,64}$")],
 ) -> ModelListResponse:
     return await service.list_models(provider_key)
@@ -70,6 +72,7 @@ async def list_models(
 @router.get("/capabilities", response_model=CapabilityListResponse, responses=ERROR_RESPONSES)
 async def list_capabilities(
     service: AIFoundationServiceDependency,
+    principal: PrincipalDependency,
 ) -> CapabilityListResponse:
     return await service.list_capabilities()
 

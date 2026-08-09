@@ -363,6 +363,7 @@ EXPECTED_PHASE_3A_CHECK_CONSTRAINT_NAMES = frozenset(
         "ck_invocation_attempts_status_allowed",
         "ck_invocation_requests_canonicalization_version",
         "ck_invocation_requests_family_allowed",
+        "ck_invocation_requests_final_attempt_success_only",
         "ck_invocation_requests_payload_hash",
         "ck_invocation_requests_project_scope",
         "ck_invocation_requests_status_allowed",
@@ -615,6 +616,7 @@ EXPECTED_CHECK_CONSTRAINTS_BY_TABLE = MappingProxyType(
             {
                 "ck_invocation_requests_canonicalization_version",
                 "ck_invocation_requests_family_allowed",
+                "ck_invocation_requests_final_attempt_success_only",
                 "ck_invocation_requests_payload_hash",
                 "ck_invocation_requests_project_scope",
                 "ck_invocation_requests_status_allowed",
@@ -1213,7 +1215,7 @@ def test_all_database_identifiers_fit_postgresql_limit() -> None:
     identifiers = _metadata_identifiers()
 
     assert identifiers == EXPECTED_DATABASE_IDENTIFIERS
-    assert len(identifiers) == 371
+    assert len(identifiers) == 372
     assert all(
         len(identifier.encode("utf-8")) <= POSTGRESQL_IDENTIFIER_LIMIT for identifier in identifiers
     )

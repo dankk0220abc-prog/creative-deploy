@@ -155,10 +155,32 @@ def downgrade() -> None:
                OR EXISTS (SELECT 1 FROM project_model_policy_capabilities WHERE capability_definition_id IN ('3a000000-0000-4000-8000-000000001001'::uuid, '3a000000-0000-4000-8000-000000001002'::uuid, '3a000000-0000-4000-8000-000000001003'::uuid))
                OR EXISTS (SELECT 1 FROM project_model_policies WHERE default_provider_definition_id = '3a000000-0000-4000-8000-000000000001'::uuid OR default_model_definition_id IN ('3a000000-0000-4000-8000-000000000101'::uuid, '3a000000-0000-4000-8000-000000000102'::uuid))
                OR EXISTS (SELECT 1 FROM invocation_requests WHERE requested_provider_definition_id = '3a000000-0000-4000-8000-000000000001'::uuid OR requested_model_definition_id IN ('3a000000-0000-4000-8000-000000000101'::uuid, '3a000000-0000-4000-8000-000000000102'::uuid))
-               OR EXISTS (SELECT 1 FROM invocation_attempts WHERE provider_definition_id = '3a000000-0000-4000-8000-000000000001'::uuid)
-               OR EXISTS (SELECT 1 FROM ai_usage_ledger WHERE provider_definition_id = '3a000000-0000-4000-8000-000000000001'::uuid)
-               OR EXISTS (SELECT 1 FROM ai_cost_ledger WHERE provider_definition_id = '3a000000-0000-4000-8000-000000000001'::uuid)
-               OR EXISTS (SELECT 1 FROM ai_audit_events WHERE provider_definition_id = '3a000000-0000-4000-8000-000000000001'::uuid)
+               OR EXISTS (SELECT 1 FROM invocation_attempts WHERE provider_definition_id = '3a000000-0000-4000-8000-000000000001'::uuid OR model_definition_id IN ('3a000000-0000-4000-8000-000000000101'::uuid, '3a000000-0000-4000-8000-000000000102'::uuid))
+               OR EXISTS (SELECT 1 FROM ai_usage_ledger WHERE provider_definition_id = '3a000000-0000-4000-8000-000000000001'::uuid OR model_definition_id IN ('3a000000-0000-4000-8000-000000000101'::uuid, '3a000000-0000-4000-8000-000000000102'::uuid))
+               OR EXISTS (SELECT 1 FROM ai_cost_ledger WHERE provider_definition_id = '3a000000-0000-4000-8000-000000000001'::uuid OR model_definition_id IN ('3a000000-0000-4000-8000-000000000101'::uuid, '3a000000-0000-4000-8000-000000000102'::uuid))
+               OR EXISTS (SELECT 1 FROM ai_audit_events WHERE provider_definition_id = '3a000000-0000-4000-8000-000000000001'::uuid OR model_definition_id IN ('3a000000-0000-4000-8000-000000000101'::uuid, '3a000000-0000-4000-8000-000000000102'::uuid))
+               OR EXISTS (
+                    SELECT 1 FROM provider_capabilities
+                    WHERE (provider_definition_id = '3a000000-0000-4000-8000-000000000001'::uuid
+                           OR capability_definition_id IN ('3a000000-0000-4000-8000-000000001001'::uuid, '3a000000-0000-4000-8000-000000001002'::uuid, '3a000000-0000-4000-8000-000000001003'::uuid))
+                      AND NOT (
+                           (id = '3a000000-0000-4000-8000-000000002001'::uuid AND provider_definition_id = '3a000000-0000-4000-8000-000000000001'::uuid AND capability_definition_id = '3a000000-0000-4000-8000-000000001001'::uuid)
+                        OR (id = '3a000000-0000-4000-8000-000000002002'::uuid AND provider_definition_id = '3a000000-0000-4000-8000-000000000001'::uuid AND capability_definition_id = '3a000000-0000-4000-8000-000000001002'::uuid)
+                        OR (id = '3a000000-0000-4000-8000-000000002003'::uuid AND provider_definition_id = '3a000000-0000-4000-8000-000000000001'::uuid AND capability_definition_id = '3a000000-0000-4000-8000-000000001003'::uuid)
+                      )
+               )
+               OR EXISTS (
+                    SELECT 1 FROM model_capabilities
+                    WHERE (model_definition_id IN ('3a000000-0000-4000-8000-000000000101'::uuid, '3a000000-0000-4000-8000-000000000102'::uuid)
+                           OR capability_definition_id IN ('3a000000-0000-4000-8000-000000001001'::uuid, '3a000000-0000-4000-8000-000000001002'::uuid, '3a000000-0000-4000-8000-000000001003'::uuid))
+                      AND NOT (
+                           (id = '3a000000-0000-4000-8000-000000003001'::uuid AND model_definition_id = '3a000000-0000-4000-8000-000000000101'::uuid AND capability_definition_id = '3a000000-0000-4000-8000-000000001001'::uuid)
+                        OR (id = '3a000000-0000-4000-8000-000000003002'::uuid AND model_definition_id = '3a000000-0000-4000-8000-000000000101'::uuid AND capability_definition_id = '3a000000-0000-4000-8000-000000001003'::uuid)
+                        OR (id = '3a000000-0000-4000-8000-000000003003'::uuid AND model_definition_id = '3a000000-0000-4000-8000-000000000102'::uuid AND capability_definition_id = '3a000000-0000-4000-8000-000000001001'::uuid)
+                        OR (id = '3a000000-0000-4000-8000-000000003004'::uuid AND model_definition_id = '3a000000-0000-4000-8000-000000000102'::uuid AND capability_definition_id = '3a000000-0000-4000-8000-000000001002'::uuid)
+                        OR (id = '3a000000-0000-4000-8000-000000003005'::uuid AND model_definition_id = '3a000000-0000-4000-8000-000000000102'::uuid AND capability_definition_id = '3a000000-0000-4000-8000-000000001003'::uuid)
+                      )
+               )
             THEN
                 RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'Phase 3A Migration D downgrade refused: fixture Registry identities are referenced';
             END IF;

@@ -357,6 +357,10 @@ def upgrade() -> None:
             name=op.f("ck_invocation_requests_status_allowed"),
         ),
         sa.CheckConstraint(
+            "final_attempt_id IS NULL OR status = 'succeeded'",
+            name=op.f("ck_invocation_requests_final_attempt_success_only"),
+        ),
+        sa.CheckConstraint(
             "(project_id IS NULL AND project_scope_id = '00000000-0000-0000-0000-000000000000'::uuid) OR (project_id IS NOT NULL AND project_id = project_scope_id AND project_scope_id <> '00000000-0000-0000-0000-000000000000'::uuid)",
             name=op.f("ck_invocation_requests_project_scope"),
         ),
@@ -791,12 +795,12 @@ def upgrade() -> None:
                 RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'final_attempt_id is write-once';
             END IF;
             IF NEW.final_attempt_id IS NOT NULL THEN
-                IF NEW.status NOT IN ('succeeded', 'failed', 'cancelled', 'outcome_unknown') THEN
-                    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'final_attempt_id requires terminal invocation';
+                IF NEW.status <> 'succeeded' THEN
+                    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'final_attempt_id requires succeeded invocation';
                 END IF;
                 SELECT status INTO final_status FROM invocation_attempts WHERE id = NEW.final_attempt_id AND invocation_id = NEW.id;
-                IF final_status IS DISTINCT FROM NEW.status THEN
-                    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'final_attempt_id requires matching terminal same-invocation attempt';
+                IF final_status IS DISTINCT FROM 'succeeded' THEN
+                    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'final_attempt_id requires succeeded same-invocation attempt';
                 END IF;
             END IF;
             RETURN NEW;

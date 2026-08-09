@@ -8,6 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from creativedeploy_api.db.models import (
     AIAuditEvent,
+    AICostLedger,
+    AIInvocationEvent,
+    AIUsageLedger,
     BudgetReservation,
     CapabilityDefinition,
     CredentialProjectGrant,
@@ -45,6 +48,13 @@ class SqlAlchemyAIFoundationRepository:
                 select(UserAccount)
                 .where(UserAccount.id == user_id, UserAccount.is_active.is_(True))
                 .with_for_update()
+            )
+        ).scalar_one_or_none()
+
+    async def lock_user(self, user_id: uuid.UUID) -> UserAccount | None:
+        return (
+            await self.session.execute(
+                select(UserAccount).where(UserAccount.id == user_id).with_for_update()
             )
         ).scalar_one_or_none()
 
@@ -170,6 +180,61 @@ class SqlAlchemyAIFoundationRepository:
         if for_update:
             statement = statement.with_for_update()
         return (await self.session.execute(statement)).scalar_one_or_none()
+
+    async def lock_owned_credentials(
+        self,
+        *,
+        credential_ids: list[uuid.UUID],
+        owner_user_id: uuid.UUID,
+    ) -> list[CredentialRecord]:
+        ordered_ids = sorted(set(credential_ids))
+        if not ordered_ids:
+            return []
+        return list(
+            (
+                await self.session.execute(
+                    select(CredentialRecord)
+                    .where(
+                        CredentialRecord.id.in_(ordered_ids),
+                        CredentialRecord.owner_user_id == owner_user_id,
+                    )
+                    .order_by(CredentialRecord.id)
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    async def lock_active_grants_for_credentials(
+        self,
+        *,
+        credential_ids: list[uuid.UUID],
+        project_id: uuid.UUID,
+    ) -> list[CredentialProjectGrant]:
+        ordered_ids = sorted(set(credential_ids))
+        if not ordered_ids:
+            return []
+        return list(
+            (
+                await self.session.execute(
+                    select(CredentialProjectGrant)
+                    .where(
+                        CredentialProjectGrant.credential_id.in_(ordered_ids),
+                        CredentialProjectGrant.project_id == project_id,
+                        CredentialProjectGrant.revoked_at.is_(None),
+                    )
+                    .order_by(
+                        CredentialProjectGrant.credential_id,
+                        CredentialProjectGrant.project_id,
+                        CredentialProjectGrant.id,
+                    )
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
 
     async def lock_credential_grants(
         self, credential_id: uuid.UUID
@@ -520,6 +585,48 @@ class SqlAlchemyAIFoundationRepository:
         if for_update:
             statement = statement.with_for_update()
         return (await self.session.execute(statement)).scalar_one_or_none()
+
+    async def attempt_has_dispatch_evidence(
+        self, *, invocation_id: uuid.UUID, attempt_id: uuid.UUID
+    ) -> bool:
+        usage = (
+            await self.session.execute(
+                select(AIUsageLedger.id)
+                .where(
+                    AIUsageLedger.invocation_id == invocation_id,
+                    AIUsageLedger.attempt_id == attempt_id,
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if usage is not None:
+            return True
+        cost = (
+            await self.session.execute(
+                select(AICostLedger.id)
+                .where(
+                    AICostLedger.invocation_id == invocation_id,
+                    AICostLedger.attempt_id == attempt_id,
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if cost is not None:
+            return True
+        event = (
+            await self.session.execute(
+                select(AIInvocationEvent.id)
+                .where(
+                    AIInvocationEvent.invocation_id == invocation_id,
+                    AIInvocationEvent.attempt_id == attempt_id,
+                    AIInvocationEvent.to_status.in_(
+                        ("running", "succeeded", "failed", "cancelled", "outcome_unknown")
+                    ),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        return event is not None
 
     async def active_grant_credential_ids(self, project_id: uuid.UUID) -> list[uuid.UUID]:
         return list(

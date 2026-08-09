@@ -1042,10 +1042,6 @@ class AIFoundationService:
                 return replay
             if await self._repository.lock_active_user(user_id) is None:
                 raise AIAuthorizationError
-            preference = await self._repository.get_preference(user_id, for_update=True)
-            current_revision = preference.revision if preference is not None else 0
-            if current_revision != payload.expected_revision:
-                raise AIConflictError
             references = (
                 payload.default_provider_definition_id,
                 payload.default_model_definition_id,
@@ -1090,6 +1086,10 @@ class AIFoundationService:
                 credential is None or credential.status != "active"
             ):
                 raise AIResourceNotFoundError
+            preference = await self._repository.get_preference(user_id, for_update=True)
+            current_revision = preference.revision if preference is not None else 0
+            if current_revision != payload.expected_revision:
+                raise AIConflictError
             now = datetime.now(UTC)
             if preference is None:
                 preference = UserProviderPreference(
@@ -1149,7 +1149,11 @@ class AIFoundationService:
                 budget.revision += 1
                 budget.updated_at = now
             counter = await self._repository.get_user_counter(user_id, now, for_update=True)
-            if counter is None:
+            if (
+                counter is None
+                or int((counter.window_end - counter.window_start).total_seconds())
+                != payload.budget_window_seconds
+            ):
                 self._repository.add(
                     UserBudgetCounter(
                         id=uuid.uuid4(),
@@ -1164,7 +1168,10 @@ class AIFoundationService:
                         revision=1,
                     )
                 )
-            elif counter.committed_minor_units + counter.reserved_minor_units == 0:
+            elif (
+                counter.committed_minor_units + counter.reserved_minor_units
+                <= payload.budget_cumulative_minor_units
+            ):
                 counter.limit_minor_units = payload.budget_cumulative_minor_units
                 counter.revision += 1
             await self._repository.flush()
@@ -1300,19 +1307,21 @@ class AIFoundationService:
             )
             if access is None or access.role != "owner" or access.project.status == "ABANDONED":
                 raise AIAuthorizationError
-            for credential_id in sorted(set(payload.credential_allowlist)):
-                credential = await self._repository.get_owned_credential(
-                    credential_id=credential_id,
-                    owner_user_id=user_id,
-                    for_update=True,
-                )
-                grant = await self._repository.get_active_grant(
-                    credential_id=credential_id,
-                    project_id=project_id,
-                    for_update=True,
-                )
-                if credential is None or credential.status != "active" or grant is None:
-                    raise AdmissionRejectedError
+            referenced_credential_ids = sorted(set(payload.credential_allowlist))
+            credentials = await self._repository.lock_owned_credentials(
+                credential_ids=referenced_credential_ids,
+                owner_user_id=user_id,
+            )
+            if {credential.id for credential in credentials} != set(
+                referenced_credential_ids
+            ) or any(credential.status != "active" for credential in credentials):
+                raise AdmissionRejectedError
+            grants = await self._repository.lock_active_grants_for_credentials(
+                credential_ids=referenced_credential_ids,
+                project_id=project_id,
+            )
+            if {grant.credential_id for grant in grants} != set(referenced_credential_ids):
+                raise AdmissionRejectedError
             policy = await self._repository.get_project_policy(project_id, for_update=True)
             current_revision = policy.revision if policy is not None else 0
             if current_revision != payload.expected_revision:
@@ -1411,7 +1420,11 @@ class AIFoundationService:
                 budget.revision += 1
                 budget.updated_at = now
             counter = await self._repository.get_project_counter(project_id, now, for_update=True)
-            if counter is None:
+            if (
+                counter is None
+                or int((counter.window_end - counter.window_start).total_seconds())
+                != payload.budget_window_seconds
+            ):
                 self._repository.add(
                     ProjectBudgetCounter(
                         id=uuid.uuid4(),
@@ -1426,7 +1439,10 @@ class AIFoundationService:
                         revision=1,
                     )
                 )
-            elif counter.committed_minor_units + counter.reserved_minor_units == 0:
+            elif (
+                counter.committed_minor_units + counter.reserved_minor_units
+                <= payload.cumulative_limit_minor_units
+            ):
                 counter.limit_minor_units = payload.cumulative_limit_minor_units
                 counter.revision += 1
             await self._repository.flush()
@@ -1450,6 +1466,62 @@ class AIFoundationService:
                 response=response,
             )
             return response
+
+    async def _preauthorize_invocation_references(
+        self,
+        *,
+        payload: InvocationCreateRequest,
+        principal: PrincipalContext,
+    ) -> None:
+        """Authorize every client-supplied FK before an Invocation row can exist."""
+        user_id = _user_id(principal)
+        if await self._repository.lock_active_user(user_id) is None:
+            raise AIResourceNotFoundError
+
+        project = None
+        if payload.project_id is not None:
+            access = await self._identity_repository.resolve_project_access(
+                project_id=payload.project_id,
+                principal_id=principal.principal_id,
+                user_id=user_id,
+                for_update=True,
+            )
+            if access is None or access.project.status == "ABANDONED":
+                raise AIResourceNotFoundError
+            project = access.project
+
+        credential = None
+        if payload.credential_id is not None:
+            credential = await self._repository.get_owned_credential(
+                credential_id=payload.credential_id,
+                owner_user_id=user_id,
+                for_update=True,
+            )
+            if credential is None or credential.status != "active":
+                raise AIResourceNotFoundError
+        if project is not None:
+            if credential is None:
+                raise AIResourceNotFoundError
+            grant = await self._repository.get_active_grant(
+                credential_id=credential.id,
+                project_id=project.id,
+                for_update=True,
+            )
+            if grant is None:
+                raise AIResourceNotFoundError
+
+        provider = await self._repository.get_provider(FIXTURE_PROVIDER_KEY)
+        model = await self._repository.get_model(payload.model_definition_id)
+        if (
+            provider is None
+            or provider.id != payload.provider_definition_id
+            or provider.status != "active"
+            or not provider.enabled
+            or model is None
+            or model.provider_definition_id != provider.id
+            or model.status != "active"
+        ):
+            raise AIResourceNotFoundError
 
     async def _resolve_admission(
         self,
@@ -1550,6 +1622,17 @@ class AIFoundationService:
         )
         if user_counter is None or (project is not None and project_counter is None):
             raise AdmissionRejectedError
+        if int((user_counter.window_end - user_counter.window_start).total_seconds()) != (
+            user_budget.window_seconds
+        ):
+            raise AdmissionRejectedError
+        if (
+            project_budget is not None
+            and project_counter is not None
+            and int((project_counter.window_end - project_counter.window_start).total_seconds())
+            != project_budget.window_seconds
+        ):
+            raise AdmissionRejectedError
         provider = await self._repository.get_provider(FIXTURE_PROVIDER_KEY)
         model = await self._repository.get_model(payload.model_definition_id)
         if (
@@ -1598,16 +1681,33 @@ class AIFoundationService:
             per_invocation_limits.append(project_policy.per_invocation_limit_minor_units)
         if estimate > min(per_invocation_limits):
             raise AdmissionRejectedError
-        if (
+        user_total_after_reservation = (
             user_counter.committed_minor_units + user_counter.reserved_minor_units + estimate
-            > user_counter.limit_minor_units
-        ):
+        )
+        if user_total_after_reservation > user_budget.cumulative_limit_minor_units:
             raise AdmissionRejectedError
-        if project_counter is not None and (
-            project_counter.committed_minor_units + project_counter.reserved_minor_units + estimate
-            > project_counter.limit_minor_units
+        if project_counter is not None and project_budget is not None:
+            project_total_after_reservation = (
+                project_counter.committed_minor_units
+                + project_counter.reserved_minor_units
+                + estimate
+            )
+            if project_total_after_reservation > project_budget.cumulative_limit_minor_units:
+                raise AdmissionRejectedError
+        if (
+            for_update
+            and user_counter.limit_minor_units != user_budget.cumulative_limit_minor_units
         ):
-            raise AdmissionRejectedError
+            user_counter.limit_minor_units = user_budget.cumulative_limit_minor_units
+            user_counter.revision += 1
+        if (
+            for_update
+            and project_counter is not None
+            and project_budget is not None
+            and project_counter.limit_minor_units != project_budget.cumulative_limit_minor_units
+        ):
+            project_counter.limit_minor_units = project_budget.cumulative_limit_minor_units
+            project_counter.revision += 1
         return AdmissionContext(
             provider=provider,
             model=model,
@@ -1753,6 +1853,10 @@ class AIFoundationService:
                 if existing.canonical_request_payload_hash != payload_hash:
                     raise AIIdempotencyConflictError
                 return existing, True
+            await self._preauthorize_invocation_references(
+                payload=payload,
+                principal=principal,
+            )
             now = datetime.now(UTC)
             invocation = InvocationRequest(
                 id=uuid.uuid4(),
@@ -2037,6 +2141,99 @@ class AIFoundationService:
                 raise AIConflictError
             now = datetime.now(UTC)
             reserved = reservation.reserved_amount
+            if (
+                invocation.cancellation_requested_at is not None
+                or attempt.cancellation_requested_at is not None
+            ):
+                from creativedeploy_api.ai.fixture_provider import FixtureInvocationResult
+
+                late_outcome = error.category if error is not None else "succeeded"
+                if isinstance(result, FixtureInvocationResult):
+                    actual = result.cost_minor_units
+                    user_counter.reserved_minor_units -= reserved
+                    user_counter.committed_minor_units += actual
+                    user_counter.revision += 1
+                    if project_counter is not None:
+                        project_counter.reserved_minor_units -= reserved
+                        project_counter.committed_minor_units += actual
+                        project_counter.revision += 1
+                    reservation.state = "settled"
+                    reservation.settled_at = now
+                    reservation.revision += 1
+                    self._repository.add_all(
+                        [
+                            AIUsageLedger(
+                                id=uuid.uuid4(),
+                                invocation_id=invocation.id,
+                                attempt_id=attempt.id,
+                                provider_definition_id=attempt.provider_definition_id,
+                                model_definition_id=attempt.model_definition_id,
+                                source="late_fixture_reconciliation",
+                                canonical_sequence=1,
+                                input_units=result.input_units,
+                                output_units=result.output_units,
+                                safe_metadata={"fixture": True, "late_after_cancel": True},
+                                created_at=now,
+                            ),
+                            AICostLedger(
+                                id=uuid.uuid4(),
+                                invocation_id=invocation.id,
+                                attempt_id=attempt.id,
+                                provider_definition_id=attempt.provider_definition_id,
+                                model_definition_id=attempt.model_definition_id,
+                                source="late_fixture_reconciliation",
+                                canonical_sequence=1,
+                                amount_minor_units=actual,
+                                currency=FIXTURE_CURRENCY,
+                                created_at=now,
+                            ),
+                        ]
+                    )
+                else:
+                    reservation.state = "reconciliation_required"
+                    reservation.revision += 1
+                attempt.status = "cancelled"
+                attempt.output_reference = None
+                attempt.final_error_category = "cancelled"
+                attempt.terminal_at = now
+                attempt.revision += 1
+                invocation.status = "cancelled"
+                invocation.final_attempt_id = None
+                invocation.output_reference = None
+                invocation.final_error_category = "cancelled"
+                invocation.terminal_at = now
+                invocation.updated_at = now
+                invocation.revision += 1
+                self._invocation_event(
+                    invocation_id=invocation.id,
+                    attempt_id=attempt.id,
+                    event_type="late_result_received",
+                    from_status="running",
+                    to_status="running",
+                    safe_metadata={"provider_outcome": late_outcome, "ignored_after_cancel": True},
+                )
+                self._invocation_event(
+                    invocation_id=invocation.id,
+                    attempt_id=attempt.id,
+                    event_type="attempt_cancelled",
+                    from_status="running",
+                    to_status="cancelled",
+                    safe_metadata={"cancel_won": True},
+                )
+                self._audit(
+                    user_id=user_id,
+                    request_id=request_id,
+                    action="fixture_invocation_attempt",
+                    outcome="cancelled",
+                    project_id=invocation.project_id,
+                    credential_id=attempt.credential_id,
+                    invocation_id=invocation.id,
+                    attempt_id=attempt.id,
+                    provider_id=attempt.provider_definition_id,
+                    model_id=attempt.model_definition_id,
+                    safe_metadata={"fixture": True, "cancel_won": True},
+                )
+                return False
             if error is None:
                 from creativedeploy_api.ai.fixture_provider import FixtureInvocationResult
 
@@ -2140,11 +2337,10 @@ class AIFoundationService:
                 reservation.released_at = now
                 reservation.revision += 1
                 attempt.status = "failed"
-                invocation.status = "pending" if can_retry else "failed"
+                invocation.status = "running" if can_retry else "failed"
             attempt.final_error_category = category
             attempt.terminal_at = now
             attempt.revision += 1
-            invocation.final_attempt_id = attempt.id if not can_retry else None
             invocation.final_error_category = category
             invocation.terminal_at = None if can_retry else now
             invocation.updated_at = now
@@ -2377,7 +2573,6 @@ class AIFoundationService:
                     attempt.status = "cancelled"
                     attempt.terminal_at = now
                     attempt.revision += 1
-                    invocation.final_attempt_id = attempt.id
                 invocation.status = "cancelled"
                 invocation.terminal_at = now
                 self._invocation_event(
@@ -2490,7 +2685,7 @@ class AIFoundationService:
                 invocation_snapshot = await self._repository.get_invocation(snapshot.invocation_id)
                 if invocation_snapshot is None:
                     continue
-                await self._repository.lock_active_user(invocation_snapshot.requesting_user_id)
+                await self._repository.lock_user(invocation_snapshot.requesting_user_id)
                 if invocation_snapshot.project_id is not None:
                     await self._repository.lock_project(invocation_snapshot.project_id)
                 user_counter = await self._repository.get_user_counter_by_id(
@@ -2519,6 +2714,71 @@ class AIFoundationService:
                     or reservation.admission_expires_at > now
                 ):
                     continue
+                relationships_match = (
+                    invocation.id == reservation.invocation_id
+                    and attempt.invocation_id == invocation.id
+                    and attempt.id == reservation.attempt_id
+                    and reservation.id == reservation_id
+                    and user_counter.id == reservation.user_counter_id
+                    and user_counter.user_id == invocation.requesting_user_id
+                    and (
+                        (
+                            reservation.project_counter_id is None
+                            and invocation.project_id is None
+                            and project_counter is None
+                        )
+                        or (
+                            reservation.project_counter_id is not None
+                            and invocation.project_id is not None
+                            and project_counter is not None
+                            and project_counter.id == reservation.project_counter_id
+                            and project_counter.project_id == invocation.project_id
+                        )
+                    )
+                )
+                if not relationships_match:
+                    continue
+                provider_request_id = attempt.safe_provider_metadata.get("provider_request_id")
+                dispatch_evidence = (
+                    reservation.dispatch_committed_at is not None
+                    or provider_request_id is not None
+                    or await self._repository.attempt_has_dispatch_evidence(
+                        invocation_id=invocation.id,
+                        attempt_id=attempt.id,
+                    )
+                )
+                clean_orphan = (
+                    invocation.status == "admitted"
+                    and attempt.status == "admitted"
+                    and not dispatch_evidence
+                )
+                if not clean_orphan:
+                    previous_status = invocation.status
+                    reservation.state = "reconciliation_required"
+                    reservation.revision += 1
+                    if invocation.status in {"admitted", "running"} and attempt.status in {
+                        "admitted",
+                        "running",
+                    }:
+                        attempt.status = "outcome_unknown"
+                        attempt.final_error_category = "dispatch_evidence_present"
+                        attempt.terminal_at = now
+                        attempt.revision += 1
+                        invocation.status = "outcome_unknown"
+                        invocation.final_attempt_id = None
+                        invocation.final_error_category = "dispatch_evidence_present"
+                        invocation.terminal_at = now
+                        invocation.updated_at = now
+                        invocation.revision += 1
+                    self._invocation_event(
+                        invocation_id=invocation.id,
+                        attempt_id=attempt.id,
+                        event_type="recovery_reconciliation_required",
+                        from_status=previous_status,
+                        to_status=invocation.status,
+                        safe_metadata={"reservation_released": False},
+                    )
+                    continue
                 user_counter.reserved_minor_units -= reservation.reserved_amount
                 user_counter.revision += 1
                 if project_counter is not None:
@@ -2528,12 +2788,12 @@ class AIFoundationService:
                 reservation.released_at = now
                 reservation.revision += 1
                 attempt.status = "failed"
-                attempt.final_error_category = "admission_expired"
+                attempt.final_error_category = "dispatch_not_started"
                 attempt.terminal_at = now
                 attempt.revision += 1
                 invocation.status = "failed"
-                invocation.final_attempt_id = attempt.id
-                invocation.final_error_category = "admission_expired"
+                invocation.final_attempt_id = None
+                invocation.final_error_category = "dispatch_not_started"
                 invocation.terminal_at = now
                 invocation.updated_at = now
                 invocation.revision += 1
