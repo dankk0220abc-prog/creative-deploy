@@ -17,6 +17,42 @@ OBJECT_KEY = "objects/aa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg"
 OBJECT_BYTES = b"correct-object-bytes"
 
 
+class RevisionResult:
+    def __init__(self, revision: str) -> None:
+        self.revision = revision
+
+    def fetchone(self) -> dict[str, str]:
+        return {"version_num": self.revision}
+
+
+class RevisionConnection:
+    def __init__(self, revision: str) -> None:
+        self.revision = revision
+
+    def execute(self, _statement: str) -> RevisionResult:
+        return RevisionResult(self.revision)
+
+
+def test_current_phase3a_revision_is_accepted() -> None:
+    connection = RevisionConnection("3a04fab2e7a5")
+
+    assert operations._alembic_revision(connection) == operations.EXPECTED_ALEMBIC_REVISION  # type: ignore[arg-type]
+
+
+def test_unsupported_revision_fails_closed() -> None:
+    connection = RevisionConnection("unsupported_revision")
+
+    with pytest.raises(operations.OperationsError, match="revision is not supported"):
+        operations._alembic_revision(connection)  # type: ignore[arg-type]
+
+
+def test_phase3a_tables_extend_the_authoritative_full_recovery_inventory() -> None:
+    assert len(operations.LEGACY_TABLES) == 14
+    assert len(operations.PHASE3A_TABLES) == 25
+    assert (*operations.LEGACY_TABLES, *operations.PHASE3A_TABLES) == operations.TABLES
+    assert set(operations.MIGRATION_SEED_FINGERPRINTS) <= set(operations.PHASE3A_TABLES)
+
+
 def test_backup_root_requires_exact_attempt_owner_and_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -150,6 +186,30 @@ def test_manifest_signature_accepts_valid_canonical_content(
     manifest = write_signed_manifest(root, signing)
 
     assert operations._read_manifest(root) == manifest
+
+
+def test_manifest_revision_matches_backup_and_restore_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_signing(monkeypatch, tmp_path)
+    signing = operations._backup_signing_config()
+    root = tmp_path / "backup"
+    manifest = write_signed_manifest(root, signing)
+
+    assert manifest["alembic_revision"] == operations.EXPECTED_ALEMBIC_REVISION
+    assert (
+        operations._read_manifest(root)["alembic_revision"] == operations.EXPECTED_ALEMBIC_REVISION
+    )
+
+    manifest["alembic_revision"] = "unsupported_revision"
+    (root / operations.MANIFEST_PATH).write_text(
+        json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    operations._write_detached_manifest_signature(root, manifest, signing)
+    with pytest.raises(operations.OperationsError, match="revision is not supported"):
+        operations._read_manifest(root)
 
 
 def test_manifest_canonicalization_ignores_json_order_and_whitespace(

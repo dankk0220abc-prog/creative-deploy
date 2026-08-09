@@ -370,10 +370,13 @@ class ProjectMembershipService:
         if principal.user_id is None or reviewer_user_id == principal.user_id:
             raise ReviewerUserNotFoundError
         async with self._session.begin():
-            await self._require_owner(project_id=project_id, principal=principal)
-            user = await self._repository.find_user(user_id=reviewer_user_id)
-            if user is None:
+            locked_users = await self._repository.lock_active_users(
+                [principal.user_id, reviewer_user_id]
+            )
+            if {user.id for user in locked_users} != {principal.user_id, reviewer_user_id}:
                 raise ReviewerUserNotFoundError
+            await self._require_owner(project_id=project_id, principal=principal)
+            user = next(user for user in locked_users if user.id == reviewer_user_id)
             membership = await self._repository.add_membership_idempotently(
                 project_id=project_id,
                 user_id=reviewer_user_id,
@@ -394,7 +397,14 @@ class ProjectMembershipService:
         reviewer_user_id: uuid.UUID,
         principal: PrincipalContext,
     ) -> None:
+        if principal.user_id is None:
+            raise PaintProjectNotFoundError
         async with self._session.begin():
+            locked_users = await self._repository.lock_active_users(
+                [principal.user_id, reviewer_user_id]
+            )
+            if {user.id for user in locked_users} != {principal.user_id, reviewer_user_id}:
+                raise PaintProjectNotFoundError
             await self._require_owner(project_id=project_id, principal=principal)
             await self._repository.remove_membership_idempotently(
                 project_id=project_id,

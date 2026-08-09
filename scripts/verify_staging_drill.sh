@@ -437,6 +437,10 @@ if [ "${membership_status}" != "200" ]; then
   echo "staging reviewer assignment returned ${membership_status}, expected 200" >&2
   exit 1
 fi
+compose_source exec -T api python - seed "${owner_id}" "${project_id}" \
+  < "${REPOSITORY_ROOT}/scripts/verify_phase3a_backup_rows.py"
+compose_source exec -T api python - verify "${owner_id}" "${project_id}" \
+  < "${REPOSITORY_ROOT}/scripts/verify_phase3a_backup_rows.py"
 https_curl --fail --silent --show-error --cookie "${REVIEWER_JAR}" \
   --output "${TEMP_ROOT}/source-object.jpg" \
   "${BASE_URL}/api/v1/paint-projects/${project_id}/images/${image_id}/content"
@@ -487,7 +491,7 @@ root=Path(sys.argv[1])
 manifest=json.loads((root/"manifest.json").read_text(encoding="utf-8"))
 assert manifest["format"] == "creativedeploy-staging-backup-v1"
 assert manifest["manifest_version"] == 1
-assert manifest["alembic_revision"] == "2b1c4d5e6f70"
+assert manifest["alembic_revision"] == "3a04fab2e7a5"
 assert manifest["backup_id"] == sys.argv[2]
 assert manifest["object_count"] == 1
 assert len(manifest["objects"]) == 1
@@ -501,6 +505,48 @@ assert (root/"manifest.hmac.json").is_file()
 assert manifest["table_counts"]["paint_projects"] == 1
 assert manifest["table_counts"]["project_memberships"] == 1
 assert manifest["table_counts"]["image_assets"] == 1
+phase3a_counts={table:1 for table in (
+    "provider_definitions",
+    "capability_definitions",
+    "model_definitions",
+    "provider_capabilities",
+    "model_capabilities",
+    "credential_records",
+    "credential_project_grants",
+    "user_provider_preferences",
+    "project_model_policies",
+    "project_model_policy_providers",
+    "project_model_policy_models",
+    "project_model_policy_capabilities",
+    "project_model_policy_credentials",
+    "user_budget_policies",
+    "project_budget_policies",
+    "user_budget_counters",
+    "project_budget_counters",
+    "invocation_requests",
+    "invocation_attempts",
+    "budget_reservations",
+    "ai_invocation_events",
+    "ai_usage_ledger",
+    "ai_cost_ledger",
+    "ai_audit_events",
+    "ai_command_idempotency_records",
+)}
+phase3a_counts.update({
+    "capability_definitions":3,
+    "model_definitions":2,
+    "provider_capabilities":3,
+    "model_capabilities":5,
+    "credential_records":2,
+    "invocation_attempts":2,
+})
+assert set(manifest["table_counts"]) == {
+    "user_accounts", "external_identities", "paint_projects", "project_memberships",
+    "oidc_login_flows", "auth_sessions", "state_transition_events",
+    "command_idempotency_records", "image_assets", "image_set_readiness_reviews",
+    "region_sets", "regions", "region_vertices", "region_set_reviews", *phase3a_counts,
+}
+assert {table:manifest["table_counts"][table] for table in phase3a_counts} == phase3a_counts
 ' "${BACKUP_ROOT}/${BACKUP_ID}" "${BACKUP_ID}" "${SIGNING_KEY_ID}"
 capture_safe_logs "${SOURCE_PROJECT}" "${TEMP_ROOT}/source-services.log" \
   "${SOURCE_SECRET_ROOT}"
@@ -526,6 +572,8 @@ run_with_staging_log_capture \
   "${SOURCE_SECRET_ROOT}" "${RESTORE_SECRET_ROOT}" -- \
   make_restore staging-restore BACKUP_ID="${BACKUP_ID}"
 wait_ready
+compose_restore exec -T api python - verify "${owner_id}" "${project_id}" \
+  < "${REPOSITORY_ROOT}/scripts/verify_phase3a_backup_rows.py"
 
 # Deliberately alter only the isolated restore target object while retaining the
 # signed size, content type, and metadata checksum. Run this before restored
@@ -705,5 +753,5 @@ restore_down=1
 echo "STAGING_DRILL_PASS backup_format=creativedeploy-staging-backup-v1"
 echo "STAGING_DRILL_METRICS backup_seconds=${backup_seconds} restore_seconds=${restore_seconds} synthetic_rpo_seconds=0"
 echo "STAGING_DRILL_PROOFS https=pass tls_policy=pass exact_host_origin=pass file_secrets=pass structured_logs=pass"
-echo "STAGING_DRILL_PROOFS backup=pass detached_authenticity=pass restore=pass exact_retry=pass checksum_refusal=pass manifest_tamper_refusal=pass byte_mismatch_refusal=pass private_object=pass permissions=pass"
+echo "STAGING_DRILL_PROOFS backup=pass detached_authenticity=pass restore=pass exact_retry=pass checksum_refusal=pass manifest_tamper_refusal=pass byte_mismatch_refusal=pass private_object=pass permissions=pass phase3a_data=pass"
 echo "STAGING_DRILL_CLEANUP source=removed restore=removed temporary_evidence=scheduled"

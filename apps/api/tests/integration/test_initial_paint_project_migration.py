@@ -1,15 +1,19 @@
 """Isolated PostgreSQL round-trip tests for the first business migration."""
 
+import asyncio
 import os
 import re
 import secrets
 import subprocess
 import uuid
 from collections.abc import Callable, Iterator
+from concurrent.futures import Future
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Event, Thread
+from time import monotonic, sleep
 from typing import Any
 from urllib.parse import quote, quote_plus
 
@@ -17,9 +21,47 @@ import psycopg
 import pytest
 from psycopg import sql
 from psycopg.types.json import Jsonb
+from pydantic import SecretStr
+from sqlalchemy import text
 from sqlalchemy.engine import URL, make_url
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from creativedeploy_api.core.config import Settings
+from creativedeploy_api.ai.constants import (
+    FIXTURE_PROVIDER_ID,
+    FIXTURE_STRUCTURED_CAPABILITY_ID,
+    FIXTURE_TEXT_CAPABILITY_ID,
+    FIXTURE_TEXT_MODEL_ID,
+    FIXTURE_VISION_MODEL_ID,
+)
+from creativedeploy_api.ai.encryption import CredentialCipher, FixtureRootKeyProvider
+from creativedeploy_api.ai.fixture_provider import FixtureProviderAdapter
+from creativedeploy_api.core.config import POSTGRES_COMPONENT_NAMES, Settings
+from creativedeploy_api.core.principal import (
+    AuthenticationMode,
+    PrincipalContext,
+    PrincipalType,
+)
+from creativedeploy_api.schemas.ai_foundation import (
+    CredentialCreateRequest,
+    CredentialGrantRequest,
+    CredentialMutationRequest,
+    CredentialRead,
+    CredentialReplaceRequest,
+    FixtureInvocationPayload,
+    InvocationCreateRequest,
+    InvocationPreviewRequest,
+    ProjectPolicyUpdate,
+    UserPreferenceUpdate,
+)
+from creativedeploy_api.services.ai_foundation import (
+    AdmissionRejectedError,
+    AIAuthorizationError,
+    AIConflictError,
+    AIFoundationService,
+    AIIdempotencyConflictError,
+    AIResourceNotFoundError,
+)
+from creativedeploy_api.services.identity import ProjectMembershipService
 
 pytestmark = pytest.mark.integration
 
@@ -34,20 +76,45 @@ ALEMBIC_COMMAND = (
     "apps/api/alembic.ini",
 )
 BUSINESS_TABLES = {
+    "ai_audit_events",
+    "ai_command_idempotency_records",
+    "ai_cost_ledger",
+    "ai_invocation_events",
+    "ai_usage_ledger",
     "auth_sessions",
+    "budget_reservations",
+    "capability_definitions",
     "command_idempotency_records",
+    "credential_project_grants",
+    "credential_records",
     "external_identities",
     "image_assets",
     "image_set_readiness_reviews",
+    "invocation_attempts",
+    "invocation_requests",
+    "model_capabilities",
+    "model_definitions",
     "oidc_login_flows",
     "paint_projects",
     "project_memberships",
+    "project_budget_counters",
+    "project_budget_policies",
+    "project_model_policies",
+    "project_model_policy_capabilities",
+    "project_model_policy_credentials",
+    "project_model_policy_models",
+    "project_model_policy_providers",
+    "provider_capabilities",
+    "provider_definitions",
     "region_set_reviews",
     "region_sets",
     "region_vertices",
     "regions",
     "state_transition_events",
     "user_accounts",
+    "user_budget_counters",
+    "user_budget_policies",
+    "user_provider_preferences",
 }
 EXPECTED_COLUMNS = {
     "user_accounts": (
@@ -321,6 +388,10 @@ def _subprocess_output_text(output: str | bytes | None) -> str:
 def _run_alembic(database_url: URL, *arguments: str) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
     rendered_database_url = database_url.render_as_string(hide_password=False)
+    for component_name in POSTGRES_COMPONENT_NAMES:
+        environment.pop(component_name, None)
+    environment["CREATIVEDEPLOY_ENV_FILE"] = os.devnull
+    environment["APP_ENV"] = "test"
     environment["DATABASE_URL"] = rendered_database_url
     try:
         result = subprocess.run(
@@ -2835,7 +2906,7 @@ def test_initial_paint_project_migration_round_trip_and_constraints(
 
     _run_alembic(temporary_database_url, "upgrade", "head")
     current_result = _run_alembic(temporary_database_url, "current")
-    assert "2b1c4d5e6f70 (head)" in current_result.stdout
+    assert "3a04fab2e7a5 (head)" in current_result.stdout
     check_result = _run_alembic(temporary_database_url, "check")
     assert "No new upgrade operations detected." in check_result.stdout
 
@@ -2870,12 +2941,19 @@ def test_initial_paint_project_migration_round_trip_and_constraints(
         **_connection_kwargs(temporary_database_url, temporary_database_name)
     ) as connection:
         _assert_schema(connection)
+        phase3a_seed_counts = {
+            "provider_definitions": 1,
+            "model_definitions": 2,
+            "capability_definitions": 3,
+            "provider_capabilities": 3,
+            "model_capabilities": 5,
+        }
         for table in BUSINESS_TABLES:
             query = sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(table))
-            assert connection.execute(query).fetchone() == (0,)
+            assert connection.execute(query).fetchone() == (phase3a_seed_counts.get(table, 0),)
 
 
-def test_phase_2b1_downgrade_refuses_governed_facts_without_deleting_them(
+def test_phase3a_downgrade_refuses_governed_facts_without_deleting_them(
     temporary_database: TemporaryDatabase,
 ) -> None:
     temporary_database_url = temporary_database.url
@@ -2900,7 +2978,7 @@ def test_phase_2b1_downgrade_refuses_governed_facts_without_deleting_them(
         _run_alembic(temporary_database_url, "downgrade", "7f3a2b9c4d1e")
 
     current_result = _run_alembic(temporary_database_url, "current")
-    assert "2b1c4d5e6f70 (head)" in current_result.stdout
+    assert "3a04fab2e7a5 (head)" in current_result.stdout
     with psycopg.connect(
         **_connection_kwargs(temporary_database_url, temporary_database_name)
     ) as connection:
@@ -2914,3 +2992,2599 @@ def test_phase_2b1_downgrade_refuses_governed_facts_without_deleting_them(
     _run_alembic(temporary_database_url, "downgrade", "7f3a2b9c4d1e")
     downgraded_result = _run_alembic(temporary_database_url, "current")
     assert "7f3a2b9c4d1e" in downgraded_result.stdout
+
+
+def _phase3a_principal(user_id: uuid.UUID, principal_id: str) -> PrincipalContext:
+    return PrincipalContext(
+        principal_id=principal_id,
+        principal_type=PrincipalType.HUMAN,
+        display_name=f"Fixture actor {user_id}",
+        authentication_mode=AuthenticationMode.OIDC_AUTHORIZATION_CODE,
+        user_id=user_id,
+    )
+
+
+def _seed_phase3a_user_and_project(
+    connection: psycopg.Connection[Any],
+    *,
+    user_id: uuid.UUID,
+    project_id: uuid.UUID,
+    principal_id: str,
+) -> None:
+    now = datetime.now(UTC)
+    connection.execute(
+        """
+        INSERT INTO user_accounts (
+            id, display_name, email, is_active, created_at, updated_at
+        ) VALUES (%s, %s, %s, true, %s, %s)
+        """,
+        (user_id, f"Fixture actor {user_id}", None, now, now),
+    )
+    connection.execute(
+        """
+        INSERT INTO paint_projects (
+            id, owner_principal_id, title, description,
+            requested_target_style, planning_mode, status, created_at, updated_at
+        ) VALUES (%s, %s, %s, NULL, 'cel_shading', 'planning_only_demo', 'DRAFT', %s, %s)
+        """,
+        (project_id, principal_id, f"Fixture project {project_id}", now, now),
+    )
+
+
+def _phase3a_service(
+    session: Any,
+    *,
+    adapter: FixtureProviderAdapter | None = None,
+) -> AIFoundationService:
+    return AIFoundationService(
+        session,
+        CredentialCipher(FixtureRootKeyProvider(bytes(range(32)))),
+        adapter or FixtureProviderAdapter(),
+    )
+
+
+async def _configure_phase3a_owner(
+    service: AIFoundationService,
+    *,
+    principal: PrincipalContext,
+    project_id: uuid.UUID,
+    cumulative_limit_minor_units: int = 10_000,
+) -> tuple[CredentialRead, InvocationCreateRequest]:
+    credential = await service.create_credential(
+        payload=CredentialCreateRequest(
+            provider_key="fixture_local",
+            alias="Security concurrency fixture",
+            credential=SecretStr(f"fixture-sk-{uuid.uuid4().hex}"),
+            confirm_save=True,
+        ),
+        principal=principal,
+        idempotency_key=uuid.uuid4(),
+        request_id=uuid.uuid4(),
+    )
+    await service.create_grant(
+        credential_id=credential.id,
+        payload=CredentialGrantRequest(
+            project_id=project_id,
+            expected_credential_revision=credential.revision,
+        ),
+        principal=principal,
+        idempotency_key=uuid.uuid4(),
+        request_id=uuid.uuid4(),
+    )
+    await service.update_user_preference(
+        payload=UserPreferenceUpdate(
+            enabled=True,
+            default_provider_definition_id=FIXTURE_PROVIDER_ID,
+            default_model_definition_id=FIXTURE_TEXT_MODEL_ID,
+            default_credential_id=credential.id,
+            timeout_ms=30_000,
+            streaming_enabled=False,
+            cost_warning_minor_units=800,
+            budget_per_invocation_minor_units=1_000,
+            budget_cumulative_minor_units=cumulative_limit_minor_units,
+            budget_window_seconds=86_400,
+            expected_revision=0,
+        ),
+        principal=principal,
+        idempotency_key=uuid.uuid4(),
+        request_id=uuid.uuid4(),
+    )
+    await service.update_project_policy(
+        project_id=project_id,
+        payload=ProjectPolicyUpdate(
+            enabled=True,
+            default_provider_definition_id=FIXTURE_PROVIDER_ID,
+            default_model_definition_id=FIXTURE_TEXT_MODEL_ID,
+            default_credential_id=credential.id,
+            provider_allowlist=[FIXTURE_PROVIDER_ID],
+            model_allowlist=[FIXTURE_TEXT_MODEL_ID],
+            capability_allowlist=[FIXTURE_TEXT_CAPABILITY_ID],
+            credential_allowlist=[credential.id],
+            per_invocation_limit_minor_units=1_000,
+            cumulative_limit_minor_units=cumulative_limit_minor_units,
+            budget_window_seconds=86_400,
+            allow_unknown_cost=False,
+            allow_manual_model_id=False,
+            allow_fallback=False,
+            require_paid_call_confirmation=True,
+            expected_revision=0,
+        ),
+        principal=principal,
+        idempotency_key=uuid.uuid4(),
+        request_id=uuid.uuid4(),
+    )
+    return credential, InvocationCreateRequest(
+        product_space="paintpilot",
+        project_id=project_id,
+        invocation_family="fixture_invocation",
+        provider_definition_id=FIXTURE_PROVIDER_ID,
+        model_definition_id=FIXTURE_TEXT_MODEL_ID,
+        credential_id=credential.id,
+        temporary_credential=None,
+        requested_capabilities=["text_generation"],
+        artifacts=[],
+        payload=FixtureInvocationPayload(
+            prompt_label="security concurrency",
+            fixture_input="deterministic local evidence",
+            scenario="success",
+        ),
+        confirm_fixture_use=True,
+        max_attempts=2,
+        total_elapsed_time_limit_ms=30_000,
+    )
+
+
+def test_phase3a_fixture_service_round_trip_and_rejection_has_no_adapter_effect(
+    temporary_database: TemporaryDatabase,
+) -> None:
+    temporary_database_url = temporary_database.url
+    temporary_database_name = temporary_database.name
+    user_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    principal_id = "phase3a-fixture-owner"
+    now = datetime.now(UTC)
+    _run_alembic(temporary_database_url, "upgrade", "head")
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        connection.execute(
+            """
+            INSERT INTO user_accounts (
+                id, display_name, email, is_active, created_at, updated_at
+            ) VALUES (%s, %s, %s, true, %s, %s)
+            """,
+            (user_id, "Phase 3A Fixture Owner", "phase3a@example.test", now, now),
+        )
+        connection.execute(
+            """
+            INSERT INTO paint_projects (
+                id, owner_principal_id, title, description,
+                requested_target_style, planning_mode, status, created_at, updated_at
+            ) VALUES (%s, %s, %s, %s, 'cel_shading', 'planning_only_demo', 'DRAFT', %s, %s)
+            """,
+            (project_id, principal_id, "Fixture policy project", None, now, now),
+        )
+
+    async def exercise() -> tuple[uuid.UUID, int, uuid.UUID, uuid.UUID]:
+        engine = create_async_engine(
+            temporary_database_url.render_as_string(hide_password=False),
+            pool_pre_ping=True,
+        )
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        adapter = FixtureProviderAdapter()
+        original_invoke = adapter.invoke
+        adapter_calls = 0
+
+        def counted_invoke(*args: Any, **kwargs: Any) -> Any:
+            nonlocal adapter_calls
+            adapter_calls += 1
+            return original_invoke(*args, **kwargs)
+
+        adapter.invoke = counted_invoke  # type: ignore[method-assign]
+        principal = PrincipalContext(
+            principal_id=principal_id,
+            principal_type=PrincipalType.HUMAN,
+            display_name="Phase 3A Fixture Owner",
+            authentication_mode=AuthenticationMode.OIDC_AUTHORIZATION_CODE,
+            user_id=user_id,
+        )
+        try:
+            async with session_factory() as session:
+                service = AIFoundationService(
+                    session,
+                    CredentialCipher(FixtureRootKeyProvider(bytes(range(32)))),
+                    adapter,
+                )
+                credential = await service.create_credential(
+                    payload=CredentialCreateRequest(
+                        provider_key="fixture_local",
+                        alias="Local fixture key",
+                        credential=SecretStr("fixture-sk-0123456789abcdef"),
+                        confirm_save=True,
+                    ),
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                assert "fixture-sk" not in credential.model_dump_json()
+                await service.create_grant(
+                    credential_id=credential.id,
+                    payload=CredentialGrantRequest(
+                        project_id=project_id,
+                        expected_credential_revision=credential.revision,
+                    ),
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                await service.update_user_preference(
+                    payload=UserPreferenceUpdate(
+                        enabled=True,
+                        default_provider_definition_id=FIXTURE_PROVIDER_ID,
+                        default_model_definition_id=FIXTURE_TEXT_MODEL_ID,
+                        default_credential_id=credential.id,
+                        timeout_ms=30_000,
+                        streaming_enabled=False,
+                        cost_warning_minor_units=800,
+                        budget_per_invocation_minor_units=1_000,
+                        budget_cumulative_minor_units=10_000,
+                        budget_window_seconds=86_400,
+                        expected_revision=0,
+                    ),
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                temporary_invocation = await service.create_invocation(
+                    payload=InvocationCreateRequest(
+                        product_space="paintpilot",
+                        project_id=None,
+                        invocation_family="fixture_invocation",
+                        provider_definition_id=FIXTURE_PROVIDER_ID,
+                        model_definition_id=FIXTURE_TEXT_MODEL_ID,
+                        credential_id=None,
+                        temporary_credential=SecretStr("fixture-sk-projectless-0123456789"),
+                        requested_capabilities=["text_generation"],
+                        artifacts=[],
+                        payload=FixtureInvocationPayload(
+                            prompt_label="temporary local integration",
+                            fixture_input="request-local fixture only",
+                            scenario="success",
+                        ),
+                        confirm_fixture_use=True,
+                        max_attempts=1,
+                        total_elapsed_time_limit_ms=30_000,
+                    ),
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                assert temporary_invocation.status == "succeeded"
+                assert temporary_invocation.attempts[0].safe_provider_metadata["fixture"] is True
+                await service.update_project_policy(
+                    project_id=project_id,
+                    payload=ProjectPolicyUpdate(
+                        enabled=True,
+                        default_provider_definition_id=FIXTURE_PROVIDER_ID,
+                        default_model_definition_id=FIXTURE_TEXT_MODEL_ID,
+                        default_credential_id=credential.id,
+                        provider_allowlist=[FIXTURE_PROVIDER_ID],
+                        model_allowlist=[FIXTURE_TEXT_MODEL_ID],
+                        capability_allowlist=[
+                            FIXTURE_TEXT_CAPABILITY_ID,
+                            FIXTURE_STRUCTURED_CAPABILITY_ID,
+                        ],
+                        credential_allowlist=[credential.id],
+                        per_invocation_limit_minor_units=1_000,
+                        cumulative_limit_minor_units=5_000,
+                        budget_window_seconds=86_400,
+                        allow_unknown_cost=False,
+                        allow_manual_model_id=False,
+                        allow_fallback=False,
+                        require_paid_call_confirmation=True,
+                        expected_revision=0,
+                    ),
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                fixture_payload = FixtureInvocationPayload(
+                    prompt_label="local integration",
+                    fixture_input="deterministic paint planning fixture",
+                    scenario="success",
+                )
+                preview_request = InvocationPreviewRequest(
+                    product_space="paintpilot",
+                    project_id=project_id,
+                    invocation_family="fixture_invocation",
+                    provider_definition_id=FIXTURE_PROVIDER_ID,
+                    model_definition_id=FIXTURE_TEXT_MODEL_ID,
+                    credential_id=credential.id,
+                    requested_capabilities=["text_generation"],
+                    payload=fixture_payload,
+                    confirm_fixture_use=True,
+                )
+                preview = await service.preview_invocation(
+                    payload=preview_request, principal=principal
+                )
+                assert preview.admissible is True
+                assert preview.local_only is True
+                invocation_key = uuid.uuid4()
+                invocation_request = InvocationCreateRequest(
+                    **preview_request.model_dump(),
+                    max_attempts=1,
+                    total_elapsed_time_limit_ms=30_000,
+                )
+                invocation = await service.create_invocation(
+                    payload=invocation_request,
+                    principal=principal,
+                    idempotency_key=invocation_key,
+                    request_id=uuid.uuid4(),
+                )
+                assert invocation.status == "succeeded"
+                assert invocation.output == {
+                    "fixture": True,
+                    "local_only": True,
+                    "result_id": invocation.output["result_id"],
+                    "summary": "Deterministic local fixture response",
+                }
+                replay = await service.create_invocation(
+                    payload=invocation_request,
+                    principal=principal,
+                    idempotency_key=invocation_key,
+                    request_id=uuid.uuid4(),
+                )
+                assert replay.id == invocation.id
+                assert replay.replayed is True
+                assert adapter_calls == 2
+
+                failed_request = InvocationCreateRequest(
+                    **{
+                        **preview_request.model_dump(),
+                        "payload": FixtureInvocationPayload(
+                            prompt_label="terminal failure",
+                            fixture_input="deterministic invalid request",
+                            scenario="invalid_request",
+                        ),
+                    },
+                    max_attempts=1,
+                    total_elapsed_time_limit_ms=30_000,
+                )
+                failed = await service.create_invocation(
+                    payload=failed_request,
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                assert failed.status == "failed"
+                assert failed.final_attempt_id is None
+                assert failed.attempts[0].status == "failed"
+
+                unknown_request = InvocationCreateRequest(
+                    **{
+                        **preview_request.model_dump(),
+                        "payload": FixtureInvocationPayload(
+                            prompt_label="unknown outcome",
+                            fixture_input="deterministic reconciliation",
+                            scenario="outcome_unknown",
+                        ),
+                    },
+                    max_attempts=2,
+                    total_elapsed_time_limit_ms=30_000,
+                )
+                unknown = await service.create_invocation(
+                    payload=unknown_request,
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                assert unknown.status == "outcome_unknown"
+                assert len(unknown.attempts) == 1
+                assert unknown.final_attempt_id is None
+
+                retry_request = InvocationCreateRequest(
+                    **{
+                        **preview_request.model_dump(),
+                        "payload": FixtureInvocationPayload(
+                            prompt_label="bounded retry",
+                            fixture_input="deterministic provider unavailable",
+                            scenario="provider_unavailable",
+                        ),
+                    },
+                    max_attempts=2,
+                    total_elapsed_time_limit_ms=30_000,
+                )
+                retried = await service.create_invocation(
+                    payload=retry_request,
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                assert retried.status == "failed"
+                assert [attempt.attempt_number for attempt in retried.attempts] == [1, 2]
+                assert [attempt.status for attempt in retried.attempts] == ["failed", "failed"]
+                assert retried.final_attempt_id is None
+                async with session.begin():
+                    retry_transition = (
+                        await session.execute(
+                            text(
+                                """
+                                SELECT from_status, to_status
+                                FROM ai_invocation_events
+                                WHERE invocation_id = :invocation_id
+                                  AND attempt_id = :attempt_id
+                                  AND event_type = 'attempt_admitted'
+                                """
+                            ),
+                            {
+                                "invocation_id": retried.id,
+                                "attempt_id": retried.attempts[1].id,
+                            },
+                        )
+                    ).one()
+                assert retry_transition == ("running", "admitted")
+                assert adapter_calls == 6
+
+                rejected_request = InvocationCreateRequest(
+                    **{
+                        **preview_request.model_dump(),
+                        "requested_capabilities": ["vision_understanding"],
+                    },
+                    max_attempts=1,
+                    total_elapsed_time_limit_ms=30_000,
+                )
+                with pytest.raises(AdmissionRejectedError):
+                    await service.create_invocation(
+                        payload=rejected_request,
+                        principal=principal,
+                        idempotency_key=uuid.uuid4(),
+                        request_id=uuid.uuid4(),
+                    )
+                assert adapter_calls == 6
+                audit = await service.list_audit(
+                    principal=principal,
+                    project_id=project_id,
+                    limit=100,
+                    offset=0,
+                )
+                assert audit.total >= 3
+                revoked = await service.revoke_credential(
+                    credential_id=credential.id,
+                    payload=CredentialMutationRequest(
+                        expected_revision=credential.revision,
+                        confirm=True,
+                    ),
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                assert revoked.status == "revoked"
+                return credential.id, adapter_calls, failed.id, failed.attempts[0].id
+        finally:
+            await engine.dispose()
+
+    credential_id, adapter_calls, failed_invocation_id, failed_attempt_id = asyncio.run(exercise())
+    assert adapter_calls == 6
+    with psycopg.connect(
+        **_connection_kwargs(temporary_database_url, temporary_database_name)
+    ) as connection:
+        erased = connection.execute(
+            """
+            SELECT status, ciphertext, wrapped_dek, data_nonce, wrap_nonce,
+                   data_authentication_tag, wrap_authentication_tag
+            FROM credential_records WHERE id = %s
+            """,
+            (credential_id,),
+        ).fetchone()
+        assert erased == ("revoked", None, None, None, None, None, None)
+        assert connection.execute("SELECT count(*) FROM ai_usage_ledger").fetchone() == (2,)
+        assert connection.execute("SELECT count(*) FROM ai_cost_ledger").fetchone() == (2,)
+        assert connection.execute(
+            """
+            SELECT count(*) FROM invocation_requests
+            WHERE project_id IS NULL AND requested_credential_id IS NULL
+              AND safe_payload->>'temporary_credential' = 'true'
+              AND safe_payload::text NOT LIKE '%%fixture-sk%%'
+            """
+        ).fetchone() == (1,)
+        assert connection.execute("SELECT count(*) FROM credential_records").fetchone() == (1,)
+        with (
+            pytest.raises(psycopg.Error) as invalid_final_attempt,
+            connection.transaction(),
+        ):
+            connection.execute(
+                "UPDATE invocation_requests SET final_attempt_id = %s WHERE id = %s",
+                (failed_attempt_id, failed_invocation_id),
+            )
+        assert invalid_final_attempt.value.sqlstate == "23514"
+        assert connection.execute(
+            "SELECT final_attempt_id FROM invocation_requests WHERE id = %s",
+            (failed_invocation_id,),
+        ).fetchone() == (None,)
+        for append_only_table in (
+            "ai_invocation_events",
+            "ai_usage_ledger",
+            "ai_cost_ledger",
+            "ai_audit_events",
+        ):
+            statement = sql.SQL("UPDATE {} SET created_at = created_at").format(
+                sql.Identifier(append_only_table)
+            )
+            with (
+                pytest.raises(psycopg.Error) as append_only_error,
+                connection.transaction(),
+            ):
+                connection.execute(statement)
+            assert append_only_error.value.sqlstate == "55000"
+
+
+def test_phase3a_reference_authorization_precedes_pending_side_effects(
+    temporary_database: TemporaryDatabase,
+) -> None:
+    temporary_database_url = temporary_database.url
+    temporary_database_name = temporary_database.name
+    owner_user_id = uuid.uuid4()
+    other_user_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    unauthorized_project_id = uuid.uuid4()
+    no_grant_project_id = uuid.uuid4()
+    owner_principal_id = "phase3a-reference-owner"
+    other_principal_id = "phase3a-reference-other"
+    _run_alembic(temporary_database_url, "upgrade", "head")
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        _seed_phase3a_user_and_project(
+            connection,
+            user_id=owner_user_id,
+            project_id=project_id,
+            principal_id=owner_principal_id,
+        )
+        _seed_phase3a_user_and_project(
+            connection,
+            user_id=other_user_id,
+            project_id=unauthorized_project_id,
+            principal_id=other_principal_id,
+        )
+        now = datetime.now(UTC)
+        connection.execute(
+            """
+            INSERT INTO paint_projects (
+                id, owner_principal_id, title, requested_target_style,
+                planning_mode, status, created_at, updated_at
+            ) VALUES (%s, %s, %s, 'cel_shading', 'planning_only_demo', 'DRAFT', %s, %s)
+            """,
+            (no_grant_project_id, owner_principal_id, "No grant project", now, now),
+        )
+
+    async def exercise() -> None:
+        engine = create_async_engine(
+            temporary_database_url.render_as_string(hide_password=False),
+            pool_pre_ping=True,
+        )
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        adapter = FixtureProviderAdapter()
+        original_invoke = adapter.invoke
+        adapter_calls = 0
+
+        def counted_invoke(*args: Any, **kwargs: Any) -> Any:
+            nonlocal adapter_calls
+            adapter_calls += 1
+            return original_invoke(*args, **kwargs)
+
+        adapter.invoke = counted_invoke  # type: ignore[method-assign]
+        owner = _phase3a_principal(owner_user_id, owner_principal_id)
+        other = _phase3a_principal(other_user_id, other_principal_id)
+        try:
+            async with session_factory() as session:
+                owner_service = _phase3a_service(session, adapter=adapter)
+                owner_credential, valid_request = await _configure_phase3a_owner(
+                    owner_service,
+                    principal=owner,
+                    project_id=project_id,
+                )
+            async with session_factory() as session:
+                other_service = _phase3a_service(session)
+                other_credential = await other_service.create_credential(
+                    payload=CredentialCreateRequest(
+                        provider_key="fixture_local",
+                        alias="Other user fixture",
+                        credential=SecretStr(f"fixture-sk-{uuid.uuid4().hex}"),
+                        confirm_save=True,
+                    ),
+                    principal=other,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+            async with session_factory() as session:
+                baseline_values = []
+                for table in (
+                    "invocation_requests",
+                    "invocation_attempts",
+                    "budget_reservations",
+                    "ai_audit_events",
+                ):
+                    baseline_values.append(
+                        (await session.execute(text(f"SELECT count(*) FROM {table}"))).scalar_one()
+                    )
+                baseline = tuple(baseline_values)
+                await session.rollback()
+            cases = (
+                valid_request.model_copy(update={"project_id": uuid.uuid4()}),
+                valid_request.model_copy(update={"project_id": unauthorized_project_id}),
+                valid_request.model_copy(
+                    update={"project_id": None, "credential_id": uuid.uuid4()}
+                ),
+                valid_request.model_copy(
+                    update={"project_id": None, "credential_id": other_credential.id}
+                ),
+                valid_request.model_copy(update={"project_id": no_grant_project_id}),
+            )
+            for request in cases:
+                async with session_factory() as session:
+                    service = _phase3a_service(session, adapter=adapter)
+                    with pytest.raises(AIResourceNotFoundError):
+                        await service.create_invocation(
+                            payload=request,
+                            principal=owner,
+                            idempotency_key=uuid.uuid4(),
+                            request_id=uuid.uuid4(),
+                        )
+            async with session_factory() as session:
+                after_values = []
+                for table in (
+                    "invocation_requests",
+                    "invocation_attempts",
+                    "budget_reservations",
+                    "ai_audit_events",
+                ):
+                    after_values.append(
+                        (await session.execute(text(f"SELECT count(*) FROM {table}"))).scalar_one()
+                    )
+                after = tuple(after_values)
+            assert after == baseline
+            assert owner_credential.id == valid_request.credential_id
+            async with session_factory() as session:
+                service = _phase3a_service(session, adapter=adapter)
+                replacement = await service.replace_credential(
+                    credential_id=owner_credential.id,
+                    payload=CredentialReplaceRequest(
+                        alias="Replacement fixture",
+                        credential=SecretStr(f"fixture-sk-{uuid.uuid4().hex}"),
+                        expected_revision=owner_credential.revision,
+                        confirm_replace=True,
+                    ),
+                    principal=owner,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                assert replacement.id != owner_credential.id
+            async with session_factory() as session:
+                service = _phase3a_service(session, adapter=adapter)
+                with pytest.raises(AIResourceNotFoundError):
+                    await service.create_invocation(
+                        payload=valid_request,
+                        principal=owner,
+                        idempotency_key=uuid.uuid4(),
+                        request_id=uuid.uuid4(),
+                    )
+            async with session_factory() as session:
+                lifecycle = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT status, ciphertext, wrapped_dek, data_nonce, wrap_nonce
+                            FROM credential_records WHERE id = :id
+                            """
+                        ),
+                        {"id": owner_credential.id},
+                    )
+                ).one()
+                assert lifecycle == ("replaced", None, None, None, None)
+                assert (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT count(*) FROM credential_project_grants
+                            WHERE credential_id = :id AND revoked_at IS NULL
+                            """
+                        ),
+                        {"id": owner_credential.id},
+                    )
+                ).scalar_one() == 0
+                assert (
+                    await session.execute(
+                        text(
+                            "SELECT count(*) FROM credential_project_grants "
+                            "WHERE credential_id = :id"
+                        ),
+                        {"id": replacement.id},
+                    )
+                ).scalar_one() == 0
+            assert adapter_calls == 0
+        finally:
+            await engine.dispose()
+
+    asyncio.run(exercise())
+
+
+def test_phase3a_membership_revoke_and_admission_linearize_on_postgresql(
+    temporary_database: TemporaryDatabase,
+) -> None:
+    temporary_database_url = temporary_database.url
+    temporary_database_name = temporary_database.name
+    owner_user_id = uuid.uuid4()
+    reviewer_user_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    owner_principal_id = "phase3a-linearization-owner"
+    reviewer_principal_id = "phase3a-linearization-reviewer"
+    _run_alembic(temporary_database_url, "upgrade", "head")
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        _seed_phase3a_user_and_project(
+            connection,
+            user_id=reviewer_user_id,
+            project_id=project_id,
+            principal_id=reviewer_principal_id,
+        )
+        now = datetime.now(UTC)
+        connection.execute(
+            """
+            INSERT INTO user_accounts (id, display_name, is_active, created_at, updated_at)
+            VALUES (%s, %s, true, %s, %s)
+            """,
+            (owner_user_id, "Linearization owner", now, now),
+        )
+
+    async def exercise() -> None:
+        engine = create_async_engine(
+            temporary_database_url.render_as_string(hide_password=False),
+            pool_pre_ping=True,
+        )
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        adapter = FixtureProviderAdapter()
+        adapter_calls = 0
+        original_invoke = adapter.invoke
+
+        def counted_invoke(*args: Any, **kwargs: Any) -> Any:
+            nonlocal adapter_calls
+            adapter_calls += 1
+            return original_invoke(*args, **kwargs)
+
+        adapter.invoke = counted_invoke  # type: ignore[method-assign]
+        reviewer = _phase3a_principal(reviewer_user_id, reviewer_principal_id)
+        owner = _phase3a_principal(owner_user_id, owner_principal_id)
+        try:
+            async with session_factory() as session:
+                setup_service = _phase3a_service(session, adapter=adapter)
+                _, request = await _configure_phase3a_owner(
+                    setup_service,
+                    principal=reviewer,
+                    project_id=project_id,
+                )
+            async with session_factory() as session, session.begin():
+                await session.execute(
+                    text(
+                        """
+                            UPDATE paint_projects SET owner_principal_id = :owner
+                            WHERE id = :project_id
+                            """
+                    ),
+                    {"owner": owner_principal_id, "project_id": project_id},
+                )
+                await session.execute(
+                    text(
+                        """
+                            INSERT INTO project_memberships (
+                                id, paint_project_id, user_id, role,
+                                assigned_by_user_id, created_at
+                            ) VALUES (
+                                :id, :project_id, :user_id, 'reviewer',
+                                :assigned_by_user_id, now()
+                            )
+                            """
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "project_id": project_id,
+                        "user_id": reviewer_user_id,
+                        "assigned_by_user_id": owner_user_id,
+                    },
+                )
+
+            async with session_factory() as session:
+                pending_service = _phase3a_service(session, adapter=adapter)
+                pending_a, replayed = await pending_service._create_pending_invocation(
+                    payload=request,
+                    principal=reviewer,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                assert replayed is False
+
+            revoke_locked = asyncio.Event()
+            allow_revoke_commit = asyncio.Event()
+
+            async def revoke_first() -> None:
+                async with session_factory() as session, session.begin():
+                    await session.execute(
+                        text(
+                            """
+                                SELECT id FROM user_accounts
+                                WHERE id IN (:owner_id, :reviewer_id)
+                                ORDER BY id FOR UPDATE
+                                """
+                        ),
+                        {"owner_id": owner_user_id, "reviewer_id": reviewer_user_id},
+                    )
+                    await session.execute(
+                        text("SELECT id FROM paint_projects WHERE id = :id FOR UPDATE"),
+                        {"id": project_id},
+                    )
+                    await session.execute(
+                        text(
+                            """
+                                SELECT id FROM project_memberships
+                                WHERE paint_project_id = :project_id AND user_id = :user_id
+                                FOR UPDATE
+                                """
+                        ),
+                        {"project_id": project_id, "user_id": reviewer_user_id},
+                    )
+                    await session.execute(
+                        text(
+                            """
+                                DELETE FROM project_memberships
+                                WHERE paint_project_id = :project_id AND user_id = :user_id
+                                """
+                        ),
+                        {"project_id": project_id, "user_id": reviewer_user_id},
+                    )
+                    revoke_locked.set()
+                    await allow_revoke_commit.wait()
+
+            async def blocked_admission() -> None:
+                async with session_factory() as session:
+                    service = _phase3a_service(session, adapter=adapter)
+                    await service._admit_attempt(
+                        invocation_id=pending_a.id,
+                        payload=request,
+                        principal=reviewer,
+                        attempt_number=1,
+                        retry_of_attempt_id=None,
+                    )
+
+            revoke_task = asyncio.create_task(revoke_first())
+            await revoke_locked.wait()
+            admission_task = asyncio.create_task(blocked_admission())
+            await asyncio.sleep(0.05)
+            assert admission_task.done() is False
+            allow_revoke_commit.set()
+            await revoke_task
+            with pytest.raises(AIAuthorizationError):
+                await admission_task
+
+            async with session_factory() as session:
+                assert (
+                    await session.execute(
+                        text("SELECT count(*) FROM invocation_attempts WHERE invocation_id = :id"),
+                        {"id": pending_a.id},
+                    )
+                ).scalar_one() == 0
+
+            async with session_factory() as session, session.begin():
+                await session.execute(
+                    text(
+                        """
+                            INSERT INTO project_memberships (
+                                id, paint_project_id, user_id, role,
+                                assigned_by_user_id, created_at
+                            ) VALUES (
+                                :id, :project_id, :user_id, 'reviewer',
+                                :assigned_by_user_id, now()
+                            )
+                            """
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "project_id": project_id,
+                        "user_id": reviewer_user_id,
+                        "assigned_by_user_id": owner_user_id,
+                    },
+                )
+            async with session_factory() as session:
+                service = _phase3a_service(session, adapter=adapter)
+                pending_b, _ = await service._create_pending_invocation(
+                    payload=request,
+                    principal=reviewer,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+
+            admission_paused = asyncio.Event()
+            allow_admission_commit = asyncio.Event()
+
+            async def admission_first() -> tuple[uuid.UUID, uuid.UUID]:
+                async with session_factory() as session:
+                    service = _phase3a_service(session, adapter=adapter)
+                    original_flush = service._repository.flush
+                    flush_calls = 0
+
+                    async def controlled_flush() -> None:
+                        nonlocal flush_calls
+                        flush_calls += 1
+                        await original_flush()
+                        if flush_calls == 3:
+                            admission_paused.set()
+                            await allow_admission_commit.wait()
+
+                    service._repository.flush = controlled_flush  # type: ignore[method-assign]
+                    attempt_id, reservation_id, _, _ = await service._admit_attempt(
+                        invocation_id=pending_b.id,
+                        payload=request,
+                        principal=reviewer,
+                        attempt_number=1,
+                        retry_of_attempt_id=None,
+                    )
+                    return attempt_id, reservation_id
+
+            async def revoke_after_admission() -> None:
+                async with session_factory() as session:
+                    membership_service = ProjectMembershipService(session)
+                    await membership_service.remove(
+                        project_id=project_id,
+                        reviewer_user_id=reviewer_user_id,
+                        principal=owner,
+                    )
+
+            admission_first_task = asyncio.create_task(admission_first())
+            await admission_paused.wait()
+            revoke_after_task = asyncio.create_task(revoke_after_admission())
+            await asyncio.sleep(0.05)
+            assert revoke_after_task.done() is False
+            allow_admission_commit.set()
+            attempt_id, reservation_id = await admission_first_task
+            await revoke_after_task
+
+            async with session_factory() as session:
+                service = _phase3a_service(session, adapter=adapter)
+                assert await service._commit_dispatch(
+                    invocation_id=pending_b.id,
+                    attempt_id=attempt_id,
+                    reservation_id=reservation_id,
+                )
+            async with session_factory() as session:
+                service = _phase3a_service(session, adapter=adapter)
+                with pytest.raises(AIAuthorizationError):
+                    await service._admit_attempt(
+                        invocation_id=pending_b.id,
+                        payload=request,
+                        principal=reviewer,
+                        attempt_number=2,
+                        retry_of_attempt_id=attempt_id,
+                    )
+            assert adapter_calls == 0
+        finally:
+            await engine.dispose()
+
+    asyncio.run(exercise())
+
+
+def test_phase3a_policy_lock_order_and_tightened_budget_are_authoritative(
+    temporary_database: TemporaryDatabase,
+) -> None:
+    temporary_database_url = temporary_database.url
+    temporary_database_name = temporary_database.name
+    user_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    principal_id = "phase3a-budget-owner"
+    _run_alembic(temporary_database_url, "upgrade", "head")
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        _seed_phase3a_user_and_project(
+            connection,
+            user_id=user_id,
+            project_id=project_id,
+            principal_id=principal_id,
+        )
+
+    async def exercise() -> None:
+        engine = create_async_engine(
+            temporary_database_url.render_as_string(hide_password=False),
+            pool_pre_ping=True,
+        )
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        principal = _phase3a_principal(user_id, principal_id)
+        try:
+            async with session_factory() as session:
+                service = _phase3a_service(session)
+                credential, request = await _configure_phase3a_owner(
+                    service,
+                    principal=principal,
+                    project_id=project_id,
+                )
+            async with session_factory() as session, session.begin():
+                await session.execute(
+                    text(
+                        """
+                            UPDATE user_budget_counters
+                            SET committed_minor_units = 4990, limit_minor_units = 10000
+                            WHERE user_id = :user_id
+                            """
+                    ),
+                    {"user_id": user_id},
+                )
+            async with session_factory() as session:
+                service = _phase3a_service(session)
+                order: list[str] = []
+                original_credential = service._repository.get_owned_credential
+                original_preference = service._repository.get_preference
+                original_budget = service._repository.get_user_budget_policy
+                original_counter = service._repository.get_user_counter
+
+                async def tracked_credential(*args: Any, **kwargs: Any) -> Any:
+                    order.append("credential")
+                    return await original_credential(*args, **kwargs)
+
+                async def tracked_preference(*args: Any, **kwargs: Any) -> Any:
+                    order.append("preference")
+                    return await original_preference(*args, **kwargs)
+
+                async def tracked_budget(*args: Any, **kwargs: Any) -> Any:
+                    order.append("user_budget_policy")
+                    return await original_budget(*args, **kwargs)
+
+                async def tracked_counter(*args: Any, **kwargs: Any) -> Any:
+                    order.append("user_counter")
+                    return await original_counter(*args, **kwargs)
+
+                service._repository.get_owned_credential = tracked_credential  # type: ignore[method-assign]
+                service._repository.get_preference = tracked_preference  # type: ignore[method-assign]
+                service._repository.get_user_budget_policy = tracked_budget  # type: ignore[method-assign]
+                service._repository.get_user_counter = tracked_counter  # type: ignore[method-assign]
+                await service.update_user_preference(
+                    payload=UserPreferenceUpdate(
+                        enabled=True,
+                        default_provider_definition_id=FIXTURE_PROVIDER_ID,
+                        default_model_definition_id=FIXTURE_TEXT_MODEL_ID,
+                        default_credential_id=credential.id,
+                        timeout_ms=30_000,
+                        streaming_enabled=False,
+                        cost_warning_minor_units=800,
+                        budget_per_invocation_minor_units=1_000,
+                        budget_cumulative_minor_units=5_000,
+                        budget_window_seconds=86_400,
+                        expected_revision=1,
+                    ),
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                assert order.index("credential") < order.index("preference")
+                assert order.index("preference") < order.index("user_budget_policy")
+                assert order.index("user_budget_policy") < order.index("user_counter")
+            async with session_factory() as session:
+                service = _phase3a_service(session)
+                pending, _ = await service._create_pending_invocation(
+                    payload=request,
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                with pytest.raises(AdmissionRejectedError):
+                    await service._admit_attempt(
+                        invocation_id=pending.id,
+                        payload=request,
+                        principal=principal,
+                        attempt_number=1,
+                        retry_of_attempt_id=None,
+                    )
+            async with session_factory() as session:
+                service = _phase3a_service(session)
+                await service.update_user_preference(
+                    payload=UserPreferenceUpdate(
+                        enabled=True,
+                        default_provider_definition_id=FIXTURE_PROVIDER_ID,
+                        default_model_definition_id=FIXTURE_TEXT_MODEL_ID,
+                        default_credential_id=credential.id,
+                        timeout_ms=30_000,
+                        streaming_enabled=False,
+                        cost_warning_minor_units=800,
+                        budget_per_invocation_minor_units=1_000,
+                        budget_cumulative_minor_units=10_000,
+                        budget_window_seconds=86_400,
+                        expected_revision=2,
+                    ),
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+            async with session_factory() as session, session.begin():
+                await session.execute(
+                    text(
+                        """
+                            UPDATE user_budget_counters
+                            SET committed_minor_units = 0, limit_minor_units = 10000
+                            WHERE user_id = :user_id
+                            """
+                    ),
+                    {"user_id": user_id},
+                )
+                await session.execute(
+                    text(
+                        """
+                            UPDATE project_budget_counters
+                            SET committed_minor_units = 4990, limit_minor_units = 10000
+                            WHERE project_id = :project_id
+                            """
+                    ),
+                    {"project_id": project_id},
+                )
+            async with session_factory() as session:
+                service = _phase3a_service(session)
+                second = await service.create_credential(
+                    payload=CredentialCreateRequest(
+                        provider_key="fixture_local",
+                        alias="Second ordered credential",
+                        credential=SecretStr(f"fixture-sk-{uuid.uuid4().hex}"),
+                        confirm_save=True,
+                    ),
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                await service.create_grant(
+                    credential_id=second.id,
+                    payload=CredentialGrantRequest(
+                        project_id=project_id,
+                        expected_credential_revision=second.revision,
+                    ),
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                order = []
+                original_credentials = service._repository.lock_owned_credentials
+                original_grants = service._repository.lock_active_grants_for_credentials
+                original_policy = service._repository.get_project_policy
+                original_budget = service._repository.get_project_budget_policy
+                original_counter = service._repository.get_project_counter
+
+                async def tracked_credentials(*args: Any, **kwargs: Any) -> Any:
+                    order.append("credentials")
+                    return await original_credentials(*args, **kwargs)
+
+                async def tracked_grants(*args: Any, **kwargs: Any) -> Any:
+                    order.append("grants")
+                    return await original_grants(*args, **kwargs)
+
+                async def tracked_policy(*args: Any, **kwargs: Any) -> Any:
+                    order.append("project_policy")
+                    return await original_policy(*args, **kwargs)
+
+                async def tracked_project_budget(*args: Any, **kwargs: Any) -> Any:
+                    order.append("project_budget_policy")
+                    return await original_budget(*args, **kwargs)
+
+                async def tracked_project_counter(*args: Any, **kwargs: Any) -> Any:
+                    order.append("project_counter")
+                    return await original_counter(*args, **kwargs)
+
+                service._repository.lock_owned_credentials = tracked_credentials  # type: ignore[method-assign]
+                service._repository.lock_active_grants_for_credentials = tracked_grants  # type: ignore[method-assign]
+                service._repository.get_project_policy = tracked_policy  # type: ignore[method-assign]
+                service._repository.get_project_budget_policy = tracked_project_budget  # type: ignore[method-assign]
+                service._repository.get_project_counter = tracked_project_counter  # type: ignore[method-assign]
+                await service.update_project_policy(
+                    project_id=project_id,
+                    payload=ProjectPolicyUpdate(
+                        enabled=True,
+                        default_provider_definition_id=FIXTURE_PROVIDER_ID,
+                        default_model_definition_id=FIXTURE_TEXT_MODEL_ID,
+                        default_credential_id=credential.id,
+                        provider_allowlist=[FIXTURE_PROVIDER_ID],
+                        model_allowlist=[FIXTURE_TEXT_MODEL_ID],
+                        capability_allowlist=[FIXTURE_TEXT_CAPABILITY_ID],
+                        credential_allowlist=[credential.id, second.id],
+                        per_invocation_limit_minor_units=1_000,
+                        cumulative_limit_minor_units=5_000,
+                        budget_window_seconds=86_400,
+                        allow_unknown_cost=False,
+                        allow_manual_model_id=False,
+                        allow_fallback=False,
+                        require_paid_call_confirmation=True,
+                        expected_revision=1,
+                    ),
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                assert order.index("credentials") < order.index("grants")
+                assert order.index("grants") < order.index("project_policy")
+                assert order.index("project_policy") < order.index("project_budget_policy")
+                assert order.index("project_budget_policy") < order.index("project_counter")
+            async with session_factory() as session:
+                service = _phase3a_service(session)
+                pending, _ = await service._create_pending_invocation(
+                    payload=request,
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                with pytest.raises(AdmissionRejectedError):
+                    await service._admit_attempt(
+                        invocation_id=pending.id,
+                        payload=request,
+                        principal=principal,
+                        attempt_number=1,
+                        retry_of_attempt_id=None,
+                    )
+            async with session_factory() as session:
+                limits = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT
+                                (SELECT limit_minor_units FROM user_budget_counters
+                                 WHERE user_id = :user_id ORDER BY window_start DESC LIMIT 1),
+                                (SELECT limit_minor_units FROM project_budget_counters
+                                 WHERE project_id = :project_id ORDER BY window_start DESC LIMIT 1)
+                            """
+                        ),
+                        {"user_id": user_id, "project_id": project_id},
+                    )
+                ).one()
+                assert limits == (10_000, 5_000)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(exercise())
+
+
+def test_phase3a_idempotency_and_active_attempt_concurrency_are_database_arbitrated(
+    temporary_database: TemporaryDatabase,
+) -> None:
+    temporary_database_url = temporary_database.url
+    temporary_database_name = temporary_database.name
+    user_id = uuid.uuid4()
+    other_user_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    second_project_id = uuid.uuid4()
+    principal_id = "phase3a-concurrency-owner"
+    _run_alembic(temporary_database_url, "upgrade", "head")
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        _seed_phase3a_user_and_project(
+            connection,
+            user_id=user_id,
+            project_id=project_id,
+            principal_id=principal_id,
+        )
+        now = datetime.now(UTC)
+        connection.execute(
+            """
+            INSERT INTO user_accounts (id, display_name, is_active, created_at, updated_at)
+            VALUES (%s, %s, true, %s, %s)
+            """,
+            (other_user_id, "Other idempotency user", now, now),
+        )
+        connection.execute(
+            """
+            INSERT INTO paint_projects (
+                id, owner_principal_id, title, requested_target_style,
+                planning_mode, status, created_at, updated_at
+            ) VALUES (%s, %s, %s, 'cel_shading', 'planning_only_demo', 'DRAFT', %s, %s)
+            """,
+            (second_project_id, principal_id, "Second scope project", now, now),
+        )
+
+    async def exercise() -> None:
+        engine = create_async_engine(
+            temporary_database_url.render_as_string(hide_password=False),
+            pool_pre_ping=True,
+        )
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        principal = _phase3a_principal(user_id, principal_id)
+        other_principal = _phase3a_principal(other_user_id, "phase3a-other-idempotency")
+        try:
+            async with session_factory() as session:
+                service = _phase3a_service(session)
+                credential, request = await _configure_phase3a_owner(
+                    service,
+                    principal=principal,
+                    project_id=project_id,
+                )
+                preview = await service.preview_invocation(
+                    payload=InvocationPreviewRequest.model_validate(
+                        request.model_dump(exclude={"max_attempts", "total_elapsed_time_limit_ms"})
+                    ),
+                    principal=principal,
+                )
+                await service.create_grant(
+                    credential_id=credential.id,
+                    payload=CredentialGrantRequest(
+                        project_id=second_project_id,
+                        expected_credential_revision=credential.revision,
+                    ),
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+            estimate = preview.estimated_cost_minor_units
+            async with session_factory() as session, session.begin():
+                for table, subject_column, subject_id in (
+                    ("user_budget_policies", "user_id", user_id),
+                    ("project_budget_policies", "project_id", project_id),
+                ):
+                    await session.execute(
+                        text(
+                            f"UPDATE {table} SET cumulative_limit_minor_units = :limit "
+                            f"WHERE {subject_column} = :subject_id"
+                        ),
+                        {"limit": estimate, "subject_id": subject_id},
+                    )
+                for table, subject_column, subject_id in (
+                    ("user_budget_counters", "user_id", user_id),
+                    ("project_budget_counters", "project_id", project_id),
+                ):
+                    await session.execute(
+                        text(
+                            f"UPDATE {table} SET limit_minor_units = :limit, "
+                            "committed_minor_units = 0, reserved_minor_units = 0 "
+                            f"WHERE {subject_column} = :subject_id"
+                        ),
+                        {"limit": estimate, "subject_id": subject_id},
+                    )
+            pending_ids = []
+            for _ in range(2):
+                async with session_factory() as session:
+                    service = _phase3a_service(session)
+                    pending, _ = await service._create_pending_invocation(
+                        payload=request,
+                        principal=principal,
+                        idempotency_key=uuid.uuid4(),
+                        request_id=uuid.uuid4(),
+                    )
+                    pending_ids.append(pending.id)
+
+            async def admit(invocation_id: uuid.UUID, attempt_number: int = 1) -> Any:
+                async with session_factory() as session:
+                    service = _phase3a_service(session)
+                    return await service._admit_attempt(
+                        invocation_id=invocation_id,
+                        payload=request,
+                        principal=principal,
+                        attempt_number=attempt_number,
+                        retry_of_attempt_id=None,
+                    )
+
+            reservation_results = await asyncio.gather(
+                *(admit(invocation_id) for invocation_id in pending_ids),
+                return_exceptions=True,
+            )
+            assert sum(isinstance(result, tuple) for result in reservation_results) == 1
+            assert (
+                sum(isinstance(result, AdmissionRejectedError) for result in reservation_results)
+                == 1
+            )
+            async with session_factory() as session, session.begin():
+                await session.execute(
+                    text(
+                        """
+                            UPDATE budget_reservations
+                            SET state = 'released', released_at = now(), revision = revision + 1
+                            WHERE state = 'reserved'
+                            """
+                    )
+                )
+                await session.execute(
+                    text(
+                        """
+                            UPDATE user_budget_counters
+                            SET limit_minor_units = 10000, reserved_minor_units = 0
+                            WHERE user_id = :user_id
+                            """
+                    ),
+                    {"user_id": user_id},
+                )
+                await session.execute(
+                    text(
+                        """
+                            UPDATE project_budget_counters
+                            SET limit_minor_units = 10000, reserved_minor_units = 0
+                            WHERE project_id = :project_id
+                            """
+                    ),
+                    {"project_id": project_id},
+                )
+                await session.execute(
+                    text(
+                        "UPDATE user_budget_policies SET cumulative_limit_minor_units = 10000 "
+                        "WHERE user_id = :user_id"
+                    ),
+                    {"user_id": user_id},
+                )
+                await session.execute(
+                    text(
+                        "UPDATE project_budget_policies "
+                        "SET cumulative_limit_minor_units = 10000 "
+                        "WHERE project_id = :project_id"
+                    ),
+                    {"project_id": project_id},
+                )
+            async with session_factory() as session:
+                service = _phase3a_service(session)
+                active_pending, _ = await service._create_pending_invocation(
+                    payload=request,
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+            active_results = await asyncio.gather(
+                admit(active_pending.id, 1),
+                admit(active_pending.id, 2),
+                return_exceptions=True,
+            )
+            assert sum(isinstance(result, tuple) for result in active_results) == 1
+            assert sum(isinstance(result, AIConflictError) for result in active_results) == 1
+            async with session_factory() as session:
+                assert (
+                    await session.execute(
+                        text("SELECT count(*) FROM invocation_attempts WHERE invocation_id = :id"),
+                        {"id": active_pending.id},
+                    )
+                ).scalar_one() == 1
+
+            projectless_request = request.model_copy(
+                update={
+                    "project_id": None,
+                    "credential_id": None,
+                    "temporary_credential": SecretStr(f"fixture-sk-{uuid.uuid4().hex}"),
+                }
+            )
+            duplicate_key = uuid.uuid4()
+
+            async def create_pending(
+                actor: PrincipalContext,
+                payload: InvocationCreateRequest,
+                key: uuid.UUID,
+            ) -> tuple[uuid.UUID, bool]:
+                async with session_factory() as session:
+                    service = _phase3a_service(session)
+                    invocation, replayed = await service._create_pending_invocation(
+                        payload=payload,
+                        principal=actor,
+                        idempotency_key=key,
+                        request_id=uuid.uuid4(),
+                    )
+                    return invocation.id, replayed
+
+            duplicate_results = await asyncio.gather(
+                create_pending(principal, projectless_request, duplicate_key),
+                create_pending(principal, projectless_request, duplicate_key),
+            )
+            assert duplicate_results[0][0] == duplicate_results[1][0]
+            assert {result[1] for result in duplicate_results} == {False, True}
+            conflicting_request = projectless_request.model_copy(
+                update={
+                    "payload": projectless_request.payload.model_copy(
+                        update={"fixture_input": "different canonical payload"}
+                    )
+                }
+            )
+            with pytest.raises(AIIdempotencyConflictError):
+                await create_pending(principal, conflicting_request, duplicate_key)
+            other_id, other_replayed = await create_pending(
+                other_principal,
+                projectless_request,
+                duplicate_key,
+            )
+            assert other_replayed is False
+            assert other_id != duplicate_results[0][0]
+            cross_project_key = uuid.uuid4()
+            first_project_id, _ = await create_pending(principal, request, cross_project_key)
+            second_project_request = request.model_copy(update={"project_id": second_project_id})
+            second_scope_id, _ = await create_pending(
+                principal,
+                second_project_request,
+                cross_project_key,
+            )
+            assert first_project_id != second_scope_id
+        finally:
+            await engine.dispose()
+
+    asyncio.run(exercise())
+
+
+def test_phase3a_cancel_and_completion_commit_order_selects_one_terminal_winner(
+    temporary_database: TemporaryDatabase,
+) -> None:
+    temporary_database_url = temporary_database.url
+    temporary_database_name = temporary_database.name
+    user_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    principal_id = "phase3a-cancel-owner"
+    _run_alembic(temporary_database_url, "upgrade", "head")
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        _seed_phase3a_user_and_project(
+            connection,
+            user_id=user_id,
+            project_id=project_id,
+            principal_id=principal_id,
+        )
+
+    async def exercise() -> None:
+        engine = create_async_engine(
+            temporary_database_url.render_as_string(hide_password=False),
+            pool_pre_ping=True,
+        )
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        adapter = FixtureProviderAdapter()
+        principal = _phase3a_principal(user_id, principal_id)
+        try:
+            async with session_factory() as session:
+                service = _phase3a_service(session, adapter=adapter)
+                _, request = await _configure_phase3a_owner(
+                    service,
+                    principal=principal,
+                    project_id=project_id,
+                )
+
+            async def prepare_running() -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, Any]:
+                async with session_factory() as session:
+                    service = _phase3a_service(session, adapter=adapter)
+                    invocation, _ = await service._create_pending_invocation(
+                        payload=request,
+                        principal=principal,
+                        idempotency_key=uuid.uuid4(),
+                        request_id=uuid.uuid4(),
+                    )
+                    attempt_id, reservation_id, secret, _ = await service._admit_attempt(
+                        invocation_id=invocation.id,
+                        payload=request,
+                        principal=principal,
+                        attempt_number=1,
+                        retry_of_attempt_id=None,
+                    )
+                    assert await service._commit_dispatch(
+                        invocation_id=invocation.id,
+                        attempt_id=attempt_id,
+                        reservation_id=reservation_id,
+                    )
+                    result = adapter.invoke(
+                        request.payload.model_dump(mode="json"),
+                        secret,
+                        scenario=request.payload.scenario,
+                    )
+                    return invocation.id, attempt_id, reservation_id, result
+
+            cancel_first = await prepare_running()
+            async with session_factory() as session:
+                service = _phase3a_service(session, adapter=adapter)
+                cancel_response = await service.cancel_invocation(
+                    invocation_id=cancel_first[0],
+                    principal=principal,
+                    request_id=uuid.uuid4(),
+                    idempotency_key=uuid.uuid4(),
+                )
+                assert cancel_response.status == "running"
+            async with session_factory() as session:
+                service = _phase3a_service(session, adapter=adapter)
+                assert (
+                    await service._terminalize_attempt(
+                        invocation_id=cancel_first[0],
+                        attempt_id=cancel_first[1],
+                        reservation_id=cancel_first[2],
+                        principal=principal,
+                        request_id=uuid.uuid4(),
+                        result=cancel_first[3],
+                        error=None,
+                        can_retry=False,
+                    )
+                    is False
+                )
+            async with session_factory() as session:
+                cancel_winner = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT status, final_attempt_id, output_reference
+                            FROM invocation_requests WHERE id = :id
+                            """
+                        ),
+                        {"id": cancel_first[0]},
+                    )
+                ).one()
+                assert cancel_winner == ("cancelled", None, None)
+                assert (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT count(*) FROM ai_invocation_events
+                            WHERE invocation_id = :id AND event_type = 'late_result_received'
+                            """
+                        ),
+                        {"id": cancel_first[0]},
+                    )
+                ).scalar_one() == 1
+                assert (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT count(*) FROM ai_cost_ledger
+                            WHERE invocation_id = :id AND source = 'late_fixture_reconciliation'
+                            """
+                        ),
+                        {"id": cancel_first[0]},
+                    )
+                ).scalar_one() == 1
+
+            completion_first = await prepare_running()
+            async with session_factory() as session:
+                service = _phase3a_service(session, adapter=adapter)
+                assert (
+                    await service._terminalize_attempt(
+                        invocation_id=completion_first[0],
+                        attempt_id=completion_first[1],
+                        reservation_id=completion_first[2],
+                        principal=principal,
+                        request_id=uuid.uuid4(),
+                        result=completion_first[3],
+                        error=None,
+                        can_retry=False,
+                    )
+                    is False
+                )
+            async with session_factory() as session:
+                service = _phase3a_service(session, adapter=adapter)
+                completion_winner = await service.cancel_invocation(
+                    invocation_id=completion_first[0],
+                    principal=principal,
+                    request_id=uuid.uuid4(),
+                    idempotency_key=uuid.uuid4(),
+                )
+                assert completion_winner.status == "succeeded"
+                assert completion_winner.final_attempt_id == completion_first[1]
+        finally:
+            await engine.dispose()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("winning_change", ("release", "dispatch_evidence"))
+def test_phase3a_recovery_refreshes_locked_current_state_after_lock_wait(
+    temporary_database: TemporaryDatabase,
+    winning_change: str,
+) -> None:
+    temporary_database_url = temporary_database.url
+    temporary_database_name = temporary_database.name
+    connection_kwargs = _connection_kwargs(temporary_database_url, temporary_database_name)
+    user_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    principal_id = f"phase3a-locked-recovery-{winning_change}"
+    _run_alembic(temporary_database_url, "upgrade", "head")
+    with (
+        psycopg.connect(**connection_kwargs) as connection,
+        connection.transaction(),
+    ):
+        _seed_phase3a_user_and_project(
+            connection,
+            user_id=user_id,
+            project_id=project_id,
+            principal_id=principal_id,
+        )
+
+    adapter = FixtureProviderAdapter()
+    original_invoke = adapter.invoke
+    adapter_calls = 0
+
+    def counted_invoke(*args: Any, **kwargs: Any) -> Any:
+        nonlocal adapter_calls
+        adapter_calls += 1
+        return original_invoke(*args, **kwargs)
+
+    adapter.invoke = counted_invoke  # type: ignore[method-assign]
+    principal = _phase3a_principal(user_id, principal_id)
+
+    async def prepare_admission() -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+        engine = create_async_engine(
+            temporary_database_url.render_as_string(hide_password=False),
+            pool_pre_ping=True,
+        )
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with session_factory() as session:
+                service = _phase3a_service(session, adapter=adapter)
+                _, request = await _configure_phase3a_owner(
+                    service,
+                    principal=principal,
+                    project_id=project_id,
+                )
+                invocation, _ = await service._create_pending_invocation(
+                    payload=request,
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                attempt_id, reservation_id, _, _ = await service._admit_attempt(
+                    invocation_id=invocation.id,
+                    payload=request,
+                    principal=principal,
+                    attempt_number=1,
+                    retry_of_attempt_id=None,
+                )
+                return invocation.id, attempt_id, reservation_id
+        finally:
+            await engine.dispose()
+
+    invocation_id, attempt_id, reservation_id = asyncio.run(prepare_admission())
+    with (
+        psycopg.connect(**connection_kwargs) as connection,
+        connection.transaction(),
+    ):
+        connection.execute(
+            """
+            UPDATE budget_reservations
+            SET admission_expires_at = now() - interval '1 second'
+            WHERE id = %s
+            """,
+            (reservation_id,),
+        )
+        reservation_context = connection.execute(
+            """
+            SELECT user_counter_id, project_counter_id, reserved_amount
+            FROM budget_reservations WHERE id = %s
+            """,
+            (reservation_id,),
+        ).fetchone()
+        assert reservation_context is not None
+        user_counter_id, project_counter_id, reserved_amount = reservation_context
+        assert project_counter_id is not None
+        counters_before = connection.execute(
+            """
+            SELECT u.reserved_minor_units, p.reserved_minor_units
+            FROM user_budget_counters u
+            JOIN project_budget_counters p ON p.id = %s
+            WHERE u.id = %s
+            """,
+            (project_counter_id, user_counter_id),
+        ).fetchone()
+        assert counters_before is not None
+
+    recovery_ready = Event()
+    lock_wait_observed = Event()
+    recovery_result: Future[int] = Future()
+    recovery_backend_pid: dict[str, int] = {}
+
+    def recovery_worker() -> None:
+        async def run_recovery() -> int:
+            engine = create_async_engine(
+                temporary_database_url.render_as_string(hide_password=False),
+                pool_pre_ping=True,
+            )
+            session_factory = async_sessionmaker(engine, expire_on_commit=False)
+            try:
+                async with session_factory() as session:
+                    backend_pid = (
+                        await session.execute(text("SELECT pg_backend_pid()"))
+                    ).scalar_one()
+                    await session.rollback()
+                    recovery_backend_pid["value"] = backend_pid
+                    recovery_ready.set()
+                    service = _phase3a_service(session, adapter=adapter)
+                    return await service.recover_expired_admissions(limit=20)
+            finally:
+                await engine.dispose()
+
+        try:
+            recovery_result.set_result(asyncio.run(run_recovery()))
+        except BaseException as error:
+            recovery_ready.set()
+            recovery_result.set_exception(error)
+
+    worker = Thread(target=recovery_worker, name=f"phase3a-recovery-{winning_change}")
+    blocker_error: BaseException | None = None
+    blocker_pid = -1
+    worker_started = False
+    try:
+        with (
+            psycopg.connect(**connection_kwargs) as blocker_connection,
+            blocker_connection.transaction(),
+        ):
+            blocker_pid = blocker_connection.execute("SELECT pg_backend_pid()").fetchone()[0]
+            blocker_connection.execute(
+                "SELECT id FROM user_accounts WHERE id = %s FOR UPDATE",
+                (user_id,),
+            )
+            blocker_connection.execute(
+                "SELECT id FROM paint_projects WHERE id = %s FOR UPDATE",
+                (project_id,),
+            )
+            blocker_connection.execute(
+                "SELECT id FROM user_budget_counters WHERE id = %s FOR UPDATE",
+                (user_counter_id,),
+            )
+            blocker_connection.execute(
+                "SELECT id FROM project_budget_counters WHERE id = %s FOR UPDATE",
+                (project_counter_id,),
+            )
+            blocker_connection.execute(
+                "SELECT id FROM invocation_requests WHERE id = %s FOR UPDATE",
+                (invocation_id,),
+            )
+            blocker_connection.execute(
+                "SELECT id FROM invocation_attempts WHERE id = %s FOR UPDATE",
+                (attempt_id,),
+            )
+            blocker_connection.execute(
+                "SELECT id FROM budget_reservations WHERE id = %s FOR UPDATE",
+                (reservation_id,),
+            )
+            if winning_change == "release":
+                blocker_connection.execute(
+                    """
+                        UPDATE user_budget_counters
+                        SET reserved_minor_units = reserved_minor_units - %s,
+                            revision = revision + 1
+                        WHERE id = %s
+                        """,
+                    (reserved_amount, user_counter_id),
+                )
+                blocker_connection.execute(
+                    """
+                        UPDATE project_budget_counters
+                        SET reserved_minor_units = reserved_minor_units - %s,
+                            revision = revision + 1
+                        WHERE id = %s
+                        """,
+                    (reserved_amount, project_counter_id),
+                )
+                blocker_connection.execute(
+                    """
+                        UPDATE budget_reservations
+                        SET state = 'released', released_at = now(), revision = revision + 1
+                        WHERE id = %s
+                        """,
+                    (reservation_id,),
+                )
+                blocker_connection.execute(
+                    """
+                        UPDATE invocation_attempts
+                        SET status = 'failed', final_error_category = 'dispatch_not_started',
+                            terminal_at = now(), revision = revision + 1
+                        WHERE id = %s
+                        """,
+                    (attempt_id,),
+                )
+                blocker_connection.execute(
+                    """
+                        UPDATE invocation_requests
+                        SET status = 'failed', final_attempt_id = NULL,
+                            final_error_category = 'dispatch_not_started',
+                            terminal_at = now(), updated_at = now(), revision = revision + 1
+                        WHERE id = %s
+                        """,
+                    (invocation_id,),
+                )
+                blocker_connection.execute(
+                    """
+                        INSERT INTO ai_invocation_events (
+                            id, invocation_id, attempt_id, event_type,
+                            from_status, to_status, safe_metadata, created_at
+                        ) VALUES (
+                            %s, %s, %s, 'admission_recovered',
+                            'admitted', 'failed', '{}'::jsonb, now()
+                        )
+                        """,
+                    (uuid.uuid4(), invocation_id, attempt_id),
+                )
+            else:
+                blocker_connection.execute(
+                    """
+                        UPDATE budget_reservations
+                        SET dispatch_committed_at = now(), revision = revision + 1
+                        WHERE id = %s
+                        """,
+                    (reservation_id,),
+                )
+
+            worker.start()
+            worker_started = True
+            assert recovery_ready.wait(timeout=10), "recovery worker did not expose its PID"
+            if recovery_result.done():
+                recovery_result.result()
+            waiter_pid = recovery_backend_pid["value"]
+            assert waiter_pid != blocker_pid
+            deadline = monotonic() + 10
+            with psycopg.connect(**connection_kwargs, autocommit=True) as observer_connection:
+                while monotonic() < deadline:
+                    wait_state = observer_connection.execute(
+                        """
+                            SELECT wait_event_type, pg_blocking_pids(pid), query
+                            FROM pg_stat_activity WHERE pid = %s
+                            """,
+                        (waiter_pid,),
+                    ).fetchone()
+                    if (
+                        wait_state is not None
+                        and wait_state[0] == "Lock"
+                        and blocker_pid in wait_state[1]
+                        and "user_accounts" in wait_state[2]
+                        and "FOR UPDATE" in wait_state[2]
+                    ):
+                        lock_wait_observed.set()
+                        break
+                    if recovery_result.done():
+                        recovery_result.result()
+                        raise AssertionError("recovery completed before the locked handoff")
+                    sleep(0.01)
+            assert lock_wait_observed.is_set(), "PostgreSQL row-lock wait was not observed"
+            assert not recovery_result.done()
+    except BaseException as error:
+        blocker_error = error
+
+    worker_result: int | None = None
+    worker_error: BaseException | None = None
+    if worker_started:
+        try:
+            worker_result = recovery_result.result(timeout=10)
+        except BaseException as error:
+            worker_error = error
+        finally:
+            worker.join(timeout=10)
+    if blocker_error is not None and worker_error is not None:
+        raise BaseExceptionGroup(
+            "lock-holder proof and recovery worker both failed",
+            [blocker_error, worker_error],
+        )
+    if blocker_error is not None:
+        raise blocker_error
+    if worker_error is not None:
+        raise worker_error
+    assert not worker.is_alive()
+    assert worker_result == 0
+    assert adapter_calls == 0
+
+    async def recover_again() -> int:
+        engine = create_async_engine(
+            temporary_database_url.render_as_string(hide_password=False),
+            pool_pre_ping=True,
+        )
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with session_factory() as session:
+                service = _phase3a_service(session, adapter=adapter)
+                return await service.recover_expired_admissions(limit=20)
+        finally:
+            await engine.dispose()
+
+    assert asyncio.run(recover_again()) == 0
+    assert adapter_calls == 0
+    with psycopg.connect(**connection_kwargs) as connection:
+        final_state = connection.execute(
+            """
+            SELECT r.state, r.released_at, r.dispatch_committed_at,
+                   a.status, a.final_error_category, a.dispatched_at,
+                   i.status, i.final_error_category,
+                   u.reserved_minor_units, p.reserved_minor_units
+            FROM budget_reservations r
+            JOIN invocation_attempts a ON a.id = r.attempt_id
+            JOIN invocation_requests i ON i.id = r.invocation_id
+            JOIN user_budget_counters u ON u.id = r.user_counter_id
+            JOIN project_budget_counters p ON p.id = r.project_counter_id
+            WHERE r.id = %s
+            """,
+            (reservation_id,),
+        ).fetchone()
+        assert final_state is not None
+        event_counts = dict(
+            connection.execute(
+                """
+                SELECT event_type, count(*)
+                FROM ai_invocation_events
+                WHERE invocation_id = %s
+                  AND event_type IN ('admission_recovered', 'recovery_reconciliation_required')
+                GROUP BY event_type
+                """,
+                (invocation_id,),
+            ).fetchall()
+        )
+        ledger_counts = connection.execute(
+            """
+            SELECT
+                (SELECT count(*) FROM ai_usage_ledger WHERE attempt_id = %s),
+                (SELECT count(*) FROM ai_cost_ledger WHERE attempt_id = %s)
+            """,
+            (attempt_id, attempt_id),
+        ).fetchone()
+        assert ledger_counts == (0, 0)
+        if winning_change == "release":
+            assert final_state[:8] == (
+                "released",
+                final_state[1],
+                None,
+                "failed",
+                "dispatch_not_started",
+                None,
+                "failed",
+                "dispatch_not_started",
+            )
+            assert final_state[1] is not None
+            assert final_state[8:] == (
+                counters_before[0] - reserved_amount,
+                counters_before[1] - reserved_amount,
+            )
+            assert event_counts == {"admission_recovered": 1}
+        else:
+            assert final_state[:8] == (
+                "reconciliation_required",
+                None,
+                final_state[2],
+                "outcome_unknown",
+                "dispatch_evidence_present",
+                None,
+                "outcome_unknown",
+                "dispatch_evidence_present",
+            )
+            assert final_state[2] is not None
+            assert final_state[8:] == counters_before
+            assert event_counts == {"recovery_reconciliation_required": 1}
+
+
+def test_phase3a_orphan_recovery_requires_proof_dispatch_never_started(
+    temporary_database: TemporaryDatabase,
+) -> None:
+    temporary_database_url = temporary_database.url
+    temporary_database_name = temporary_database.name
+    user_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    principal_id = "phase3a-recovery-owner"
+    _run_alembic(temporary_database_url, "upgrade", "head")
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        _seed_phase3a_user_and_project(
+            connection,
+            user_id=user_id,
+            project_id=project_id,
+            principal_id=principal_id,
+        )
+
+    async def exercise() -> None:
+        engine = create_async_engine(
+            temporary_database_url.render_as_string(hide_password=False),
+            pool_pre_ping=True,
+        )
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        adapter = FixtureProviderAdapter()
+        original_invoke = adapter.invoke
+        adapter_calls = 0
+
+        def counted_invoke(*args: Any, **kwargs: Any) -> Any:
+            nonlocal adapter_calls
+            adapter_calls += 1
+            return original_invoke(*args, **kwargs)
+
+        adapter.invoke = counted_invoke  # type: ignore[method-assign]
+        principal = _phase3a_principal(user_id, principal_id)
+        try:
+            async with session_factory() as session:
+                service = _phase3a_service(session, adapter=adapter)
+                _, request = await _configure_phase3a_owner(
+                    service,
+                    principal=principal,
+                    project_id=project_id,
+                    cumulative_limit_minor_units=100_000,
+                )
+            rows: list[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = []
+            for _ in range(8):
+                async with session_factory() as session:
+                    service = _phase3a_service(session, adapter=adapter)
+                    invocation, _ = await service._create_pending_invocation(
+                        payload=request,
+                        principal=principal,
+                        idempotency_key=uuid.uuid4(),
+                        request_id=uuid.uuid4(),
+                    )
+                    attempt_id, reservation_id, _, _ = await service._admit_attempt(
+                        invocation_id=invocation.id,
+                        payload=request,
+                        principal=principal,
+                        attempt_number=1,
+                        retry_of_attempt_id=None,
+                    )
+                    rows.append((invocation.id, attempt_id, reservation_id))
+            async with session_factory() as session, session.begin():
+                await session.execute(
+                    text(
+                        """
+                            UPDATE budget_reservations
+                            SET admission_expires_at = now() - interval '1 second'
+                            WHERE id = ANY(:ids)
+                            """
+                    ),
+                    {"ids": [row[2] for row in rows]},
+                )
+                await session.execute(
+                    text(
+                        """
+                            UPDATE budget_reservations
+                            SET dispatch_committed_at = now()
+                            WHERE id = :id
+                            """
+                    ),
+                    {"id": rows[1][2]},
+                )
+                await session.execute(
+                    text(
+                        """
+                            UPDATE invocation_attempts
+                            SET safe_provider_metadata = safe_provider_metadata ||
+                                '{"provider_request_id":"fixture-request-evidence"}'::jsonb
+                            WHERE id = :id
+                            """
+                    ),
+                    {"id": rows[2][1]},
+                )
+                await session.execute(
+                    text(
+                        """
+                            INSERT INTO ai_usage_ledger (
+                                id, invocation_id, attempt_id, provider_definition_id,
+                                model_definition_id, source, canonical_sequence,
+                                input_units, output_units, safe_metadata, created_at
+                            ) VALUES (
+                                :id, :invocation_id, :attempt_id, :provider_id,
+                                :model_id, 'recovery_test', 1, 1, 1, '{}'::jsonb, now()
+                            )
+                            """
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "invocation_id": rows[3][0],
+                        "attempt_id": rows[3][1],
+                        "provider_id": FIXTURE_PROVIDER_ID,
+                        "model_id": FIXTURE_TEXT_MODEL_ID,
+                    },
+                )
+                await session.execute(
+                    text(
+                        """
+                            INSERT INTO ai_cost_ledger (
+                                id, invocation_id, attempt_id, provider_definition_id,
+                                model_definition_id, source, canonical_sequence,
+                                amount_minor_units, currency, created_at
+                            ) VALUES (
+                                :id, :invocation_id, :attempt_id, :provider_id,
+                                :model_id, 'recovery_test', 1, 1, 'FIXTURE_CREDITS', now()
+                            )
+                            """
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "invocation_id": rows[4][0],
+                        "attempt_id": rows[4][1],
+                        "provider_id": FIXTURE_PROVIDER_ID,
+                        "model_id": FIXTURE_TEXT_MODEL_ID,
+                    },
+                )
+                await session.execute(
+                    text(
+                        """
+                            INSERT INTO ai_invocation_events (
+                                id, invocation_id, attempt_id, event_type,
+                                from_status, to_status, safe_metadata, created_at
+                            ) VALUES (
+                                :id, :invocation_id, :attempt_id, 'dispatch_committed',
+                                'admitted', 'running', '{}'::jsonb, now()
+                            )
+                            """
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "invocation_id": rows[5][0],
+                        "attempt_id": rows[5][1],
+                    },
+                )
+                await session.execute(
+                    text(
+                        """
+                            UPDATE invocation_attempts
+                            SET dispatched_at = now()
+                            WHERE id = :id
+                            """
+                    ),
+                    {"id": rows[6][1]},
+                )
+                await session.execute(
+                    text(
+                        """
+                            UPDATE budget_reservations
+                            SET invocation_id = :other_invocation_id
+                            WHERE id = :id
+                            """
+                    ),
+                    {"other_invocation_id": rows[0][0], "id": rows[7][2]},
+                )
+            async with session_factory() as session:
+                reserved_before = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT reserved_minor_units
+                            FROM user_budget_counters
+                            WHERE user_id = :user_id
+                            """
+                        ),
+                        {"user_id": user_id},
+                    )
+                ).scalar_one()
+                project_reserved_before = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT reserved_minor_units
+                            FROM project_budget_counters
+                            WHERE project_id = :project_id
+                            """
+                        ),
+                        {"project_id": project_id},
+                    )
+                ).scalar_one()
+                clean_reserved_amount = (
+                    await session.execute(
+                        text("SELECT reserved_amount FROM budget_reservations WHERE id = :id"),
+                        {"id": rows[0][2]},
+                    )
+                ).scalar_one()
+                service = _phase3a_service(session, adapter=adapter)
+                assert await service.recover_expired_admissions(limit=20) == 1
+                assert adapter_calls == 0
+            async with session_factory() as session:
+                reserved_after_first_recovery = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT reserved_minor_units
+                            FROM user_budget_counters
+                            WHERE user_id = :user_id
+                            """
+                        ),
+                        {"user_id": user_id},
+                    )
+                ).scalar_one()
+                assert reserved_after_first_recovery == reserved_before - clean_reserved_amount
+                project_reserved_after_first_recovery = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT reserved_minor_units
+                            FROM project_budget_counters
+                            WHERE project_id = :project_id
+                            """
+                        ),
+                        {"project_id": project_id},
+                    )
+                ).scalar_one()
+                assert (
+                    project_reserved_after_first_recovery
+                    == project_reserved_before - clean_reserved_amount
+                )
+                service = _phase3a_service(session, adapter=adapter)
+                assert await service.recover_expired_admissions(limit=20) == 0
+                assert adapter_calls == 0
+            async with session_factory() as session:
+                clean = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT r.state, a.status, a.final_error_category,
+                                   i.status, i.final_attempt_id
+                            FROM budget_reservations r
+                            JOIN invocation_attempts a ON a.id = r.attempt_id
+                            JOIN invocation_requests i ON i.id = a.invocation_id
+                            WHERE r.id = :id
+                            """
+                        ),
+                        {"id": rows[0][2]},
+                    )
+                ).one()
+                assert clean == ("released", "failed", "dispatch_not_started", "failed", None)
+                protected_states = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT id, state FROM budget_reservations
+                            WHERE id = ANY(:ids) ORDER BY id
+                            """
+                        ),
+                        {"ids": [row[2] for row in rows[1:7]]},
+                    )
+                ).all()
+                assert {state for _, state in protected_states} == {"reconciliation_required"}
+                dispatched_at_case = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT r.state, r.released_at, a.status,
+                                   a.final_error_category, a.dispatched_at
+                            FROM budget_reservations r
+                            JOIN invocation_attempts a ON a.id = r.attempt_id
+                            WHERE r.id = :id
+                            """
+                        ),
+                        {"id": rows[6][2]},
+                    )
+                ).one()
+                assert dispatched_at_case[:4] == (
+                    "reconciliation_required",
+                    None,
+                    "outcome_unknown",
+                    "dispatch_evidence_present",
+                )
+                assert dispatched_at_case.dispatched_at is not None
+                mismatch_state = (
+                    await session.execute(
+                        text("SELECT state FROM budget_reservations WHERE id = :id"),
+                        {"id": rows[7][2]},
+                    )
+                ).scalar_one()
+                assert mismatch_state == "reserved"
+                reserved_after_second_recovery = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT reserved_minor_units
+                            FROM user_budget_counters
+                            WHERE user_id = :user_id
+                            """
+                        ),
+                        {"user_id": user_id},
+                    )
+                ).scalar_one()
+                assert reserved_after_second_recovery == reserved_after_first_recovery
+                project_reserved_after_second_recovery = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT reserved_minor_units
+                            FROM project_budget_counters
+                            WHERE project_id = :project_id
+                            """
+                        ),
+                        {"project_id": project_id},
+                    )
+                ).scalar_one()
+                assert (
+                    project_reserved_after_second_recovery == project_reserved_after_first_recovery
+                )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(exercise())
+
+
+def test_phase3a_fixture_seed_downgrade_refuses_references_then_deletes_exact_seed(
+    temporary_database: TemporaryDatabase,
+) -> None:
+    temporary_database_url = temporary_database.url
+    temporary_database_name = temporary_database.name
+    user_id = uuid.uuid4()
+    preference_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    policy_id = uuid.uuid4()
+    _run_alembic(temporary_database_url, "upgrade", "head")
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        connection.execute(
+            "INSERT INTO user_accounts (id, display_name) VALUES (%s, %s)",
+            (user_id, "Fixture downgrade guard"),
+        )
+        connection.execute(
+            """
+            INSERT INTO user_provider_preferences (
+                id, user_id, enabled, default_provider_definition_id,
+                timeout_ms, streaming_enabled, revision, updated_at
+            ) VALUES (%s, %s, false, %s, 30000, false, 1, now())
+            """,
+            (preference_id, user_id, FIXTURE_PROVIDER_ID),
+        )
+
+    with pytest.raises(AssertionError, match="fixture Registry identities are referenced"):
+        _run_alembic(temporary_database_url, "downgrade", "3a03e9a1d6f4")
+    assert "3a04fab2e7a5 (head)" in _run_alembic(temporary_database_url, "current").stdout
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        assert connection.execute(
+            "SELECT default_provider_definition_id FROM user_provider_preferences WHERE id = %s",
+            (preference_id,),
+        ).fetchone() == (FIXTURE_PROVIDER_ID,)
+        connection.execute("DELETE FROM user_provider_preferences WHERE id = %s", (preference_id,))
+
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        connection.execute(
+            """
+            INSERT INTO user_provider_preferences (
+                id, user_id, enabled, default_model_definition_id,
+                timeout_ms, streaming_enabled, revision, updated_at
+            ) VALUES (%s, %s, false, %s, 30000, false, 1, now())
+            """,
+            (preference_id, user_id, FIXTURE_TEXT_MODEL_ID),
+        )
+    with pytest.raises(AssertionError, match="fixture Registry identities are referenced"):
+        _run_alembic(temporary_database_url, "downgrade", "3a03e9a1d6f4")
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        connection.execute("DELETE FROM user_provider_preferences WHERE id = %s", (preference_id,))
+        now = datetime.now(UTC)
+        connection.execute(
+            """
+            INSERT INTO paint_projects (
+                id, owner_principal_id, title, requested_target_style,
+                planning_mode, status, created_at, updated_at
+            ) VALUES (%s, 'fixture-downgrade-owner', 'Capability guard',
+                      'cel_shading', 'planning_only_demo', 'DRAFT', %s, %s)
+            """,
+            (project_id, now, now),
+        )
+        connection.execute(
+            """
+            INSERT INTO project_model_policies (
+                id, project_id, enabled, per_invocation_limit_minor_units,
+                currency, allow_unknown_cost, unknown_cost_reservation_minor_units,
+                allow_manual_model_id, allow_fallback, require_paid_call_confirmation,
+                updated_by_user_id, revision, updated_at
+            ) VALUES (%s, %s, false, 1, 'FIXTURE_CREDITS', false, 0,
+                      false, false, true, %s, 1, now())
+            """,
+            (policy_id, project_id, user_id),
+        )
+        connection.execute(
+            """
+            INSERT INTO project_model_policy_capabilities (
+                id, project_model_policy_id, capability_definition_id, created_at
+            ) VALUES (%s, %s, %s, now())
+            """,
+            (uuid.uuid4(), policy_id, FIXTURE_TEXT_CAPABILITY_ID),
+        )
+    with pytest.raises(AssertionError, match="fixture Registry identities are referenced"):
+        _run_alembic(temporary_database_url, "downgrade", "3a03e9a1d6f4")
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        connection.execute(
+            "DELETE FROM project_model_policy_capabilities WHERE project_model_policy_id = %s",
+            (policy_id,),
+        )
+        connection.execute("DELETE FROM project_model_policies WHERE id = %s", (policy_id,))
+        connection.execute("DELETE FROM paint_projects WHERE id = %s", (project_id,))
+
+    _run_alembic(temporary_database_url, "downgrade", "3a03e9a1d6f4")
+    assert "3a03e9a1d6f4" in _run_alembic(temporary_database_url, "current").stdout
+    with psycopg.connect(
+        **_connection_kwargs(temporary_database_url, temporary_database_name)
+    ) as connection:
+        assert connection.execute("SELECT count(*) FROM provider_definitions").fetchone() == (0,)
+        assert connection.execute("SELECT count(*) FROM model_definitions").fetchone() == (0,)
+        assert connection.execute("SELECT count(*) FROM capability_definitions").fetchone() == (0,)
+
+
+def test_phase3a_fixture_seed_downgrade_refuses_non_seed_model_before_delete(
+    temporary_database: TemporaryDatabase,
+) -> None:
+    temporary_database_url = temporary_database.url
+    temporary_database_name = temporary_database.name
+    extra_model_id = uuid.uuid4()
+    _run_alembic(temporary_database_url, "upgrade", "head")
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        connection.execute(
+            """
+            INSERT INTO model_definitions (
+                id, provider_definition_id, provider_key, model_id, display_name,
+                catalog_source, catalog_fresh_at, catalog_status, status,
+                context_window, supports_structured_output, supports_vision,
+                pricing_minor_units, pricing_currency, revision, created_at, updated_at
+            ) VALUES (
+                %s, %s, 'fixture_local', %s, 'Synthetic non-seed fixture model',
+                'synthetic_test', now(), 'bundled', 'active', 1024,
+                false, false, 1, 'FIXTURE_CREDITS', 1, now(), now()
+            )
+            """,
+            (extra_model_id, FIXTURE_PROVIDER_ID, f"fixture-extra-{extra_model_id.hex}"),
+        )
+
+    with pytest.raises(
+        AssertionError,
+        match="fixture provider still has non-seed model references",
+    ) as downgrade_error:
+        _run_alembic(temporary_database_url, "downgrade", "3a03e9a1d6f4")
+    assert "ForeignKeyViolation" not in str(downgrade_error.value)
+    assert "3a04fab2e7a5 (head)" in _run_alembic(temporary_database_url, "current").stdout
+    with psycopg.connect(
+        **_connection_kwargs(temporary_database_url, temporary_database_name)
+    ) as connection:
+        assert connection.execute(
+            """
+            SELECT provider_definition_id FROM model_definitions WHERE id = %s
+            """,
+            (extra_model_id,),
+        ).fetchone() == (FIXTURE_PROVIDER_ID,)
+        assert {
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT id FROM model_definitions
+                WHERE id = ANY(%s)
+                """,
+                ([FIXTURE_TEXT_MODEL_ID, FIXTURE_VISION_MODEL_ID],),
+            ).fetchall()
+        } == {
+            FIXTURE_TEXT_MODEL_ID,
+            FIXTURE_VISION_MODEL_ID,
+        }
+        assert connection.execute(
+            "SELECT count(*) FROM provider_definitions WHERE id = %s",
+            (FIXTURE_PROVIDER_ID,),
+        ).fetchone() == (1,)
+        assert connection.execute(
+            "SELECT count(*) FROM provider_capabilities WHERE provider_definition_id = %s",
+            (FIXTURE_PROVIDER_ID,),
+        ).fetchone() == (3,)
+        assert connection.execute(
+            """
+            SELECT count(*) FROM model_capabilities
+            WHERE model_definition_id = ANY(%s)
+            """,
+            ([FIXTURE_TEXT_MODEL_ID, FIXTURE_VISION_MODEL_ID],),
+        ).fetchone() == (5,)

@@ -1,6 +1,7 @@
 import { Navigate, Outlet, Route, Routes, useLocation } from "react-router";
 
 import { useAuth } from "../auth/AuthContext";
+import { phase3aFixtureEnabled } from "../api/aiFoundation";
 import { AppShell } from "../components/AppShell";
 import { CreateProjectPage } from "../pages/CreateProjectPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
@@ -8,6 +9,8 @@ import { LoginPage } from "../pages/LoginPage";
 import { ProjectDetailPage } from "../pages/ProjectDetailPage";
 import { ProjectsPage } from "../pages/ProjectsPage";
 import { RegionWorkspacePage } from "../pages/RegionWorkspacePage";
+import { AIProjectPolicyPage } from "../pages/AIProjectPolicyPage";
+import { AISettingsPage } from "../pages/AISettingsPage";
 
 const appRoutes = {
   createProject: "/paintpilot/projects/new",
@@ -57,6 +60,22 @@ export function AppRoutes() {
             element={<RegionWorkspacePage />}
             path="paintpilot/projects/:projectId/regions"
           />
+          {phase3aFixtureEnabled ? (
+            <>
+              <Route
+                element={<Navigate replace to="/paintpilot/settings/ai/models-providers" />}
+                path="paintpilot/settings/ai"
+              />
+              <Route
+                element={<AISettingsPage />}
+                path="paintpilot/settings/ai/:tab"
+              />
+              <Route
+                element={<AIProjectPolicyPage />}
+                path="paintpilot/projects/:projectId/ai-model-policy"
+              />
+            </>
+          ) : null}
         </Route>
         <Route element={<NotFoundPage />} path="*" />
       </Route>

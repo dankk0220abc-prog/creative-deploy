@@ -7,6 +7,7 @@ import {
 import { Link, Outlet, useLocation } from "react-router";
 
 import { loginUrl } from "../api/auth";
+import { phase3aFixtureEnabled } from "../api/aiFoundation";
 import { isPaintProjectId } from "../api/paintProjects";
 import { useAuth } from "../auth/AuthContext";
 import { useAppTranslation } from "../i18n";
@@ -14,6 +15,7 @@ import { LocaleSwitcher } from "./LocaleSwitcher";
 
 const PROJECTS_PATH = "/paintpilot/projects";
 const CREATE_PROJECT_PATH = "/paintpilot/projects/new";
+const AI_SETTINGS_PATH = "/paintpilot/settings/ai";
 const isArtifactSmoke = import.meta.env.VITE_RUNTIME_PROFILE === "artifact-smoke";
 const isPublicDemo = import.meta.env.VITE_RUNTIME_PROFILE === "public-demo";
 
@@ -58,6 +60,12 @@ function titleKeyForPath(pathname: string): string {
   }
   if (normalizedPathname === "/paintpilot/login") {
     return "title.login";
+  }
+  if (normalizedPathname.startsWith(AI_SETTINGS_PATH)) {
+    return "title.aiSettings";
+  }
+  if (normalizedPathname.endsWith("/ai-model-policy")) {
+    return "title.aiProjectPolicy";
   }
   if (isRegionWorkspacePath(normalizedPathname)) {
     const projectId = normalizedPathname.slice(
@@ -104,6 +112,9 @@ export function AppShell() {
     isProjectDetailPath(normalizedPathname) ||
     isRegionWorkspacePath(normalizedPathname);
   const createProjectIsCurrent = normalizedPathname === CREATE_PROJECT_PATH;
+  const aiSettingsIsCurrent =
+    normalizedPathname.startsWith(AI_SETTINGS_PATH) ||
+    normalizedPathname.endsWith("/ai-model-policy");
 
   useLayoutEffect(() => {
     document.title = t(titleKeyForPath(location.pathname));
@@ -182,20 +193,39 @@ export function AppShell() {
                 {t("shell.createProject")}
               </Link>
             ) : null}
+            {phase3aFixtureEnabled && authState.status === "authenticated" ? (
+              <Link
+                aria-current={aiSettingsIsCurrent ? "page" : undefined}
+                className={navigationClassName(aiSettingsIsCurrent)}
+                to={`${AI_SETTINGS_PATH}/models-providers`}
+              >
+                {t("shell.aiSettings")}
+              </Link>
+            ) : null}
             {authState.status === "authenticated" ? (
-              <span className="shell-nav__identity">
-                <span className="shell-nav__identity-copy">
-                  <small>{t("shell.signedIn")}</small>
-                  <span>{authState.user.display_name}</span>
+              <>
+                <span className="shell-nav__identity">
+                  <span className="shell-nav__identity-copy">
+                    <small>{t("shell.signedIn")}</small>
+                    <span>{authState.user.display_name}</span>
+                  </span>
+                  <button
+                    className="shell-nav__logout"
+                    onClick={() => void logout()}
+                    type="button"
+                  >
+                    {t("shell.logOut")}
+                  </button>
                 </span>
-                <button
-                  className="shell-nav__logout"
-                  onClick={() => void logout()}
-                  type="button"
-                >
-                  {t("shell.logOut")}
-                </button>
-              </span>
+                <details className="shell-account-menu">
+                  <summary aria-label={t("shell.accountActions")}>
+                    {authState.user.display_name}
+                  </summary>
+                  <button onClick={() => void logout()} type="button">
+                    {t("shell.logOut")}
+                  </button>
+                </details>
+              </>
             ) : (
               <a className="shell-nav__link" href={loginUrl(location.pathname)}>
                 {t("shell.signIn")}
@@ -238,10 +268,13 @@ export function AppShell() {
       </main>
 
       <footer className="workspace-footer">
-        <div>
-          <span className="workspace-footer__label">{t("shell.footerLabel")}</span>
-          <span>{t("shell.footerCopy")}</span>
-        </div>
+        <details className="workspace-footer__details">
+          <summary>{t("shell.environmentDetails")}</summary>
+          <div>
+            <span className="workspace-footer__label">{t("shell.footerLabel")}</span>
+            <span>{t("shell.footerCopy")}</span>
+          </div>
+        </details>
         {isArtifactSmoke ? (
           <p className="workspace-footer__runtime-label">
             LOCAL_PRODUCTION_STYLE_SMOKE · NOT_REAL_PRODUCTION

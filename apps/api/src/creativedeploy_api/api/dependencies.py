@@ -8,12 +8,18 @@ from typing import Annotated, cast
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from creativedeploy_api.ai.encryption import CredentialCipher
+from creativedeploy_api.ai.fixture_provider import FixtureProviderAdapter
 from creativedeploy_api.auth.cookies import csrf_cookie_name, session_cookie_name
 from creativedeploy_api.auth.oidc import OidcClient
 from creativedeploy_api.core.config import Settings
 from creativedeploy_api.core.principal import (
     ConfiguredDemoPrincipalAdapter,
     PrincipalContext,
+)
+from creativedeploy_api.services.ai_foundation import (
+    AIFoundationService,
+    Phase3UnavailableError,
 )
 from creativedeploy_api.services.identity import (
     AuthenticationService,
@@ -175,4 +181,25 @@ def get_project_membership_service(
 ProjectMembershipServiceDependency = Annotated[
     ProjectMembershipService,
     Depends(get_project_membership_service),
+]
+
+
+def get_ai_foundation_service(
+    request: Request,
+    session: DatabaseSessionDependency,
+) -> AIFoundationService:
+    """Build the fixture service only when its fail-closed runtime gate is active."""
+    settings = cast(Settings, request.app.state.settings)
+    if not settings.phase3a_fixture_enabled:
+        raise Phase3UnavailableError
+    cipher = getattr(request.app.state, "ai_cipher", None)
+    adapter = getattr(request.app.state, "fixture_provider_adapter", None)
+    if not isinstance(cipher, CredentialCipher) or not isinstance(adapter, FixtureProviderAdapter):
+        raise Phase3UnavailableError
+    return AIFoundationService(session, cipher, adapter)
+
+
+AIFoundationServiceDependency = Annotated[
+    AIFoundationService,
+    Depends(get_ai_foundation_service),
 ]
