@@ -441,3 +441,75 @@ Restore the resolved PostgreSQL service through separately authorized environmen
 - No real Provider, real key, external model call, paid cost, architecture change, fifth Migration,
   push, pull request, merge, or independent re-review was performed. This record does not claim
   that BM-06 or BM-08 has passed the required new independent focused re-review.
+
+## BM-06 locked-current-state remediation — 2026-08-09
+
+- Previous Candidate: `bb0ab05bd4757ce43e886bbaa085e3715638e00b`. Its tree was
+  `fa6f7f3331efc1fc5360a622b23787d7c1d22117` and its parent was
+  `fa75c2af643b537c0635e126f4f585c123c14f9b`. The preceding independent two-finding
+  re-review closed BM-08 and left only `BM-06-LOCK-001` open. H-01, BM-01 through BM-05,
+  BM-07, BM-08, and BM-09 remain closed and were not reopened.
+- Root-cause verification: before this remediation, candidate discovery first selected scalar
+  Reservation IDs, but each candidate transaction then loaded the Reservation and Invocation as
+  ORM entities before acquiring its approved row locks. The later default `SELECT ... FOR UPDATE`
+  calls returned those same identity-map instances without guaranteeing scalar repopulation.
+  A repository-environment probe using SQLAlchemy `2.0.51` observed the same identity and the
+  pre-update scalar after the default lock query; the single
+  `execution_options(populate_existing=True)` mechanism retained the identity and refreshed the
+  scalar to the database value.
+- Locked-current-state design: Phase A now returns only scalar lock and identity keys for the
+  expired candidate. Phase B preserves the existing `User -> Project -> UserCounter ->
+  ProjectCounter -> Invocation -> Attempt -> Reservation` lock order. Every mutable counter,
+  Invocation, Attempt, and Reservation locking select explicitly uses `populate_existing=True`.
+  Final expiry, relationship, state, status, dispatch-evidence, counter, and recovery decisions
+  use only those lock-acquired instances. Usage, cost, and event existence queries remain after
+  the locked parent rows; no new Session, global expunge, schema, Migration, or repository-helper
+  change was required.
+- Release-first race: a dedicated PostgreSQL transaction acquires the same ordered target locks,
+  legally releases the Reservation, decrements both reserved counters once, terminalizes the
+  Attempt and Invocation as `dispatch_not_started`, and holds the transaction open. Recovery runs
+  in an independent Session and thread. A `threading.Event`, `Future`, distinct backend PIDs, and
+  a third observer connection require `pg_stat_activity` plus `pg_blocking_pids()` to prove that
+  recovery completed candidate discovery and is actually waiting on the holder's
+  `user_accounts ... FOR UPDATE` query before the holder may commit. After handoff, recovery
+  returns `0`, preserves the committed `released` state, does not add reconciliation, does not
+  change either counter again, does not call the Adapter, and a second serial recovery remains
+  idempotent.
+- Dispatch-evidence-first race: the same deterministic lock-wait harness commits only a new
+  `BudgetReservation.dispatch_committed_at` fact while the candidate discovery snapshot still
+  lacks it. After lock handoff, recovery observes the committed evidence, selects the existing
+  fail-closed `reconciliation_required` / `outcome_unknown` path, preserves both reserved
+  counters, creates no usage or cost settlement, makes no Adapter call, and remains idempotent on
+  the second serial recovery. This shape would take the clean-orphan release branch if the
+  pre-lock Reservation scalar were still controlling the decision.
+- Focused validation: the first direct pytest invocation exited `1` before any test body ran
+  because the caller shell exposed only part of the PostgreSQL component set; it produced three
+  setup errors and is not treated as product evidence. Reinvocation through the repository's
+  isolated integration database environment selected
+  `test_phase3a_recovery_refreshes_locked_current_state_after_lock_wait` and
+  `test_phase3a_orphan_recovery_requires_proof_dispatch_never_started`; numeric exit `0`,
+  `3 passed`, `0 failed`, `0 deselected`, and no warnings. The existing control continues to prove
+  that `dispatched_at` alone is dispatch evidence, a truly undispatched orphan releases safely,
+  only that release decrements counters, the second recovery is idempotent, and Adapter call count
+  stays zero.
+- Changed-Python gates: final Ruff check and Ruff format check both exited `0`; mypy passed all 79
+  configured production source files; `git diff --check` passed. The pinned, redacted,
+  network-disabled secret scan of the current repository tree scanned about 3.89 MB, found no
+  leaks, and exited `0`; an exact remediation-manifest scan is performed again at Candidate
+  freeze.
+- Database readiness: `make ensure-db ENV_FILE=.env.example` exited `0` and confirmed
+  `127.0.0.1:55432/creativedeploy`; the existing service was already available, so no `db-up`,
+  reset, volume deletion, or configuration change was performed.
+- Canonical: `make check ENV_FILE=.env.example` was invoked exactly once after the final focused
+  and changed-file gates and exited `0`. Ruff and formatting passed for 116 files; mypy passed 79
+  source files; 434 API unit tests passed; Alembic reported the sole head `3a04fab2e7a5`; 65 real
+  PostgreSQL integration tests passed; Web lint and typecheck passed; 15 Vitest files / 163 tests
+  passed; and the Vite build transformed 131 modules. The run reported the existing external
+  Starlette/httpx deprecation warning and the existing Pydantic field-metadata warning; neither
+  arose from this remediation.
+- BM-08 evidence is reused as independently `PASS / CLOSED`; Migration D is byte-for-byte
+  unchanged. Supply-chain run `phase3a_supply_20260808b` and visual verdict
+  `PHASE_3A_VISUAL_ACCEPTANCE_PASS` remain applicable. No frontend, dependency declaration,
+  lockfile, security/supply-chain configuration, Migration, ORM schema, architecture, real
+  Provider, external call, paid cost, push, pull request, merge, or independent review occurred.
+  This executor does not claim the required new BM-06 independent final re-review has passed.

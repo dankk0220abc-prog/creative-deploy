@@ -2660,10 +2660,22 @@ class AIFoundationService:
     async def recover_expired_admissions(self, *, limit: int = 100) -> int:
         """Release reservations which never reached the dispatch commit point."""
         now = datetime.now(UTC)
-        expired_ids = list(
+        expired_candidates = list(
             (
                 await self._session.execute(
-                    select(BudgetReservation.id)
+                    select(
+                        BudgetReservation.id,
+                        BudgetReservation.invocation_id,
+                        BudgetReservation.attempt_id,
+                        BudgetReservation.user_counter_id,
+                        BudgetReservation.project_counter_id,
+                        InvocationRequest.requesting_user_id,
+                        InvocationRequest.project_id,
+                    )
+                    .join(
+                        InvocationRequest,
+                        InvocationRequest.id == BudgetReservation.invocation_id,
+                    )
                     .where(
                         BudgetReservation.state == "reserved",
                         BudgetReservation.admission_expires_at <= now,
@@ -2672,39 +2684,68 @@ class AIFoundationService:
                     .limit(limit)
                 )
             )
-            .scalars()
+            .tuples()
             .all()
         )
         await self._session.rollback()
         recovered = 0
-        for reservation_id in expired_ids:
+        for (
+            reservation_id,
+            invocation_id,
+            attempt_id,
+            user_counter_id,
+            project_counter_id,
+            requesting_user_id,
+            project_id,
+        ) in expired_candidates:
             async with self._session.begin():
-                snapshot = await self._session.get(BudgetReservation, reservation_id)
-                if snapshot is None:
-                    continue
-                invocation_snapshot = await self._repository.get_invocation(snapshot.invocation_id)
-                if invocation_snapshot is None:
-                    continue
-                await self._repository.lock_user(invocation_snapshot.requesting_user_id)
-                if invocation_snapshot.project_id is not None:
-                    await self._repository.lock_project(invocation_snapshot.project_id)
-                user_counter = await self._repository.get_user_counter_by_id(
-                    snapshot.user_counter_id, for_update=True
-                )
+                await self._repository.lock_user(requesting_user_id)
+                if project_id is not None:
+                    await self._repository.lock_project(project_id)
+                user_counter = (
+                    await self._session.execute(
+                        select(UserBudgetCounter)
+                        .where(UserBudgetCounter.id == user_counter_id)
+                        .with_for_update()
+                        .execution_options(populate_existing=True)
+                    )
+                ).scalar_one_or_none()
                 project_counter = (
                     None
-                    if snapshot.project_counter_id is None
-                    else await self._repository.get_project_counter_by_id(
-                        snapshot.project_counter_id, for_update=True
+                    if project_counter_id is None
+                    else (
+                        await self._session.execute(
+                            select(ProjectBudgetCounter)
+                            .where(ProjectBudgetCounter.id == project_counter_id)
+                            .with_for_update()
+                            .execution_options(populate_existing=True)
+                        )
+                    ).scalar_one_or_none()
+                )
+                invocation = (
+                    await self._session.execute(
+                        select(InvocationRequest)
+                        .where(InvocationRequest.id == invocation_id)
+                        .with_for_update()
+                        .execution_options(populate_existing=True)
                     )
-                )
-                invocation = await self._repository.get_invocation(
-                    snapshot.invocation_id, for_update=True
-                )
-                attempt = await self._repository.get_attempt(snapshot.attempt_id, for_update=True)
-                reservation = await self._repository.get_reservation(
-                    snapshot.attempt_id, for_update=True
-                )
+                ).scalar_one_or_none()
+                attempt = (
+                    await self._session.execute(
+                        select(InvocationAttempt)
+                        .where(InvocationAttempt.id == attempt_id)
+                        .with_for_update()
+                        .execution_options(populate_existing=True)
+                    )
+                ).scalar_one_or_none()
+                reservation = (
+                    await self._session.execute(
+                        select(BudgetReservation)
+                        .where(BudgetReservation.id == reservation_id)
+                        .with_for_update()
+                        .execution_options(populate_existing=True)
+                    )
+                ).scalar_one_or_none()
                 if (
                     invocation is None
                     or attempt is None

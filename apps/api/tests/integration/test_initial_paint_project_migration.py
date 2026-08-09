@@ -7,10 +7,13 @@ import secrets
 import subprocess
 import uuid
 from collections.abc import Callable, Iterator
+from concurrent.futures import Future
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Event, Thread
+from time import monotonic, sleep
 from typing import Any
 from urllib.parse import quote, quote_plus
 
@@ -4669,6 +4672,386 @@ def test_phase3a_cancel_and_completion_commit_order_selects_one_terminal_winner(
             await engine.dispose()
 
     asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("winning_change", ("release", "dispatch_evidence"))
+def test_phase3a_recovery_refreshes_locked_current_state_after_lock_wait(
+    temporary_database: TemporaryDatabase,
+    winning_change: str,
+) -> None:
+    temporary_database_url = temporary_database.url
+    temporary_database_name = temporary_database.name
+    connection_kwargs = _connection_kwargs(temporary_database_url, temporary_database_name)
+    user_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    principal_id = f"phase3a-locked-recovery-{winning_change}"
+    _run_alembic(temporary_database_url, "upgrade", "head")
+    with (
+        psycopg.connect(**connection_kwargs) as connection,
+        connection.transaction(),
+    ):
+        _seed_phase3a_user_and_project(
+            connection,
+            user_id=user_id,
+            project_id=project_id,
+            principal_id=principal_id,
+        )
+
+    adapter = FixtureProviderAdapter()
+    original_invoke = adapter.invoke
+    adapter_calls = 0
+
+    def counted_invoke(*args: Any, **kwargs: Any) -> Any:
+        nonlocal adapter_calls
+        adapter_calls += 1
+        return original_invoke(*args, **kwargs)
+
+    adapter.invoke = counted_invoke  # type: ignore[method-assign]
+    principal = _phase3a_principal(user_id, principal_id)
+
+    async def prepare_admission() -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+        engine = create_async_engine(
+            temporary_database_url.render_as_string(hide_password=False),
+            pool_pre_ping=True,
+        )
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with session_factory() as session:
+                service = _phase3a_service(session, adapter=adapter)
+                _, request = await _configure_phase3a_owner(
+                    service,
+                    principal=principal,
+                    project_id=project_id,
+                )
+                invocation, _ = await service._create_pending_invocation(
+                    payload=request,
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                attempt_id, reservation_id, _, _ = await service._admit_attempt(
+                    invocation_id=invocation.id,
+                    payload=request,
+                    principal=principal,
+                    attempt_number=1,
+                    retry_of_attempt_id=None,
+                )
+                return invocation.id, attempt_id, reservation_id
+        finally:
+            await engine.dispose()
+
+    invocation_id, attempt_id, reservation_id = asyncio.run(prepare_admission())
+    with (
+        psycopg.connect(**connection_kwargs) as connection,
+        connection.transaction(),
+    ):
+        connection.execute(
+            """
+            UPDATE budget_reservations
+            SET admission_expires_at = now() - interval '1 second'
+            WHERE id = %s
+            """,
+            (reservation_id,),
+        )
+        reservation_context = connection.execute(
+            """
+            SELECT user_counter_id, project_counter_id, reserved_amount
+            FROM budget_reservations WHERE id = %s
+            """,
+            (reservation_id,),
+        ).fetchone()
+        assert reservation_context is not None
+        user_counter_id, project_counter_id, reserved_amount = reservation_context
+        assert project_counter_id is not None
+        counters_before = connection.execute(
+            """
+            SELECT u.reserved_minor_units, p.reserved_minor_units
+            FROM user_budget_counters u
+            JOIN project_budget_counters p ON p.id = %s
+            WHERE u.id = %s
+            """,
+            (project_counter_id, user_counter_id),
+        ).fetchone()
+        assert counters_before is not None
+
+    recovery_ready = Event()
+    lock_wait_observed = Event()
+    recovery_result: Future[int] = Future()
+    recovery_backend_pid: dict[str, int] = {}
+
+    def recovery_worker() -> None:
+        async def run_recovery() -> int:
+            engine = create_async_engine(
+                temporary_database_url.render_as_string(hide_password=False),
+                pool_pre_ping=True,
+            )
+            session_factory = async_sessionmaker(engine, expire_on_commit=False)
+            try:
+                async with session_factory() as session:
+                    backend_pid = (
+                        await session.execute(text("SELECT pg_backend_pid()"))
+                    ).scalar_one()
+                    await session.rollback()
+                    recovery_backend_pid["value"] = backend_pid
+                    recovery_ready.set()
+                    service = _phase3a_service(session, adapter=adapter)
+                    return await service.recover_expired_admissions(limit=20)
+            finally:
+                await engine.dispose()
+
+        try:
+            recovery_result.set_result(asyncio.run(run_recovery()))
+        except BaseException as error:
+            recovery_ready.set()
+            recovery_result.set_exception(error)
+
+    worker = Thread(target=recovery_worker, name=f"phase3a-recovery-{winning_change}")
+    blocker_error: BaseException | None = None
+    blocker_pid = -1
+    worker_started = False
+    try:
+        with (
+            psycopg.connect(**connection_kwargs) as blocker_connection,
+            blocker_connection.transaction(),
+        ):
+            blocker_pid = blocker_connection.execute("SELECT pg_backend_pid()").fetchone()[0]
+            blocker_connection.execute(
+                "SELECT id FROM user_accounts WHERE id = %s FOR UPDATE",
+                (user_id,),
+            )
+            blocker_connection.execute(
+                "SELECT id FROM paint_projects WHERE id = %s FOR UPDATE",
+                (project_id,),
+            )
+            blocker_connection.execute(
+                "SELECT id FROM user_budget_counters WHERE id = %s FOR UPDATE",
+                (user_counter_id,),
+            )
+            blocker_connection.execute(
+                "SELECT id FROM project_budget_counters WHERE id = %s FOR UPDATE",
+                (project_counter_id,),
+            )
+            blocker_connection.execute(
+                "SELECT id FROM invocation_requests WHERE id = %s FOR UPDATE",
+                (invocation_id,),
+            )
+            blocker_connection.execute(
+                "SELECT id FROM invocation_attempts WHERE id = %s FOR UPDATE",
+                (attempt_id,),
+            )
+            blocker_connection.execute(
+                "SELECT id FROM budget_reservations WHERE id = %s FOR UPDATE",
+                (reservation_id,),
+            )
+            if winning_change == "release":
+                blocker_connection.execute(
+                    """
+                        UPDATE user_budget_counters
+                        SET reserved_minor_units = reserved_minor_units - %s,
+                            revision = revision + 1
+                        WHERE id = %s
+                        """,
+                    (reserved_amount, user_counter_id),
+                )
+                blocker_connection.execute(
+                    """
+                        UPDATE project_budget_counters
+                        SET reserved_minor_units = reserved_minor_units - %s,
+                            revision = revision + 1
+                        WHERE id = %s
+                        """,
+                    (reserved_amount, project_counter_id),
+                )
+                blocker_connection.execute(
+                    """
+                        UPDATE budget_reservations
+                        SET state = 'released', released_at = now(), revision = revision + 1
+                        WHERE id = %s
+                        """,
+                    (reservation_id,),
+                )
+                blocker_connection.execute(
+                    """
+                        UPDATE invocation_attempts
+                        SET status = 'failed', final_error_category = 'dispatch_not_started',
+                            terminal_at = now(), revision = revision + 1
+                        WHERE id = %s
+                        """,
+                    (attempt_id,),
+                )
+                blocker_connection.execute(
+                    """
+                        UPDATE invocation_requests
+                        SET status = 'failed', final_attempt_id = NULL,
+                            final_error_category = 'dispatch_not_started',
+                            terminal_at = now(), updated_at = now(), revision = revision + 1
+                        WHERE id = %s
+                        """,
+                    (invocation_id,),
+                )
+                blocker_connection.execute(
+                    """
+                        INSERT INTO ai_invocation_events (
+                            id, invocation_id, attempt_id, event_type,
+                            from_status, to_status, safe_metadata, created_at
+                        ) VALUES (
+                            %s, %s, %s, 'admission_recovered',
+                            'admitted', 'failed', '{}'::jsonb, now()
+                        )
+                        """,
+                    (uuid.uuid4(), invocation_id, attempt_id),
+                )
+            else:
+                blocker_connection.execute(
+                    """
+                        UPDATE budget_reservations
+                        SET dispatch_committed_at = now(), revision = revision + 1
+                        WHERE id = %s
+                        """,
+                    (reservation_id,),
+                )
+
+            worker.start()
+            worker_started = True
+            assert recovery_ready.wait(timeout=10), "recovery worker did not expose its PID"
+            if recovery_result.done():
+                recovery_result.result()
+            waiter_pid = recovery_backend_pid["value"]
+            assert waiter_pid != blocker_pid
+            deadline = monotonic() + 10
+            with psycopg.connect(**connection_kwargs, autocommit=True) as observer_connection:
+                while monotonic() < deadline:
+                    wait_state = observer_connection.execute(
+                        """
+                            SELECT wait_event_type, pg_blocking_pids(pid), query
+                            FROM pg_stat_activity WHERE pid = %s
+                            """,
+                        (waiter_pid,),
+                    ).fetchone()
+                    if (
+                        wait_state is not None
+                        and wait_state[0] == "Lock"
+                        and blocker_pid in wait_state[1]
+                        and "user_accounts" in wait_state[2]
+                        and "FOR UPDATE" in wait_state[2]
+                    ):
+                        lock_wait_observed.set()
+                        break
+                    if recovery_result.done():
+                        recovery_result.result()
+                        raise AssertionError("recovery completed before the locked handoff")
+                    sleep(0.01)
+            assert lock_wait_observed.is_set(), "PostgreSQL row-lock wait was not observed"
+            assert not recovery_result.done()
+    except BaseException as error:
+        blocker_error = error
+
+    worker_result: int | None = None
+    worker_error: BaseException | None = None
+    if worker_started:
+        try:
+            worker_result = recovery_result.result(timeout=10)
+        except BaseException as error:
+            worker_error = error
+        finally:
+            worker.join(timeout=10)
+    if blocker_error is not None and worker_error is not None:
+        raise BaseExceptionGroup(
+            "lock-holder proof and recovery worker both failed",
+            [blocker_error, worker_error],
+        )
+    if blocker_error is not None:
+        raise blocker_error
+    if worker_error is not None:
+        raise worker_error
+    assert not worker.is_alive()
+    assert worker_result == 0
+    assert adapter_calls == 0
+
+    async def recover_again() -> int:
+        engine = create_async_engine(
+            temporary_database_url.render_as_string(hide_password=False),
+            pool_pre_ping=True,
+        )
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with session_factory() as session:
+                service = _phase3a_service(session, adapter=adapter)
+                return await service.recover_expired_admissions(limit=20)
+        finally:
+            await engine.dispose()
+
+    assert asyncio.run(recover_again()) == 0
+    assert adapter_calls == 0
+    with psycopg.connect(**connection_kwargs) as connection:
+        final_state = connection.execute(
+            """
+            SELECT r.state, r.released_at, r.dispatch_committed_at,
+                   a.status, a.final_error_category, a.dispatched_at,
+                   i.status, i.final_error_category,
+                   u.reserved_minor_units, p.reserved_minor_units
+            FROM budget_reservations r
+            JOIN invocation_attempts a ON a.id = r.attempt_id
+            JOIN invocation_requests i ON i.id = r.invocation_id
+            JOIN user_budget_counters u ON u.id = r.user_counter_id
+            JOIN project_budget_counters p ON p.id = r.project_counter_id
+            WHERE r.id = %s
+            """,
+            (reservation_id,),
+        ).fetchone()
+        assert final_state is not None
+        event_counts = dict(
+            connection.execute(
+                """
+                SELECT event_type, count(*)
+                FROM ai_invocation_events
+                WHERE invocation_id = %s
+                  AND event_type IN ('admission_recovered', 'recovery_reconciliation_required')
+                GROUP BY event_type
+                """,
+                (invocation_id,),
+            ).fetchall()
+        )
+        ledger_counts = connection.execute(
+            """
+            SELECT
+                (SELECT count(*) FROM ai_usage_ledger WHERE attempt_id = %s),
+                (SELECT count(*) FROM ai_cost_ledger WHERE attempt_id = %s)
+            """,
+            (attempt_id, attempt_id),
+        ).fetchone()
+        assert ledger_counts == (0, 0)
+        if winning_change == "release":
+            assert final_state[:8] == (
+                "released",
+                final_state[1],
+                None,
+                "failed",
+                "dispatch_not_started",
+                None,
+                "failed",
+                "dispatch_not_started",
+            )
+            assert final_state[1] is not None
+            assert final_state[8:] == (
+                counters_before[0] - reserved_amount,
+                counters_before[1] - reserved_amount,
+            )
+            assert event_counts == {"admission_recovered": 1}
+        else:
+            assert final_state[:8] == (
+                "reconciliation_required",
+                None,
+                final_state[2],
+                "outcome_unknown",
+                "dispatch_evidence_present",
+                None,
+                "outcome_unknown",
+                "dispatch_evidence_present",
+            )
+            assert final_state[2] is not None
+            assert final_state[8:] == counters_before
+            assert event_counts == {"recovery_reconciliation_required": 1}
 
 
 def test_phase3a_orphan_recovery_requires_proof_dispatch_never_started(
