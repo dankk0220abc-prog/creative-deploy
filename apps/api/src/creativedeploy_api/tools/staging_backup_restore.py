@@ -38,7 +38,7 @@ from creativedeploy_api.core.secret_files import SecretFileError, read_secret_fi
 from creativedeploy_api.storage.images import STORAGE_KEY_PATTERN
 
 BACKUP_FORMAT = "creativedeploy-staging-backup-v1"
-EXPECTED_ALEMBIC_REVISION = "2b1c4d5e6f70"
+EXPECTED_ALEMBIC_REVISION = "3a04fab2e7a5"
 MANIFEST_VERSION = 1
 MANIFEST_SIGNATURE_FORMAT = "creativedeploy-manifest-signature-v1"
 MANIFEST_SIGNATURE_ALGORITHM = "HMAC-SHA-256"
@@ -50,7 +50,7 @@ MINIMUM_SIGNING_KEY_BYTES = 32
 BACKUP_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 SIGNING_KEY_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 RESTORE_DATABASE_PATTERN = re.compile(r"^p2b2r_[a-z0-9][a-z0-9_]{0,39}$")
-TABLES = (
+LEGACY_TABLES = (
     "user_accounts",
     "external_identities",
     "paint_projects",
@@ -66,10 +66,68 @@ TABLES = (
     "region_vertices",
     "region_set_reviews",
 )
+PHASE3A_TABLES = (
+    "provider_definitions",
+    "capability_definitions",
+    "model_definitions",
+    "provider_capabilities",
+    "model_capabilities",
+    "credential_records",
+    "credential_project_grants",
+    "user_provider_preferences",
+    "project_model_policies",
+    "project_model_policy_providers",
+    "project_model_policy_models",
+    "project_model_policy_capabilities",
+    "project_model_policy_credentials",
+    "user_budget_policies",
+    "project_budget_policies",
+    "user_budget_counters",
+    "project_budget_counters",
+    "invocation_requests",
+    "invocation_attempts",
+    "budget_reservations",
+    "ai_invocation_events",
+    "ai_usage_ledger",
+    "ai_cost_ledger",
+    "ai_audit_events",
+    "ai_command_idempotency_records",
+)
+TABLES = (*LEGACY_TABLES, *PHASE3A_TABLES)
+
+# Migration D creates deterministic reference rows in every fresh head database.
+# A restore may replace only this exact seed-only state; any other partial state
+# remains unsupported. The fingerprints cover complete to_jsonb rows ordered by
+# primary key, not merely identifiers or row counts.
+MIGRATION_SEED_FINGERPRINTS: dict[str, tuple[int, str]] = {
+    "provider_definitions": (
+        1,
+        "86b13330b8460c469e3d4b0b050934c91ce05310036cf83381a64059415c5d37",
+    ),
+    "capability_definitions": (
+        3,
+        "e640acaa636c6e413e316782e9452c8802b8c6bee9091018205674f57dfd15e8",
+    ),
+    "model_definitions": (
+        2,
+        "a0712648e2b9591139fad42d5500e790d7e0c3f845c17f565f0449e8e3844294",
+    ),
+    "provider_capabilities": (
+        3,
+        "48b9cd6af9c2418b9204989040984bbddac5691d2e7b825af28a8861ae3a5b40",
+    ),
+    "model_capabilities": (
+        5,
+        "c109bf6894742d9ed3f2614ffcb5cc3c0492ba68ea91ffa06b2ac88439ef773d",
+    ),
+}
 DEFERRED_COLUMNS: dict[str, tuple[str, ...]] = {
     "paint_projects": ("current_image_asset_id",),
     "image_assets": ("supersedes_image_asset_id",),
     "region_sets": ("supersedes_region_set_id", "based_on_region_set_id"),
+    "credential_records": ("replaces_credential_id",),
+    "invocation_requests": ("final_attempt_id",),
+    "invocation_attempts": ("retry_of_attempt_id",),
 }
 ORDER_COLUMNS: dict[str, tuple[str, ...]] = {
     "image_assets": ("paint_project_id", "role", "version", "id"),
@@ -613,8 +671,22 @@ def _read_manifest(root: Path) -> dict[str, Any]:
         raise OperationsError("Backup format is not supported.")
     if payload.get("alembic_revision") != EXPECTED_ALEMBIC_REVISION:
         raise OperationsError("Backup Alembic revision is not supported.")
+    _manifest_table_counts(payload)
     _verify_manifest_files(root, payload)
     return payload
+
+
+def _manifest_table_counts(manifest: dict[str, Any]) -> dict[str, int]:
+    payload = manifest.get("table_counts")
+    if not isinstance(payload, dict) or set(payload) != set(TABLES):
+        raise OperationsError("Backup table counts are invalid.")
+    counts: dict[str, int] = {}
+    for table in TABLES:
+        value = payload[table]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise OperationsError("Backup table counts are invalid.")
+        counts[table] = value
+    return counts
 
 
 def _write_database_snapshot(
@@ -766,6 +838,40 @@ def _table_counts(connection: psycopg.Connection[dict[str, Any]]) -> dict[str, i
     return counts
 
 
+def _table_rows_fingerprint(connection: psycopg.Connection[dict[str, Any]], table: str) -> str:
+    rows = connection.execute(
+        sql.SQL("SELECT to_jsonb(value) AS value FROM {} AS value ORDER BY id").format(
+            sql.Identifier(table)
+        )
+    ).fetchall()
+    payload = json.dumps(
+        [row["value"] for row in rows],
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _is_migration_seed_only(
+    connection: psycopg.Connection[dict[str, Any]], counts: dict[str, int]
+) -> bool:
+    seed_tables = frozenset(MIGRATION_SEED_FINGERPRINTS)
+    if any(counts[table] != 0 for table in TABLES if table not in seed_tables):
+        return False
+    for table, (expected_count, expected_fingerprint) in MIGRATION_SEED_FINGERPRINTS.items():
+        if counts[table] != expected_count:
+            return False
+        if _table_rows_fingerprint(connection, table) != expected_fingerprint:
+            return False
+    return True
+
+
+def _clear_migration_seed(connection: psycopg.Connection[dict[str, Any]]) -> None:
+    for table in reversed(tuple(MIGRATION_SEED_FINGERPRINTS)):
+        connection.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(table)))
+
+
 def _restore_objects(
     client: Any,
     bucket: str,
@@ -898,12 +1004,17 @@ def restore(backup_id: str, *, dry_run: bool) -> None:
     with _database_connection(settings) as connection:
         inventory = _validate_restore_preconditions(connection, root, manifest, settings)
         counts = _table_counts(connection)
-        expected_counts = manifest.get("table_counts")
-        if not isinstance(expected_counts, dict):
-            raise OperationsError("Backup table counts are invalid.")
+        expected_counts = _manifest_table_counts(manifest)
         all_empty = all(count == 0 for count in counts.values())
-        already_complete = counts == {name: int(expected_counts[name]) for name in TABLES}
-        if not all_empty and not (already_complete and _database_matches_backup(connection, root)):
+        seed_only = not all_empty and _is_migration_seed_only(connection, counts)
+        already_complete = counts == expected_counts
+        exact_retry = (
+            not all_empty
+            and not seed_only
+            and already_complete
+            and _database_matches_backup(connection, root)
+        )
+        if not all_empty and not seed_only and not exact_retry:
             raise OperationsError("Restore target database is neither fresh nor an exact retry.")
         existing = _list_s3_objects(client, bucket)
         if set(existing) - set(inventory):
@@ -919,8 +1030,10 @@ def restore(backup_id: str, *, dry_run: bool) -> None:
             return
         connection.commit()
         _restore_objects(client, bucket, root, inventory)
-        if all_empty:
+        if all_empty or seed_only:
             with connection.transaction():
+                if seed_only:
+                    _clear_migration_seed(connection)
                 for table in TABLES:
                     _restore_table(connection, table, root / "tables" / f"{table}.csv")
                 _restore_pointers(connection, root)

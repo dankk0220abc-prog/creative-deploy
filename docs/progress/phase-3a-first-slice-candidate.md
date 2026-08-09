@@ -513,3 +513,46 @@ Restore the resolved PostgreSQL service through separately authorized environmen
   lockfile, security/supply-chain configuration, Migration, ORM schema, architecture, real
   Provider, external call, paid cost, push, pull request, merge, or independent review occurred.
   This executor does not claim the required new BM-06 independent final re-review has passed.
+
+## PR #2 staging backup/restore compatibility remediation — 2026-08-09
+
+- Root cause: exact-head Candidate CI run `31312710952` migrated PostgreSQL to
+  `3a04fab2e7a5`, while `staging_backup_restore.py` and the staging-drill manifest assertion still
+  required `2b1c4d5e6f70`; `make staging-drill` therefore failed closed before backup publication.
+- Recovery contract decision: ADR-0009 and the staging runbook require all application business
+  tables plus re-export/byte comparison, not a partial subset. The legacy 14-table inventory was
+  incomplete at Phase 3A head. One authoritative ordered inventory now covers all 39 tables,
+  including all 25 Phase 3A registry, credential/Grant, policy, budget, invocation, event,
+  usage/cost, audit, and idempotency tables.
+- Compatibility implementation: backup preflight, signed manifest validation, restore validation,
+  and drill assertion now require exact revision `3a04fab2e7a5`. Restore still rejects every other
+  revision. Credential replacement, attempt retry, and invocation final-attempt pointers are
+  restored after their referenced rows. A fresh Migration D target is accepted only when its five
+  registry tables match exact full-row seed fingerprints and every other governed table is empty;
+  the seed is then replaced transactionally from the complete backup. Other partial state remains
+  fail closed. No Migration or Phase 3A application semantic changed.
+- Changed paths: `apps/api/src/creativedeploy_api/tools/staging_backup_restore.py`,
+  `apps/api/tests/unit/test_staging_backup_restore.py`, `scripts/verify_staging_drill.sh`, new
+  `scripts/verify_phase3a_backup_rows.py`, and this evidence document. Makefile, Compose, frontend,
+  dependencies, migrations, encryption, authorization, admission, idempotency, and recovery
+  concurrency are unchanged.
+- Targeted tests: staging backup/restore unit suite `29 passed`; explicit current-revision,
+  unsupported-revision, manifest symmetry, and 25-table Phase 3A inventory assertions passed.
+  Ruff lint/format, mypy for 79 production files, `sh -n`, `git diff --check`, and a pinned,
+  network-disabled changed-path gitleaks scan passed with zero findings.
+- Real staging drill: `local_20260809124133_a0b19da9be7d`, exit `0`. Source and restore Alembic
+  head, backup manifest, and restore verification were `3a04fab2e7a5`; backup and restore each
+  reported 39 tables and one private object. Fresh restore, exact retry, detached authenticity,
+  file tamper, same-size byte mismatch, legacy identity/project/membership/private-image state,
+  and cleanup all passed. One compact synthetic relationship graph populated all 25 Phase 3A
+  tables and proved Provider/Model seed, replaced-to-active credential envelope metadata, Grant,
+  policy associations, two-attempt retry/final pointer, user/project counters, Reservation,
+  event, usage, fixture cost, audit, and command-idempotency relationships after restore.
+- Canonical: `make check ENV_FILE=.env.example` ran exactly once after the targeted and staging
+  gates and exited `0`: 438 API unit tests, 65 PostgreSQL integration tests, and 15 Vitest files /
+  163 Web tests passed; API/Web lint, formatting, typecheck, and build passed.
+- No real Provider, API key, network model call, or paid cost was used; all new drill data is
+  synthetic and fixture-credit-only. Existing independently applicable security/concurrency,
+  visual acceptance, and successful supply-chain evidence `phase3a_supply_20260808b` were reused
+  rather than repeated. This remediation is not merge approval and still requires the requested
+  final tiny independent delta review after exact-head Candidate CI passes.
