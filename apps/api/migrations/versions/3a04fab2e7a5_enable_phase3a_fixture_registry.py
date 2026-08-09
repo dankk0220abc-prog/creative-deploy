@@ -148,6 +148,15 @@ def downgrade() -> None:
         sa.text("""
         DO $$
         BEGIN
+            IF EXISTS (
+                SELECT 1 FROM model_definitions
+                WHERE provider_definition_id = '3a000000-0000-4000-8000-000000000001'::uuid
+                  AND id NOT IN ('3a000000-0000-4000-8000-000000000101'::uuid, '3a000000-0000-4000-8000-000000000102'::uuid)
+            )
+            THEN
+                RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'Phase 3A Migration D downgrade refused: fixture provider still has non-seed model references';
+            END IF;
+
             IF EXISTS (SELECT 1 FROM credential_records WHERE provider_definition_id = '3a000000-0000-4000-8000-000000000001'::uuid)
                OR EXISTS (SELECT 1 FROM user_provider_preferences WHERE default_provider_definition_id = '3a000000-0000-4000-8000-000000000001'::uuid OR default_model_definition_id IN ('3a000000-0000-4000-8000-000000000101'::uuid, '3a000000-0000-4000-8000-000000000102'::uuid))
                OR EXISTS (SELECT 1 FROM project_model_policy_providers WHERE provider_definition_id = '3a000000-0000-4000-8000-000000000001'::uuid)

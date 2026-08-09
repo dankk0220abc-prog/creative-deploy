@@ -28,6 +28,7 @@ from creativedeploy_api.ai.constants import (
     FIXTURE_STRUCTURED_CAPABILITY_ID,
     FIXTURE_TEXT_CAPABILITY_ID,
     FIXTURE_TEXT_MODEL_ID,
+    FIXTURE_VISION_MODEL_ID,
 )
 from creativedeploy_api.ai.encryption import CredentialCipher, FixtureRootKeyProvider
 from creativedeploy_api.ai.fixture_provider import FixtureProviderAdapter
@@ -4698,10 +4699,20 @@ def test_phase3a_orphan_recovery_requires_proof_dispatch_never_started(
             pool_pre_ping=True,
         )
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        adapter = FixtureProviderAdapter()
+        original_invoke = adapter.invoke
+        adapter_calls = 0
+
+        def counted_invoke(*args: Any, **kwargs: Any) -> Any:
+            nonlocal adapter_calls
+            adapter_calls += 1
+            return original_invoke(*args, **kwargs)
+
+        adapter.invoke = counted_invoke  # type: ignore[method-assign]
         principal = _phase3a_principal(user_id, principal_id)
         try:
             async with session_factory() as session:
-                service = _phase3a_service(session)
+                service = _phase3a_service(session, adapter=adapter)
                 _, request = await _configure_phase3a_owner(
                     service,
                     principal=principal,
@@ -4709,9 +4720,9 @@ def test_phase3a_orphan_recovery_requires_proof_dispatch_never_started(
                     cumulative_limit_minor_units=100_000,
                 )
             rows: list[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = []
-            for _ in range(7):
+            for _ in range(8):
                 async with session_factory() as session:
-                    service = _phase3a_service(session)
+                    service = _phase3a_service(session, adapter=adapter)
                     invocation, _ = await service._create_pending_invocation(
                         payload=request,
                         principal=principal,
@@ -4821,16 +4832,90 @@ def test_phase3a_orphan_recovery_requires_proof_dispatch_never_started(
                 await session.execute(
                     text(
                         """
+                            UPDATE invocation_attempts
+                            SET dispatched_at = now()
+                            WHERE id = :id
+                            """
+                    ),
+                    {"id": rows[6][1]},
+                )
+                await session.execute(
+                    text(
+                        """
                             UPDATE budget_reservations
                             SET invocation_id = :other_invocation_id
                             WHERE id = :id
                             """
                     ),
-                    {"other_invocation_id": rows[0][0], "id": rows[6][2]},
+                    {"other_invocation_id": rows[0][0], "id": rows[7][2]},
                 )
             async with session_factory() as session:
-                service = _phase3a_service(session)
+                reserved_before = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT reserved_minor_units
+                            FROM user_budget_counters
+                            WHERE user_id = :user_id
+                            """
+                        ),
+                        {"user_id": user_id},
+                    )
+                ).scalar_one()
+                project_reserved_before = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT reserved_minor_units
+                            FROM project_budget_counters
+                            WHERE project_id = :project_id
+                            """
+                        ),
+                        {"project_id": project_id},
+                    )
+                ).scalar_one()
+                clean_reserved_amount = (
+                    await session.execute(
+                        text("SELECT reserved_amount FROM budget_reservations WHERE id = :id"),
+                        {"id": rows[0][2]},
+                    )
+                ).scalar_one()
+                service = _phase3a_service(session, adapter=adapter)
                 assert await service.recover_expired_admissions(limit=20) == 1
+                assert adapter_calls == 0
+            async with session_factory() as session:
+                reserved_after_first_recovery = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT reserved_minor_units
+                            FROM user_budget_counters
+                            WHERE user_id = :user_id
+                            """
+                        ),
+                        {"user_id": user_id},
+                    )
+                ).scalar_one()
+                assert reserved_after_first_recovery == reserved_before - clean_reserved_amount
+                project_reserved_after_first_recovery = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT reserved_minor_units
+                            FROM project_budget_counters
+                            WHERE project_id = :project_id
+                            """
+                        ),
+                        {"project_id": project_id},
+                    )
+                ).scalar_one()
+                assert (
+                    project_reserved_after_first_recovery
+                    == project_reserved_before - clean_reserved_amount
+                )
+                service = _phase3a_service(session, adapter=adapter)
+                assert await service.recover_expired_admissions(limit=20) == 0
+                assert adapter_calls == 0
             async with session_factory() as session:
                 clean = (
                     await session.execute(
@@ -4856,17 +4941,66 @@ def test_phase3a_orphan_recovery_requires_proof_dispatch_never_started(
                             WHERE id = ANY(:ids) ORDER BY id
                             """
                         ),
-                        {"ids": [row[2] for row in rows[1:6]]},
+                        {"ids": [row[2] for row in rows[1:7]]},
                     )
                 ).all()
                 assert {state for _, state in protected_states} == {"reconciliation_required"}
+                dispatched_at_case = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT r.state, r.released_at, a.status,
+                                   a.final_error_category, a.dispatched_at
+                            FROM budget_reservations r
+                            JOIN invocation_attempts a ON a.id = r.attempt_id
+                            WHERE r.id = :id
+                            """
+                        ),
+                        {"id": rows[6][2]},
+                    )
+                ).one()
+                assert dispatched_at_case[:4] == (
+                    "reconciliation_required",
+                    None,
+                    "outcome_unknown",
+                    "dispatch_evidence_present",
+                )
+                assert dispatched_at_case.dispatched_at is not None
                 mismatch_state = (
                     await session.execute(
                         text("SELECT state FROM budget_reservations WHERE id = :id"),
-                        {"id": rows[6][2]},
+                        {"id": rows[7][2]},
                     )
                 ).scalar_one()
                 assert mismatch_state == "reserved"
+                reserved_after_second_recovery = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT reserved_minor_units
+                            FROM user_budget_counters
+                            WHERE user_id = :user_id
+                            """
+                        ),
+                        {"user_id": user_id},
+                    )
+                ).scalar_one()
+                assert reserved_after_second_recovery == reserved_after_first_recovery
+                project_reserved_after_second_recovery = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT reserved_minor_units
+                            FROM project_budget_counters
+                            WHERE project_id = :project_id
+                            """
+                        ),
+                        {"project_id": project_id},
+                    )
+                ).scalar_one()
+                assert (
+                    project_reserved_after_second_recovery == project_reserved_after_first_recovery
+                )
         finally:
             await engine.dispose()
 
@@ -4996,3 +5130,78 @@ def test_phase3a_fixture_seed_downgrade_refuses_references_then_deletes_exact_se
         assert connection.execute("SELECT count(*) FROM provider_definitions").fetchone() == (0,)
         assert connection.execute("SELECT count(*) FROM model_definitions").fetchone() == (0,)
         assert connection.execute("SELECT count(*) FROM capability_definitions").fetchone() == (0,)
+
+
+def test_phase3a_fixture_seed_downgrade_refuses_non_seed_model_before_delete(
+    temporary_database: TemporaryDatabase,
+) -> None:
+    temporary_database_url = temporary_database.url
+    temporary_database_name = temporary_database.name
+    extra_model_id = uuid.uuid4()
+    _run_alembic(temporary_database_url, "upgrade", "head")
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        connection.execute(
+            """
+            INSERT INTO model_definitions (
+                id, provider_definition_id, provider_key, model_id, display_name,
+                catalog_source, catalog_fresh_at, catalog_status, status,
+                context_window, supports_structured_output, supports_vision,
+                pricing_minor_units, pricing_currency, revision, created_at, updated_at
+            ) VALUES (
+                %s, %s, 'fixture_local', %s, 'Synthetic non-seed fixture model',
+                'synthetic_test', now(), 'bundled', 'active', 1024,
+                false, false, 1, 'FIXTURE_CREDITS', 1, now(), now()
+            )
+            """,
+            (extra_model_id, FIXTURE_PROVIDER_ID, f"fixture-extra-{extra_model_id.hex}"),
+        )
+
+    with pytest.raises(
+        AssertionError,
+        match="fixture provider still has non-seed model references",
+    ) as downgrade_error:
+        _run_alembic(temporary_database_url, "downgrade", "3a03e9a1d6f4")
+    assert "ForeignKeyViolation" not in str(downgrade_error.value)
+    assert "3a04fab2e7a5 (head)" in _run_alembic(temporary_database_url, "current").stdout
+    with psycopg.connect(
+        **_connection_kwargs(temporary_database_url, temporary_database_name)
+    ) as connection:
+        assert connection.execute(
+            """
+            SELECT provider_definition_id FROM model_definitions WHERE id = %s
+            """,
+            (extra_model_id,),
+        ).fetchone() == (FIXTURE_PROVIDER_ID,)
+        assert {
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT id FROM model_definitions
+                WHERE id = ANY(%s)
+                """,
+                ([FIXTURE_TEXT_MODEL_ID, FIXTURE_VISION_MODEL_ID],),
+            ).fetchall()
+        } == {
+            FIXTURE_TEXT_MODEL_ID,
+            FIXTURE_VISION_MODEL_ID,
+        }
+        assert connection.execute(
+            "SELECT count(*) FROM provider_definitions WHERE id = %s",
+            (FIXTURE_PROVIDER_ID,),
+        ).fetchone() == (1,)
+        assert connection.execute(
+            "SELECT count(*) FROM provider_capabilities WHERE provider_definition_id = %s",
+            (FIXTURE_PROVIDER_ID,),
+        ).fetchone() == (3,)
+        assert connection.execute(
+            """
+            SELECT count(*) FROM model_capabilities
+            WHERE model_definition_id = ANY(%s)
+            """,
+            ([FIXTURE_TEXT_MODEL_ID, FIXTURE_VISION_MODEL_ID],),
+        ).fetchone() == (5,)

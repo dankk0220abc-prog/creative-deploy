@@ -391,3 +391,53 @@ Restore the resolved PostgreSQL service through separately authorized environmen
 - Visual evidence reused: `PHASE_3A_VISUAL_ACCEPTANCE_PASS`; no frontend path changed and no
   browser or visual acceptance was repeated. No real Provider, key, external model call, or cost
   was used. Final independent focused re-review remains pending and is not claimed as passed.
+
+## Final two-finding security remediation — 2026-08-09
+
+- Previous Candidate: `fa75c2af643b537c0635e126f4f585c123c14f9b`. The final focused delta
+  re-review left only BM-06 and BM-08 open; all other findings and their unchanged evidence remain
+  closed and were not reinvestigated by this executor.
+- BM-06: the locked `recover_expired_admissions()` decision now treats
+  `InvocationAttempt.dispatched_at IS NOT NULL` as dispatch evidence. The real PostgreSQL recovery
+  regression includes an expired `reserved` / `admitted` case with only `dispatched_at` present;
+  it requires `reconciliation_required` / `outcome_unknown`, preserves both reserved counters,
+  performs no Adapter dispatch, and proves a second recovery does not settle or decrement again.
+  The same test retains the truly undispatched control and proves it still releases with
+  `dispatch_not_started`.
+- BM-06 focused command: the repository integration environment invoked
+  `pytest apps/api/tests/integration/test_initial_paint_project_migration.py::test_phase3a_orphan_recovery_requires_proof_dispatch_never_started -m integration`;
+  numeric exit `0`, `1 passed`, `0 failed`, `0 deselected`, no warning.
+- BM-08: Migration D now executes a dedicated SQLSTATE `55000` preflight before every destructive
+  seed `DELETE` when the fixture Provider owns any ModelDefinition outside the two exact seed
+  model IDs. The regression proves the explicit preflight message was returned rather than a
+  `ForeignKeyViolation`, and that the extra model, both seed models, fixture Provider, three seed
+  Provider-capability rows, five seed Model-capability rows, and Alembic head remained intact.
+- BM-08 focused command: the repository integration environment invoked the exact existing clean
+  Migration D downgrade node plus
+  `test_phase3a_fixture_seed_downgrade_refuses_non_seed_model_before_delete`; numeric exit `0`,
+  `2 passed`, `0 failed`, `0 deselected`, no warning. The existing clean path still deletes the
+  exact fixture seed set.
+- Scoped hygiene: an initial zsh Ruff wrapper passed the three paths as one filename and exited
+  `1` without inspecting or changing code. The corrected Ruff lint exited `0`; its first format
+  check identified the modified integration test, Ruff formatted that one authorized file, and
+  the final three-path Ruff lint and format check both exited `0`. Mypy on the changed production
+  service exited `0`; `git diff --check` exited `0`. A first temporary-file scanner wrapper was
+  rejected before Docker or gitleaks execution because of its cleanup operation. The final pinned,
+  redacted, network-disabled gitleaks scan mounted only the three changed Python files, scanned
+  about 335.56 KB, found no leaks, and exited `0`.
+- Database readiness: `make ensure-db ENV_FILE=.env.example` exited `0` and confirmed the existing
+  repository PostgreSQL at `127.0.0.1:55432/creativedeploy`; no `db-up`, reset, volume deletion, or
+  configuration change was performed.
+- Canonical: `make check ENV_FILE=.env.example` was invoked exactly once and exited `0`. Ruff
+  passed; 116 Python files were formatted; mypy passed for 79 source files; 434 API unit tests
+  passed; Alembic reported the single head `3a04fab2e7a5`; 63 integration tests passed; Web lint
+  and typecheck passed; 15 Vitest files / 163 tests passed; and the Vite build transformed 131
+  modules. The only test warning was the existing external Starlette/httpx deprecation warning.
+- Supply-chain evidence `phase3a_supply_20260808b` remains applicable and was not rerun: no
+  dependency declaration, lockfile, dependency, supply-chain configuration, Secret scanner
+  configuration, or immutable-reference path changed. Visual evidence
+  `PHASE_3A_VISUAL_ACCEPTANCE_PASS` remains applicable and was not repeated: no frontend path
+  changed.
+- No real Provider, real key, external model call, paid cost, architecture change, fifth Migration,
+  push, pull request, merge, or independent re-review was performed. This record does not claim
+  that BM-06 or BM-08 has passed the required new independent focused re-review.

@@ -2741,6 +2741,7 @@ class AIFoundationService:
                 provider_request_id = attempt.safe_provider_metadata.get("provider_request_id")
                 dispatch_evidence = (
                     reservation.dispatch_committed_at is not None
+                    or attempt.dispatched_at is not None
                     or provider_request_id is not None
                     or await self._repository.attempt_has_dispatch_evidence(
                         invocation_id=invocation.id,
