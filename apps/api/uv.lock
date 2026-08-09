@@ -233,6 +233,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "pillow" },
@@ -260,6 +261,7 @@ migration = [
 [package.metadata]
 requires-dist = [
     { name = "boto3", specifier = ">=1.40.0,<2.0.0" },
+    { name = "cryptography", specifier = ">=50.0.0,<51.0.0" },
     { name = "fastapi", specifier = ">=0.139.2,<0.140.0" },
     { name = "httpx", specifier = ">=0.28.1,<0.29.0" },
     { name = "pillow", specifier = ">=11.3.0,<13.0.0" },

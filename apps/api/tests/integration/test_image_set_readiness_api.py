@@ -1177,6 +1177,13 @@ def test_phase_1e_2_downgrade_refuses_to_discard_governed_facts(
         assert response.status_code == 201
 
     database_url = make_url(settings.database_url.get_secret_value())
+    with psycopg.connect(**_connection_kwargs(database_url)) as connection:
+        revision_before_attempt = connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone()
+    assert revision_before_attempt is not None
+    assert revision_before_attempt[0]
+
     failed = _run_alembic_expect_failure(
         database_url,
         "downgrade",
@@ -1185,9 +1192,10 @@ def test_phase_1e_2_downgrade_refuses_to_discard_governed_facts(
     assert expected_message in failed.stderr
 
     with psycopg.connect(**_connection_kwargs(database_url)) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "2b1c4d5e6f70",
-        )
+        revision_after_attempt = connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone()
+        assert revision_after_attempt == revision_before_attempt
         if blocking_fact == "readiness_review":
             assert connection.execute(
                 "SELECT count(*) FROM image_set_readiness_reviews"

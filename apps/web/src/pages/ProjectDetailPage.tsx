@@ -7,6 +7,7 @@ import {
   PaintProjectApiError,
   type PaintProject,
 } from "../api/paintProjects";
+import { phase3aFixtureEnabled } from "../api/aiFoundation";
 import { FeedbackPanel } from "../components/FeedbackPanel";
 import { ImageAssetManager } from "../components/ImageAssetManager";
 import { ProjectStatusBadge } from "../components/ProjectStatusBadge";
@@ -275,6 +276,14 @@ export function ProjectDetailPage() {
                 <span>{currentState.project.access_role === "owner" ? "03" : "02"}</span>
                 {t("detail.regionWorkspace")}
               </Link>
+              {phase3aFixtureEnabled && currentState.project.access_role === "owner" ? (
+                <Link
+                  to={`/paintpilot/projects/${currentState.project.id}/ai-model-policy`}
+                >
+                  <span>04</span>
+                  {t("detail.aiModelPolicy")}
+                </Link>
+              ) : null}
             </nav>
           </section>
 
@@ -354,6 +363,22 @@ export function ProjectDetailPage() {
                 {t("detail.manageReviewerAccess")}
               </button>
             </section>
+          ) : null}
+
+          {phase3aFixtureEnabled && currentState.project.access_role === "owner" ? (
+            <aside className="ai-project-entry" aria-labelledby="ai-project-entry-heading">
+              <div>
+                <p className="context-label">{t("detail.aiFixtureEyebrow")}</p>
+                <h2 id="ai-project-entry-heading">{t("detail.aiFixtureHeading")}</h2>
+                <p>{t("detail.aiFixtureCopy")}</p>
+              </div>
+              <Link
+                className="button button--secondary"
+                to={`/paintpilot/projects/${currentState.project.id}/ai-model-policy`}
+              >
+                {t("detail.openAiPolicy")}
+              </Link>
+            </aside>
           ) : null}
 
           <aside className="next-boundary" aria-labelledby="next-boundary-heading">

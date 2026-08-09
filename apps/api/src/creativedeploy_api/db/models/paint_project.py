@@ -35,6 +35,10 @@ class PaintProject(Base):
     __tablename__ = "paint_projects"
     __table_args__ = (
         CheckConstraint(
+            "id <> '00000000-0000-0000-0000-000000000000'::uuid",
+            name=conv("ck_paint_projects_id_not_zero_uuid"),
+        ),
+        CheckConstraint(
             "length(owner_principal_id) >= 1 AND owner_principal_id = btrim(owner_principal_id)",
             name=conv("ck_paint_projects_owner_principal_id_normalized"),
         ),

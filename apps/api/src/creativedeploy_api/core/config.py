@@ -219,6 +219,9 @@ class Settings(BaseSettings):
     paintpilot_demo_seed_subject: PrincipalIdSetting | None = None
     paintpilot_demo_seed_display_name: PrincipalDisplayNameSetting | None = None
     paintpilot_demo_seed_email: str | None = None
+    phase3a_fixture_enabled: bool = False
+    credential_fixture_root_key_file: Path | None = None
+    staging_run_id: str | None = None
 
     @model_validator(mode="after")
     def load_mounted_secrets(self) -> "Settings":
@@ -372,6 +375,17 @@ class Settings(BaseSettings):
             assert self.paintpilot_demo_seed_email is not None
             if not self.paintpilot_demo_seed_email.endswith(".invalid"):
                 raise ValueError("PAINTPILOT_DEMO_SEED_EMAIL must use a reserved .invalid address.")
+        if self.phase3a_fixture_enabled:
+            if self.app_env not in {"development", "test"}:
+                raise ValueError(
+                    "PHASE3A_FIXTURE_ENABLED is permitted only in development or test."
+                )
+            if self.staging_run_id is not None:
+                raise ValueError("Phase 3A fixture mode is forbidden in staging-style runs.")
+            if self.credential_fixture_root_key_file is None:
+                raise ValueError(
+                    "CREDENTIAL_FIXTURE_ROOT_KEY_FILE is required when Phase 3A is enabled."
+                )
         return self
 
     @property

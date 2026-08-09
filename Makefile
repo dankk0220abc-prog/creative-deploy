@@ -2,7 +2,7 @@ SHELL := /bin/sh
 
 PYTHON_PROJECT := apps/api
 ALEMBIC_CONFIG := apps/api/alembic.ini
-ALEMBIC_HEAD := 2b1c4d5e6f70
+ALEMBIC_HEAD := 3a04fab2e7a5
 API_CHECK_PATHS := apps/api/src apps/api/tests apps/api/migrations
 WEB_PACKAGE := @creativedeploy/web
 ENV_FILE ?= .env
@@ -15,6 +15,9 @@ INTEGRATION_DATABASE_ENV := env \
 	-u POSTGRES_PASSWORD \
 	-u POSTGRES_DB \
 	-u POSTGRES_PORT \
+	-u PHASE3A_FIXTURE_ENABLED \
+	-u CREDENTIAL_FIXTURE_ROOT_KEY_FILE \
+	-u STAGING_RUN_ID \
 	CREATIVEDEPLOY_ENV_FILE=/dev/null
 WEB_COMMAND_ENV := env \
 	-u APP_ENV \
@@ -69,7 +72,11 @@ WEB_COMMAND_ENV := env \
 	-u PUBLIC_ORIGIN \
 	-u SECURE_COOKIES \
 	-u REQUIRE_CSRF_ORIGIN \
-	-u STRUCTURED_LOGS
+	-u STRUCTURED_LOGS \
+	-u PHASE3A_FIXTURE_ENABLED \
+	-u CREDENTIAL_FIXTURE_ROOT_KEY_FILE \
+	-u STAGING_RUN_ID \
+	-u VITE_PHASE3A_FIXTURE_ENABLED
 API_UNIT_COMMAND_ENV := env \
 	-u APP_ENV \
 	-u APP_NAME \
@@ -123,7 +130,10 @@ API_UNIT_COMMAND_ENV := env \
 	-u PUBLIC_ORIGIN \
 	-u SECURE_COOKIES \
 	-u REQUIRE_CSRF_ORIGIN \
-	-u STRUCTURED_LOGS
+	-u STRUCTURED_LOGS \
+	-u PHASE3A_FIXTURE_ENABLED \
+	-u CREDENTIAL_FIXTURE_ROOT_KEY_FILE \
+	-u STAGING_RUN_ID
 
 .PHONY: bootstrap bootstrap-env db-up db-down api web test-api test-api-integration test-web \
 	lint-api format-check-api typecheck-api lint-web typecheck-web build-web \

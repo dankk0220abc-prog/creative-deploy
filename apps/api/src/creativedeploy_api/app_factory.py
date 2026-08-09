@@ -6,6 +6,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from creativedeploy_api.ai.encryption import CredentialCipher, FixtureRootKeyProvider
+from creativedeploy_api.ai.fixture_provider import FixtureProviderAdapter
 from creativedeploy_api.api.error_handlers import register_error_handlers
 from creativedeploy_api.api.router import api_router
 from creativedeploy_api.api.security_middleware import (
@@ -74,6 +76,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             staging_root=staging_root,
             create_bucket=resolved_settings.s3_create_bucket,
         )
+    ai_cipher: CredentialCipher | None = None
+    fixture_provider_adapter: FixtureProviderAdapter | None = None
+    if resolved_settings.phase3a_fixture_enabled:
+        assert resolved_settings.credential_fixture_root_key_file is not None
+        assert resolved_settings.app_env is not None
+        root_key_provider = FixtureRootKeyProvider.from_file(
+            resolved_settings.credential_fixture_root_key_file,
+            app_env=resolved_settings.app_env,
+            staging_run_id=resolved_settings.staging_run_id,
+        )
+        ai_cipher = CredentialCipher(root_key_provider)
+        fixture_provider_adapter = FixtureProviderAdapter()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -102,6 +116,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.image_storage = image_storage
     app.state.principal_adapter = principal_adapter
     app.state.oidc_client = oidc_client
+    app.state.ai_cipher = ai_cipher
+    app.state.fixture_provider_adapter = fixture_provider_adapter
     app.add_middleware(
         ExactTrustedHostMiddleware,
         allowed_hosts=list(resolved_settings.trusted_hosts),

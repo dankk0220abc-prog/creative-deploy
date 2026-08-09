@@ -1,5 +1,6 @@
 """Isolated PostgreSQL round-trip tests for the first business migration."""
 
+import asyncio
 import os
 import re
 import secrets
@@ -17,9 +18,38 @@ import psycopg
 import pytest
 from psycopg import sql
 from psycopg.types.json import Jsonb
+from pydantic import SecretStr
 from sqlalchemy.engine import URL, make_url
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from creativedeploy_api.core.config import Settings
+from creativedeploy_api.ai.constants import (
+    FIXTURE_PROVIDER_ID,
+    FIXTURE_STRUCTURED_CAPABILITY_ID,
+    FIXTURE_TEXT_CAPABILITY_ID,
+    FIXTURE_TEXT_MODEL_ID,
+)
+from creativedeploy_api.ai.encryption import CredentialCipher, FixtureRootKeyProvider
+from creativedeploy_api.ai.fixture_provider import FixtureProviderAdapter
+from creativedeploy_api.core.config import POSTGRES_COMPONENT_NAMES, Settings
+from creativedeploy_api.core.principal import (
+    AuthenticationMode,
+    PrincipalContext,
+    PrincipalType,
+)
+from creativedeploy_api.schemas.ai_foundation import (
+    CredentialCreateRequest,
+    CredentialGrantRequest,
+    CredentialMutationRequest,
+    FixtureInvocationPayload,
+    InvocationCreateRequest,
+    InvocationPreviewRequest,
+    ProjectPolicyUpdate,
+    UserPreferenceUpdate,
+)
+from creativedeploy_api.services.ai_foundation import (
+    AdmissionRejectedError,
+    AIFoundationService,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -34,20 +64,45 @@ ALEMBIC_COMMAND = (
     "apps/api/alembic.ini",
 )
 BUSINESS_TABLES = {
+    "ai_audit_events",
+    "ai_command_idempotency_records",
+    "ai_cost_ledger",
+    "ai_invocation_events",
+    "ai_usage_ledger",
     "auth_sessions",
+    "budget_reservations",
+    "capability_definitions",
     "command_idempotency_records",
+    "credential_project_grants",
+    "credential_records",
     "external_identities",
     "image_assets",
     "image_set_readiness_reviews",
+    "invocation_attempts",
+    "invocation_requests",
+    "model_capabilities",
+    "model_definitions",
     "oidc_login_flows",
     "paint_projects",
     "project_memberships",
+    "project_budget_counters",
+    "project_budget_policies",
+    "project_model_policies",
+    "project_model_policy_capabilities",
+    "project_model_policy_credentials",
+    "project_model_policy_models",
+    "project_model_policy_providers",
+    "provider_capabilities",
+    "provider_definitions",
     "region_set_reviews",
     "region_sets",
     "region_vertices",
     "regions",
     "state_transition_events",
     "user_accounts",
+    "user_budget_counters",
+    "user_budget_policies",
+    "user_provider_preferences",
 }
 EXPECTED_COLUMNS = {
     "user_accounts": (
@@ -321,6 +376,10 @@ def _subprocess_output_text(output: str | bytes | None) -> str:
 def _run_alembic(database_url: URL, *arguments: str) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
     rendered_database_url = database_url.render_as_string(hide_password=False)
+    for component_name in POSTGRES_COMPONENT_NAMES:
+        environment.pop(component_name, None)
+    environment["CREATIVEDEPLOY_ENV_FILE"] = os.devnull
+    environment["APP_ENV"] = "test"
     environment["DATABASE_URL"] = rendered_database_url
     try:
         result = subprocess.run(
@@ -2835,7 +2894,7 @@ def test_initial_paint_project_migration_round_trip_and_constraints(
 
     _run_alembic(temporary_database_url, "upgrade", "head")
     current_result = _run_alembic(temporary_database_url, "current")
-    assert "2b1c4d5e6f70 (head)" in current_result.stdout
+    assert "3a04fab2e7a5 (head)" in current_result.stdout
     check_result = _run_alembic(temporary_database_url, "check")
     assert "No new upgrade operations detected." in check_result.stdout
 
@@ -2870,12 +2929,19 @@ def test_initial_paint_project_migration_round_trip_and_constraints(
         **_connection_kwargs(temporary_database_url, temporary_database_name)
     ) as connection:
         _assert_schema(connection)
+        phase3a_seed_counts = {
+            "provider_definitions": 1,
+            "model_definitions": 2,
+            "capability_definitions": 3,
+            "provider_capabilities": 3,
+            "model_capabilities": 5,
+        }
         for table in BUSINESS_TABLES:
             query = sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(table))
-            assert connection.execute(query).fetchone() == (0,)
+            assert connection.execute(query).fetchone() == (phase3a_seed_counts.get(table, 0),)
 
 
-def test_phase_2b1_downgrade_refuses_governed_facts_without_deleting_them(
+def test_phase3a_downgrade_refuses_governed_facts_without_deleting_them(
     temporary_database: TemporaryDatabase,
 ) -> None:
     temporary_database_url = temporary_database.url
@@ -2900,7 +2966,7 @@ def test_phase_2b1_downgrade_refuses_governed_facts_without_deleting_them(
         _run_alembic(temporary_database_url, "downgrade", "7f3a2b9c4d1e")
 
     current_result = _run_alembic(temporary_database_url, "current")
-    assert "2b1c4d5e6f70 (head)" in current_result.stdout
+    assert "3a04fab2e7a5 (head)" in current_result.stdout
     with psycopg.connect(
         **_connection_kwargs(temporary_database_url, temporary_database_name)
     ) as connection:
@@ -2914,3 +2980,411 @@ def test_phase_2b1_downgrade_refuses_governed_facts_without_deleting_them(
     _run_alembic(temporary_database_url, "downgrade", "7f3a2b9c4d1e")
     downgraded_result = _run_alembic(temporary_database_url, "current")
     assert "7f3a2b9c4d1e" in downgraded_result.stdout
+
+
+def test_phase3a_fixture_service_round_trip_and_rejection_has_no_adapter_effect(
+    temporary_database: TemporaryDatabase,
+) -> None:
+    temporary_database_url = temporary_database.url
+    temporary_database_name = temporary_database.name
+    user_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    principal_id = "phase3a-fixture-owner"
+    now = datetime.now(UTC)
+    _run_alembic(temporary_database_url, "upgrade", "head")
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        connection.execute(
+            """
+            INSERT INTO user_accounts (
+                id, display_name, email, is_active, created_at, updated_at
+            ) VALUES (%s, %s, %s, true, %s, %s)
+            """,
+            (user_id, "Phase 3A Fixture Owner", "phase3a@example.test", now, now),
+        )
+        connection.execute(
+            """
+            INSERT INTO paint_projects (
+                id, owner_principal_id, title, description,
+                requested_target_style, planning_mode, status, created_at, updated_at
+            ) VALUES (%s, %s, %s, %s, 'cel_shading', 'planning_only_demo', 'DRAFT', %s, %s)
+            """,
+            (project_id, principal_id, "Fixture policy project", None, now, now),
+        )
+
+    async def exercise() -> tuple[uuid.UUID, int]:
+        engine = create_async_engine(
+            temporary_database_url.render_as_string(hide_password=False),
+            pool_pre_ping=True,
+        )
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        adapter = FixtureProviderAdapter()
+        original_invoke = adapter.invoke
+        adapter_calls = 0
+
+        def counted_invoke(*args: Any, **kwargs: Any) -> Any:
+            nonlocal adapter_calls
+            adapter_calls += 1
+            return original_invoke(*args, **kwargs)
+
+        adapter.invoke = counted_invoke  # type: ignore[method-assign]
+        principal = PrincipalContext(
+            principal_id=principal_id,
+            principal_type=PrincipalType.HUMAN,
+            display_name="Phase 3A Fixture Owner",
+            authentication_mode=AuthenticationMode.OIDC_AUTHORIZATION_CODE,
+            user_id=user_id,
+        )
+        try:
+            async with session_factory() as session:
+                service = AIFoundationService(
+                    session,
+                    CredentialCipher(FixtureRootKeyProvider(bytes(range(32)))),
+                    adapter,
+                )
+                credential = await service.create_credential(
+                    payload=CredentialCreateRequest(
+                        provider_key="fixture_local",
+                        alias="Local fixture key",
+                        credential=SecretStr("fixture-sk-0123456789abcdef"),
+                        confirm_save=True,
+                    ),
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                assert "fixture-sk" not in credential.model_dump_json()
+                await service.create_grant(
+                    credential_id=credential.id,
+                    payload=CredentialGrantRequest(
+                        project_id=project_id,
+                        expected_credential_revision=credential.revision,
+                    ),
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                await service.update_user_preference(
+                    payload=UserPreferenceUpdate(
+                        enabled=True,
+                        default_provider_definition_id=FIXTURE_PROVIDER_ID,
+                        default_model_definition_id=FIXTURE_TEXT_MODEL_ID,
+                        default_credential_id=credential.id,
+                        timeout_ms=30_000,
+                        streaming_enabled=False,
+                        cost_warning_minor_units=800,
+                        budget_per_invocation_minor_units=1_000,
+                        budget_cumulative_minor_units=10_000,
+                        budget_window_seconds=86_400,
+                        expected_revision=0,
+                    ),
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                temporary_invocation = await service.create_invocation(
+                    payload=InvocationCreateRequest(
+                        product_space="paintpilot",
+                        project_id=None,
+                        invocation_family="fixture_invocation",
+                        provider_definition_id=FIXTURE_PROVIDER_ID,
+                        model_definition_id=FIXTURE_TEXT_MODEL_ID,
+                        credential_id=None,
+                        temporary_credential=SecretStr("fixture-sk-projectless-0123456789"),
+                        requested_capabilities=["text_generation"],
+                        artifacts=[],
+                        payload=FixtureInvocationPayload(
+                            prompt_label="temporary local integration",
+                            fixture_input="request-local fixture only",
+                            scenario="success",
+                        ),
+                        confirm_fixture_use=True,
+                        max_attempts=1,
+                        total_elapsed_time_limit_ms=30_000,
+                    ),
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                assert temporary_invocation.status == "succeeded"
+                assert temporary_invocation.attempts[0].safe_provider_metadata["fixture"] is True
+                await service.update_project_policy(
+                    project_id=project_id,
+                    payload=ProjectPolicyUpdate(
+                        enabled=True,
+                        default_provider_definition_id=FIXTURE_PROVIDER_ID,
+                        default_model_definition_id=FIXTURE_TEXT_MODEL_ID,
+                        default_credential_id=credential.id,
+                        provider_allowlist=[FIXTURE_PROVIDER_ID],
+                        model_allowlist=[FIXTURE_TEXT_MODEL_ID],
+                        capability_allowlist=[
+                            FIXTURE_TEXT_CAPABILITY_ID,
+                            FIXTURE_STRUCTURED_CAPABILITY_ID,
+                        ],
+                        credential_allowlist=[credential.id],
+                        per_invocation_limit_minor_units=1_000,
+                        cumulative_limit_minor_units=5_000,
+                        budget_window_seconds=86_400,
+                        allow_unknown_cost=False,
+                        allow_manual_model_id=False,
+                        allow_fallback=False,
+                        require_paid_call_confirmation=True,
+                        expected_revision=0,
+                    ),
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                fixture_payload = FixtureInvocationPayload(
+                    prompt_label="local integration",
+                    fixture_input="deterministic paint planning fixture",
+                    scenario="success",
+                )
+                preview_request = InvocationPreviewRequest(
+                    product_space="paintpilot",
+                    project_id=project_id,
+                    invocation_family="fixture_invocation",
+                    provider_definition_id=FIXTURE_PROVIDER_ID,
+                    model_definition_id=FIXTURE_TEXT_MODEL_ID,
+                    credential_id=credential.id,
+                    requested_capabilities=["text_generation"],
+                    payload=fixture_payload,
+                    confirm_fixture_use=True,
+                )
+                preview = await service.preview_invocation(
+                    payload=preview_request, principal=principal
+                )
+                assert preview.admissible is True
+                assert preview.local_only is True
+                invocation_key = uuid.uuid4()
+                invocation_request = InvocationCreateRequest(
+                    **preview_request.model_dump(),
+                    max_attempts=1,
+                    total_elapsed_time_limit_ms=30_000,
+                )
+                invocation = await service.create_invocation(
+                    payload=invocation_request,
+                    principal=principal,
+                    idempotency_key=invocation_key,
+                    request_id=uuid.uuid4(),
+                )
+                assert invocation.status == "succeeded"
+                assert invocation.output == {
+                    "fixture": True,
+                    "local_only": True,
+                    "result_id": invocation.output["result_id"],
+                    "summary": "Deterministic local fixture response",
+                }
+                replay = await service.create_invocation(
+                    payload=invocation_request,
+                    principal=principal,
+                    idempotency_key=invocation_key,
+                    request_id=uuid.uuid4(),
+                )
+                assert replay.id == invocation.id
+                assert replay.replayed is True
+                assert adapter_calls == 2
+
+                failed_request = InvocationCreateRequest(
+                    **{
+                        **preview_request.model_dump(),
+                        "payload": FixtureInvocationPayload(
+                            prompt_label="terminal failure",
+                            fixture_input="deterministic invalid request",
+                            scenario="invalid_request",
+                        ),
+                    },
+                    max_attempts=1,
+                    total_elapsed_time_limit_ms=30_000,
+                )
+                failed = await service.create_invocation(
+                    payload=failed_request,
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                assert failed.status == "failed"
+                assert failed.final_attempt_id == failed.attempts[0].id
+                assert failed.attempts[0].status == "failed"
+
+                unknown_request = InvocationCreateRequest(
+                    **{
+                        **preview_request.model_dump(),
+                        "payload": FixtureInvocationPayload(
+                            prompt_label="unknown outcome",
+                            fixture_input="deterministic reconciliation",
+                            scenario="outcome_unknown",
+                        ),
+                    },
+                    max_attempts=2,
+                    total_elapsed_time_limit_ms=30_000,
+                )
+                unknown = await service.create_invocation(
+                    payload=unknown_request,
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                assert unknown.status == "outcome_unknown"
+                assert len(unknown.attempts) == 1
+                assert unknown.final_attempt_id == unknown.attempts[0].id
+
+                retry_request = InvocationCreateRequest(
+                    **{
+                        **preview_request.model_dump(),
+                        "payload": FixtureInvocationPayload(
+                            prompt_label="bounded retry",
+                            fixture_input="deterministic provider unavailable",
+                            scenario="provider_unavailable",
+                        ),
+                    },
+                    max_attempts=2,
+                    total_elapsed_time_limit_ms=30_000,
+                )
+                retried = await service.create_invocation(
+                    payload=retry_request,
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                assert retried.status == "failed"
+                assert [attempt.attempt_number for attempt in retried.attempts] == [1, 2]
+                assert [attempt.status for attempt in retried.attempts] == ["failed", "failed"]
+                assert retried.final_attempt_id == retried.attempts[-1].id
+                assert adapter_calls == 6
+
+                rejected_request = InvocationCreateRequest(
+                    **{
+                        **preview_request.model_dump(),
+                        "requested_capabilities": ["vision_understanding"],
+                    },
+                    max_attempts=1,
+                    total_elapsed_time_limit_ms=30_000,
+                )
+                with pytest.raises(AdmissionRejectedError):
+                    await service.create_invocation(
+                        payload=rejected_request,
+                        principal=principal,
+                        idempotency_key=uuid.uuid4(),
+                        request_id=uuid.uuid4(),
+                    )
+                assert adapter_calls == 6
+                audit = await service.list_audit(
+                    principal=principal,
+                    project_id=project_id,
+                    limit=100,
+                    offset=0,
+                )
+                assert audit.total >= 3
+                revoked = await service.revoke_credential(
+                    credential_id=credential.id,
+                    payload=CredentialMutationRequest(
+                        expected_revision=credential.revision,
+                        confirm=True,
+                    ),
+                    principal=principal,
+                    idempotency_key=uuid.uuid4(),
+                    request_id=uuid.uuid4(),
+                )
+                assert revoked.status == "revoked"
+                return credential.id, adapter_calls
+        finally:
+            await engine.dispose()
+
+    credential_id, adapter_calls = asyncio.run(exercise())
+    assert adapter_calls == 6
+    with psycopg.connect(
+        **_connection_kwargs(temporary_database_url, temporary_database_name)
+    ) as connection:
+        erased = connection.execute(
+            """
+            SELECT status, ciphertext, wrapped_dek, data_nonce, wrap_nonce,
+                   data_authentication_tag, wrap_authentication_tag
+            FROM credential_records WHERE id = %s
+            """,
+            (credential_id,),
+        ).fetchone()
+        assert erased == ("revoked", None, None, None, None, None, None)
+        assert connection.execute("SELECT count(*) FROM ai_usage_ledger").fetchone() == (2,)
+        assert connection.execute("SELECT count(*) FROM ai_cost_ledger").fetchone() == (2,)
+        assert connection.execute(
+            """
+            SELECT count(*) FROM invocation_requests
+            WHERE project_id IS NULL AND requested_credential_id IS NULL
+              AND safe_payload->>'temporary_credential' = 'true'
+              AND safe_payload::text NOT LIKE '%%fixture-sk%%'
+            """
+        ).fetchone() == (1,)
+        assert connection.execute("SELECT count(*) FROM credential_records").fetchone() == (1,)
+        for append_only_table in (
+            "ai_invocation_events",
+            "ai_usage_ledger",
+            "ai_cost_ledger",
+            "ai_audit_events",
+        ):
+            statement = sql.SQL("UPDATE {} SET created_at = created_at").format(
+                sql.Identifier(append_only_table)
+            )
+            with (
+                pytest.raises(psycopg.Error) as append_only_error,
+                connection.transaction(),
+            ):
+                connection.execute(statement)
+            assert append_only_error.value.sqlstate == "55000"
+
+
+def test_phase3a_fixture_seed_downgrade_refuses_references_then_deletes_exact_seed(
+    temporary_database: TemporaryDatabase,
+) -> None:
+    temporary_database_url = temporary_database.url
+    temporary_database_name = temporary_database.name
+    user_id = uuid.uuid4()
+    preference_id = uuid.uuid4()
+    _run_alembic(temporary_database_url, "upgrade", "head")
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        connection.execute(
+            "INSERT INTO user_accounts (id, display_name) VALUES (%s, %s)",
+            (user_id, "Fixture downgrade guard"),
+        )
+        connection.execute(
+            """
+            INSERT INTO user_provider_preferences (
+                id, user_id, enabled, default_provider_definition_id,
+                timeout_ms, streaming_enabled, revision, updated_at
+            ) VALUES (%s, %s, false, %s, 30000, false, 1, now())
+            """,
+            (preference_id, user_id, FIXTURE_PROVIDER_ID),
+        )
+
+    with pytest.raises(AssertionError, match="fixture Registry identities are referenced"):
+        _run_alembic(temporary_database_url, "downgrade", "3a03e9a1d6f4")
+    assert "3a04fab2e7a5 (head)" in _run_alembic(temporary_database_url, "current").stdout
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        assert connection.execute(
+            "SELECT default_provider_definition_id FROM user_provider_preferences WHERE id = %s",
+            (preference_id,),
+        ).fetchone() == (FIXTURE_PROVIDER_ID,)
+        connection.execute("DELETE FROM user_provider_preferences WHERE id = %s", (preference_id,))
+
+    _run_alembic(temporary_database_url, "downgrade", "3a03e9a1d6f4")
+    assert "3a03e9a1d6f4" in _run_alembic(temporary_database_url, "current").stdout
+    with psycopg.connect(
+        **_connection_kwargs(temporary_database_url, temporary_database_name)
+    ) as connection:
+        assert connection.execute("SELECT count(*) FROM provider_definitions").fetchone() == (0,)
+        assert connection.execute("SELECT count(*) FROM model_definitions").fetchone() == (0,)
+        assert connection.execute("SELECT count(*) FROM capability_definitions").fetchone() == (0,)
