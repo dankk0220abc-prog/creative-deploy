@@ -8,6 +8,7 @@ import { Link, Outlet, useLocation } from "react-router";
 
 import { loginUrl } from "../api/auth";
 import { phase3aFixtureEnabled } from "../api/aiFoundation";
+import { phase3bPaintPlanEnabled } from "../api/paintPlans";
 import { isPaintProjectId } from "../api/paintProjects";
 import { useAuth } from "../auth/AuthContext";
 import { useAppTranslation } from "../i18n";
@@ -50,6 +51,22 @@ function isRegionWorkspacePath(pathname: string): boolean {
   return projectId.length > 0 && !projectId.includes("/");
 }
 
+function isPaintPlanWorkspacePath(pathname: string): boolean {
+  const normalizedPathname = normalizePathname(pathname);
+  const prefix = `${PROJECTS_PATH}/`;
+  if (
+    !normalizedPathname.startsWith(prefix) ||
+    !normalizedPathname.endsWith("/paint-plans")
+  ) {
+    return false;
+  }
+  const projectId = normalizedPathname.slice(
+    prefix.length,
+    -"/paint-plans".length,
+  );
+  return projectId.length > 0 && !projectId.includes("/");
+}
+
 function titleKeyForPath(pathname: string): string {
   const normalizedPathname = normalizePathname(pathname);
   if (normalizedPathname === PROJECTS_PATH) {
@@ -66,6 +83,12 @@ function titleKeyForPath(pathname: string): string {
   }
   if (normalizedPathname.endsWith("/ai-model-policy")) {
     return "title.aiProjectPolicy";
+  }
+  if (
+    phase3bPaintPlanEnabled &&
+    isPaintPlanWorkspacePath(normalizedPathname)
+  ) {
+    return "title.paintPlans";
   }
   if (isRegionWorkspacePath(normalizedPathname)) {
     const projectId = normalizedPathname.slice(
@@ -110,7 +133,8 @@ export function AppShell() {
   const projectsIsCurrent =
     normalizedPathname === PROJECTS_PATH ||
     isProjectDetailPath(normalizedPathname) ||
-    isRegionWorkspacePath(normalizedPathname);
+    isRegionWorkspacePath(normalizedPathname) ||
+    (phase3bPaintPlanEnabled && isPaintPlanWorkspacePath(normalizedPathname));
   const createProjectIsCurrent = normalizedPathname === CREATE_PROJECT_PATH;
   const aiSettingsIsCurrent =
     normalizedPathname.startsWith(AI_SETTINGS_PATH) ||

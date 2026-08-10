@@ -27,6 +27,7 @@ from creativedeploy_api.services.identity import (
     ProjectMembershipService,
 )
 from creativedeploy_api.services.image_assets import ImageAssetService
+from creativedeploy_api.services.paint_plans import PaintPlanService
 from creativedeploy_api.services.paint_projects import PaintProjectService
 from creativedeploy_api.services.region_sets import RegionSetService
 from creativedeploy_api.storage.images import ImageStoragePort
@@ -202,4 +203,24 @@ def get_ai_foundation_service(
 AIFoundationServiceDependency = Annotated[
     AIFoundationService,
     Depends(get_ai_foundation_service),
+]
+
+
+def get_paint_plan_service(
+    request: Request,
+    session: DatabaseSessionDependency,
+    ai_service: AIFoundationServiceDependency,
+) -> PaintPlanService:
+    """Build Phase 3B only behind both offline fixture gates."""
+
+    settings = cast(Settings, request.app.state.settings)
+    if not settings.phase3b_paint_plan_enabled:
+        raise Phase3UnavailableError
+    storage = cast(ImageStoragePort, request.app.state.image_storage)
+    return PaintPlanService(session, storage, settings, ai_service)
+
+
+PaintPlanServiceDependency = Annotated[
+    PaintPlanService,
+    Depends(get_paint_plan_service),
 ]

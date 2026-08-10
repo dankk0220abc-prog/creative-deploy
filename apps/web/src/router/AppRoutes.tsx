@@ -1,7 +1,15 @@
-import { Navigate, Outlet, Route, Routes, useLocation } from "react-router";
+import {
+  Navigate,
+  Outlet,
+  Route,
+  Routes,
+  useLocation,
+  useParams,
+} from "react-router";
 
 import { useAuth } from "../auth/AuthContext";
 import { phase3aFixtureEnabled } from "../api/aiFoundation";
+import { phase3bPaintPlanEnabled } from "../api/paintPlans";
 import { AppShell } from "../components/AppShell";
 import { CreateProjectPage } from "../pages/CreateProjectPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
@@ -11,6 +19,7 @@ import { ProjectsPage } from "../pages/ProjectsPage";
 import { RegionWorkspacePage } from "../pages/RegionWorkspacePage";
 import { AIProjectPolicyPage } from "../pages/AIProjectPolicyPage";
 import { AISettingsPage } from "../pages/AISettingsPage";
+import { PaintPlanWorkspacePage } from "../pages/PaintPlanWorkspacePage";
 
 const appRoutes = {
   createProject: "/paintpilot/projects/new",
@@ -39,6 +48,11 @@ function RequireAuthentication() {
   return <Outlet />;
 }
 
+function PaintPlanWorkspaceRoute() {
+  const { projectId } = useParams();
+  return <PaintPlanWorkspacePage key={projectId ?? "invalid-project"} />;
+}
+
 export function AppRoutes() {
   return (
     <Routes>
@@ -60,6 +74,12 @@ export function AppRoutes() {
             element={<RegionWorkspacePage />}
             path="paintpilot/projects/:projectId/regions"
           />
+          {phase3bPaintPlanEnabled ? (
+            <Route
+              element={<PaintPlanWorkspaceRoute />}
+              path="paintpilot/projects/:projectId/paint-plans"
+            />
+          ) : null}
           {phase3aFixtureEnabled ? (
             <>
               <Route

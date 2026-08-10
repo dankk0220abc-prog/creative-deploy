@@ -1,4 +1,4 @@
-"""Transactional Fake/Fixture-only Phase 3A application service."""
+"""Transactional AI foundation configuration with fixture-only execution."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -66,6 +66,8 @@ from creativedeploy_api.schemas.ai_foundation import (
     CredentialRead,
     CredentialReplaceRequest,
     CredentialValidationResponse,
+    CredentialValidationStatus,
+    Currency,
     FixtureInvocationPayload,
     InvocationCreateRequest,
     InvocationPreviewRead,
@@ -75,6 +77,7 @@ from creativedeploy_api.schemas.ai_foundation import (
     ModelRead,
     ProjectPolicyRead,
     ProjectPolicyUpdate,
+    ProviderKey,
     ProviderListResponse,
     ProviderRead,
     TemporaryCredentialValidationRequest,
@@ -84,12 +87,16 @@ from creativedeploy_api.schemas.ai_foundation import (
     UserPreferenceUpdate,
 )
 from creativedeploy_api.schemas.errors import ErrorCategory
+from creativedeploy_api.schemas.paint_plans import PaintPlanDocument
 from creativedeploy_api.services.paint_projects import PaintProjectApplicationError
 
 READ_MODEL = TypeVar("READ_MODEL", bound=BaseModel)
 RESERVATION_EXPIRY = timedelta(seconds=120)
 VALIDATION_WINDOW = timedelta(minutes=1)
 VALIDATION_LIMIT = 5
+OPENAI_PROVIDER_KEY: ProviderKey = "openai"
+USD_CURRENCY: Currency = "USD"
+LIVE_VALIDATION_NOT_AUTHORIZED: CredentialValidationStatus = "live_validation_not_authorized"
 TERMINAL_INVOCATION_STATES = {
     "succeeded",
     "failed",
@@ -110,6 +117,45 @@ ENVELOPE_FIELDS = (
 )
 
 
+def _configuration_currency(provider: ProviderDefinition) -> Currency | None:
+    if (
+        provider.provider_key == FIXTURE_PROVIDER_KEY
+        and provider.adapter_type == "fixture_local"
+        and provider.enabled
+        and provider.status == "active"
+    ):
+        return FIXTURE_CURRENCY
+    if (
+        provider.provider_key == OPENAI_PROVIDER_KEY
+        and provider.adapter_type == "openai_responses"
+        and provider.base_url_policy == "provider_managed"
+        and not provider.enabled
+        and provider.status == "disabled"
+    ):
+        return USD_CURRENCY
+    return None
+
+
+def _model_matches_provider(model: ModelDefinition, provider: ProviderDefinition) -> bool:
+    if model.provider_definition_id != provider.id or model.provider_key != provider.provider_key:
+        return False
+    if provider.provider_key == FIXTURE_PROVIDER_KEY:
+        return model.status == "active"
+    return provider.provider_key == OPENAI_PROVIDER_KEY and model.status == "disabled"
+
+
+def _live_validation_blocked_response(*, persisted: bool) -> CredentialValidationResponse:
+    return CredentialValidationResponse(
+        provider_key=OPENAI_PROVIDER_KEY,
+        valid=False,
+        validation_status=LIVE_VALIDATION_NOT_AUTHORIZED,
+        message_code="LIVE_VALIDATION_NOT_AUTHORIZED",
+        fixture=False,
+        local_only=False,
+        persisted=persisted,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class AdmissionContext:
     provider: ProviderDefinition
@@ -124,7 +170,52 @@ class AdmissionContext:
 
 def _fixture_estimate(payload: FixtureInvocationPayload) -> int:
     encoded = repr(sorted(payload.model_dump(mode="json").items())).encode("utf-8")
-    return max(1, len(encoded) // 8) + 12
+    input_units = max(1, len(encoded) // 8)
+    if payload.paint_plan_input is None:
+        return input_units + 12
+    paint_regions = sum(
+        region.kind == "paint" for region in payload.paint_plan_input.region_set.regions
+    )
+    return input_units + 200 + (paint_regions * 500)
+
+
+def _validated_paint_plan_output(
+    output: Mapping[str, object],
+    *,
+    safe_payload: Mapping[str, object],
+) -> dict[str, object]:
+    """Validate and project Provider output before any durable/browser-visible write."""
+
+    contract = safe_payload.get("paint_plan_contract")
+    if not isinstance(contract, Mapping):
+        raise ValueError("Paint Plan invocation contract is missing")
+    paint_regions = contract.get("paint_regions")
+    excluded_region_ids = contract.get("excluded_region_ids")
+    if not isinstance(paint_regions, list) or not isinstance(excluded_region_ids, list):
+        raise ValueError("Paint Plan region contract is invalid")
+    expected: set[tuple[str, str, str]] = set()
+    for item in paint_regions:
+        if not isinstance(item, Mapping):
+            raise ValueError("Paint Plan region identity is invalid")
+        region_id = item.get("region_id")
+        stable_region_key = item.get("stable_region_key")
+        region_label = item.get("region_label")
+        if not all(
+            isinstance(value, str) for value in (region_id, stable_region_key, region_label)
+        ):
+            raise ValueError("Paint Plan region identity is invalid")
+        expected.add((region_id, stable_region_key, region_label))  # type: ignore[arg-type]
+    if not expected or not all(isinstance(value, str) for value in excluded_region_ids):
+        raise ValueError("Paint Plan region contract is invalid")
+    document = PaintPlanDocument.model_validate(output)
+    actual = {
+        (str(item.region_id), str(item.stable_region_key), item.region_label)
+        for item in document.instructions
+    }
+    actual_ids = {item[0] for item in actual}
+    if actual != expected or actual_ids.intersection(excluded_region_ids):
+        raise ValueError("Paint Plan output does not match the exact governed RegionSet")
+    return document.model_dump(mode="json")
 
 
 class AIFoundationError(PaintProjectApplicationError):
@@ -263,7 +354,7 @@ def _erase(record: CredentialRecord, *, status: str, now: datetime) -> None:
 
 
 class AIFoundationService:
-    """Fixture-only implementation of the frozen Phase 3A transaction contracts."""
+    """Provider configuration service whose invocation path remains fixture-only."""
 
     def __init__(
         self,
@@ -388,7 +479,7 @@ class AIFoundationService:
                         status=provider.status,
                         catalog_status=provider.catalog_status,
                         catalog_fresh_at=provider.catalog_fresh_at,
-                        local_only=True,
+                        local_only=provider.provider_key == FIXTURE_PROVIDER_KEY,
                         real_model_calls=False,
                         real_cost=False,
                         capabilities=[capability_read],
@@ -441,7 +532,7 @@ class AIFoundationService:
                         context_window=model.context_window,
                         pricing_minor_units=model.pricing_minor_units,
                         pricing_currency=model.pricing_currency,  # type: ignore[arg-type]
-                        local_only=True,
+                        local_only=model.provider_key == FIXTURE_PROVIDER_KEY,
                         capabilities=[capability_read],
                     )
                 else:
@@ -463,6 +554,47 @@ class AIFoundationService:
         request_id: uuid.UUID,
     ) -> CredentialValidationResponse:
         user_id = _user_id(principal)
+        if payload.provider_key == OPENAI_PROVIDER_KEY:
+            identity: dict[str, object] = {
+                "provider_key": OPENAI_PROVIDER_KEY,
+                "credential_present": True,
+            }
+            async with self._session.begin():
+                replay = await self._command_replay(
+                    user_id=user_id,
+                    scope="credential_validate_temporary",
+                    idempotency_key=idempotency_key,
+                    identity_payload=identity,
+                    response_type=CredentialValidationResponse,
+                )
+                if replay is not None:
+                    return replay
+                if await self._repository.lock_active_user(user_id) is None:
+                    raise AIAuthorizationError
+                provider = await self._repository.get_provider(OPENAI_PROVIDER_KEY)
+                if provider is None or _configuration_currency(provider) != USD_CURRENCY:
+                    raise AIResourceNotFoundError
+                response = _live_validation_blocked_response(persisted=False)
+                self._audit(
+                    user_id=user_id,
+                    request_id=request_id,
+                    action="credential_validate_temporary",
+                    outcome=LIVE_VALIDATION_NOT_AUTHORIZED,
+                    provider_id=provider.id,
+                    safe_metadata={
+                        "credential_present": True,
+                        "fixture": False,
+                        "live_execution_authorized": False,
+                    },
+                )
+                self._complete_command(
+                    user_id=user_id,
+                    scope="credential_validate_temporary",
+                    idempotency_key=idempotency_key,
+                    identity_payload=identity,
+                    response=response,
+                )
+                return response
         plaintext = payload.credential.get_secret_value().encode("utf-8")
         identity = {
             "provider_key": payload.provider_key,
@@ -541,17 +673,22 @@ class AIFoundationService:
             if await self._repository.lock_active_user(user_id) is None:
                 raise AIAuthorizationError
             provider = await self._repository.get_provider(payload.provider_key)
-            if (
-                provider is None
-                or not provider.enabled
-                or provider.status != "active"
-                or provider.adapter_type != "fixture_local"
-            ):
+            expected_currency: Currency = (
+                FIXTURE_CURRENCY if payload.provider_key == FIXTURE_PROVIDER_KEY else USD_CURRENCY
+            )
+            if provider is None or _configuration_currency(provider) != expected_currency:
                 raise AIResourceNotFoundError
-            validation = self._adapter.validate_credential(SecretBytes(plaintext))
-            if not validation.valid:
-                raise CredentialRejectedError
             now = datetime.now(UTC)
+            validation_status: CredentialValidationStatus
+            if provider.provider_key == FIXTURE_PROVIDER_KEY:
+                validation = self._adapter.validate_credential(SecretBytes(plaintext))
+                if not validation.valid:
+                    raise CredentialRejectedError
+                validation_status = validation.status
+                successful_validation_at: datetime | None = now
+            else:
+                validation_status = LIVE_VALIDATION_NOT_AUTHORIZED
+                successful_validation_at = None
             credential_id = uuid.uuid4()
             aad = CredentialAAD(
                 credential_id=credential_id,
@@ -579,8 +716,8 @@ class AIFoundationService:
                 wrap_authentication_tag=encrypted.wrap_authentication_tag,
                 aad_version=encrypted.aad_version,
                 replaces_credential_id=None,
-                last_validation_status=validation.status,
-                last_successful_validation_at=now,
+                last_validation_status=validation_status,
+                last_successful_validation_at=successful_validation_at,
                 revoked_at=None,
                 replaced_at=None,
                 revision=1,
@@ -597,7 +734,15 @@ class AIFoundationService:
                 outcome="succeeded",
                 credential_id=record.id,
                 provider_id=provider.id,
-                safe_metadata={"alias": record.alias, "fixture": True},
+                safe_metadata=(
+                    {"alias": record.alias, "fixture": True}
+                    if provider.provider_key == FIXTURE_PROVIDER_KEY
+                    else {
+                        "alias": record.alias,
+                        "fixture": False,
+                        "live_execution_authorized": False,
+                    }
+                ),
             )
             self._complete_command(
                 user_id=user_id,
@@ -634,6 +779,43 @@ class AIFoundationService:
                 credential_id=credential_id, owner_user_id=user_id, for_update=True
             )
             if record is None or record.status != "active":
+                raise AIResourceNotFoundError
+            if record.provider_key == OPENAI_PROVIDER_KEY:
+                provider = await self._repository.get_provider(OPENAI_PROVIDER_KEY)
+                if (
+                    provider is None
+                    or provider.id != record.provider_definition_id
+                    or _configuration_currency(provider) != USD_CURRENCY
+                ):
+                    raise AIResourceNotFoundError
+                now = datetime.now(UTC)
+                record.last_validation_status = LIVE_VALIDATION_NOT_AUTHORIZED
+                record.last_successful_validation_at = None
+                record.updated_at = now
+                record.revision += 1
+                response = _live_validation_blocked_response(persisted=True)
+                self._audit(
+                    user_id=user_id,
+                    request_id=request_id,
+                    action="credential_validate_saved",
+                    outcome=LIVE_VALIDATION_NOT_AUTHORIZED,
+                    credential_id=record.id,
+                    provider_id=record.provider_definition_id,
+                    safe_metadata={
+                        "credential_present": True,
+                        "fixture": False,
+                        "live_execution_authorized": False,
+                    },
+                )
+                self._complete_command(
+                    user_id=user_id,
+                    scope=f"credential_validate_saved:{credential_id}",
+                    idempotency_key=idempotency_key,
+                    identity_payload=identity,
+                    response=response,
+                )
+                return response
+            if record.provider_key != FIXTURE_PROVIDER_KEY:
                 raise AIResourceNotFoundError
             if (
                 await self._repository.validation_count_since(
@@ -774,11 +956,27 @@ class AIFoundationService:
             )
             if old is None or old.status != "active" or old.revision != payload.expected_revision:
                 raise AIConflictError
-            validation = self._adapter.validate_credential(SecretBytes(plaintext))
-            if not validation.valid:
-                raise CredentialRejectedError
-            grants = await self._repository.lock_credential_grants(old.id)
+            provider = await self._repository.get_provider(old.provider_key)
+            if (
+                provider is None
+                or provider.id != old.provider_definition_id
+                or _configuration_currency(provider) is None
+            ):
+                raise AIResourceNotFoundError
             now = datetime.now(UTC)
+            validation_status: CredentialValidationStatus
+            if old.provider_key == FIXTURE_PROVIDER_KEY:
+                validation = self._adapter.validate_credential(SecretBytes(plaintext))
+                if not validation.valid:
+                    raise CredentialRejectedError
+                validation_status = validation.status
+                successful_validation_at: datetime | None = now
+            elif old.provider_key == OPENAI_PROVIDER_KEY:
+                validation_status = LIVE_VALIDATION_NOT_AUTHORIZED
+                successful_validation_at = None
+            else:
+                raise AIResourceNotFoundError
+            grants = await self._repository.lock_credential_grants(old.id)
             new_id = uuid.uuid4()
             encrypted = self._cipher.encrypt(
                 plaintext,
@@ -808,8 +1006,8 @@ class AIFoundationService:
                 wrap_authentication_tag=encrypted.wrap_authentication_tag,
                 aad_version=encrypted.aad_version,
                 replaces_credential_id=old.id,
-                last_validation_status=validation.status,
-                last_successful_validation_at=now,
+                last_validation_status=validation_status,
+                last_successful_validation_at=successful_validation_at,
                 revoked_at=None,
                 replaced_at=None,
                 revision=1,
@@ -831,7 +1029,19 @@ class AIFoundationService:
                 outcome="succeeded",
                 credential_id=replacement.id,
                 provider_id=replacement.provider_definition_id,
-                safe_metadata={"replaces_credential_id": str(old.id), "grants_transferred": False},
+                safe_metadata=(
+                    {
+                        "replaces_credential_id": str(old.id),
+                        "grants_transferred": False,
+                    }
+                    if old.provider_key == FIXTURE_PROVIDER_KEY
+                    else {
+                        "replaces_credential_id": str(old.id),
+                        "grants_transferred": False,
+                        "fixture": False,
+                        "live_execution_authorized": False,
+                    }
+                ),
             )
             self._complete_command(
                 user_id=user_id,
@@ -976,9 +1186,21 @@ class AIFoundationService:
             )
             return response
 
+    async def _preference_currency(self, preference: UserProviderPreference) -> Currency:
+        if preference.cost_warning_currency in {FIXTURE_CURRENCY, USD_CURRENCY}:
+            return preference.cost_warning_currency  # type: ignore[return-value]
+        if preference.default_provider_definition_id is not None:
+            provider = await self._repository.get_provider_by_id(
+                preference.default_provider_definition_id
+            )
+            if provider is not None:
+                currency = _configuration_currency(provider)
+                if currency is not None:
+                    return currency
+        return FIXTURE_CURRENCY
+
     async def _user_preference_read(self, user_id: uuid.UUID) -> UserPreferenceRead:
         preference = await self._repository.get_preference(user_id)
-        budget = await self._repository.get_user_budget_policy(user_id)
         if preference is None:
             return UserPreferenceRead(
                 enabled=False,
@@ -994,6 +1216,8 @@ class AIFoundationService:
                 budget_window_seconds=None,
                 revision=0,
             )
+        currency = await self._preference_currency(preference)
+        budget = await self._repository.get_user_budget_policy(user_id, currency=currency)
         return UserPreferenceRead(
             enabled=preference.enabled,
             default_provider_definition_id=preference.default_provider_definition_id,
@@ -1002,7 +1226,7 @@ class AIFoundationService:
             timeout_ms=preference.timeout_ms,
             streaming_enabled=preference.streaming_enabled,
             cost_warning_minor_units=preference.cost_warning_minor_units,
-            currency=FIXTURE_CURRENCY,
+            currency=currency,
             budget_per_invocation_minor_units=(
                 budget.per_invocation_limit_minor_units if budget is not None else None
             ),
@@ -1052,7 +1276,9 @@ class AIFoundationService:
             provider = (
                 None
                 if payload.default_provider_definition_id is None
-                else await self._repository.get_provider(FIXTURE_PROVIDER_KEY)
+                else await self._repository.get_provider_by_id(
+                    payload.default_provider_definition_id
+                )
             )
             model = (
                 None
@@ -1068,17 +1294,7 @@ class AIFoundationService:
                     for_update=True,
                 )
             )
-            if (payload.default_provider_definition_id is not None) and (
-                provider is None
-                or provider.id != payload.default_provider_definition_id
-                or provider.provider_key != FIXTURE_PROVIDER_KEY
-                or provider.status != "active"
-                or not provider.enabled
-            ):
-                raise AIResourceNotFoundError
-            if model is not None and (
-                model.provider_key != FIXTURE_PROVIDER_KEY or model.status != "active"
-            ):
+            if payload.default_provider_definition_id is not None and provider is None:
                 raise AIResourceNotFoundError
             if payload.default_model_definition_id is not None and model is None:
                 raise AIResourceNotFoundError
@@ -1086,6 +1302,36 @@ class AIFoundationService:
                 credential is None or credential.status != "active"
             ):
                 raise AIResourceNotFoundError
+            referenced_provider_ids = {
+                value
+                for value in (
+                    provider.id if provider is not None else None,
+                    model.provider_definition_id if model is not None else None,
+                    credential.provider_definition_id if credential is not None else None,
+                )
+                if value is not None
+            }
+            if len(referenced_provider_ids) > 1:
+                raise AdmissionRejectedError
+            configured_provider = provider
+            if configured_provider is None and referenced_provider_ids:
+                configured_provider = await self._repository.get_provider_by_id(
+                    next(iter(referenced_provider_ids))
+                )
+            if configured_provider is None:
+                if referenced_provider_ids or payload.currency != FIXTURE_CURRENCY:
+                    raise AdmissionRejectedError
+            else:
+                configured_currency = _configuration_currency(configured_provider)
+                if configured_currency != payload.currency:
+                    raise AdmissionRejectedError
+                if model is not None and not _model_matches_provider(model, configured_provider):
+                    raise AdmissionRejectedError
+                if credential is not None and (
+                    credential.provider_definition_id != configured_provider.id
+                    or credential.provider_key != configured_provider.provider_key
+                ):
+                    raise AdmissionRejectedError
             preference = await self._repository.get_preference(user_id, for_update=True)
             current_revision = preference.revision if preference is not None else 0
             if current_revision != payload.expected_revision:
@@ -1103,7 +1349,7 @@ class AIFoundationService:
                     streaming_enabled=False,
                     cost_warning_minor_units=payload.cost_warning_minor_units,
                     cost_warning_currency=(
-                        FIXTURE_CURRENCY if payload.cost_warning_minor_units is not None else None
+                        payload.currency if payload.cost_warning_minor_units is not None else None
                     ),
                     revision=1,
                     updated_at=now,
@@ -1118,17 +1364,19 @@ class AIFoundationService:
                 preference.streaming_enabled = False
                 preference.cost_warning_minor_units = payload.cost_warning_minor_units
                 preference.cost_warning_currency = (
-                    FIXTURE_CURRENCY if payload.cost_warning_minor_units is not None else None
+                    payload.currency if payload.cost_warning_minor_units is not None else None
                 )
                 preference.revision += 1
                 preference.updated_at = now
-            budget = await self._repository.get_user_budget_policy(user_id, for_update=True)
+            budget = await self._repository.get_user_budget_policy(
+                user_id, currency=payload.currency, for_update=True
+            )
             if budget is None:
                 budget = UserBudgetPolicy(
                     id=uuid.uuid4(),
                     user_id=user_id,
                     product_space="paintpilot",
-                    currency=FIXTURE_CURRENCY,
+                    currency=payload.currency,
                     enabled=payload.enabled,
                     per_invocation_limit_minor_units=(payload.budget_per_invocation_minor_units),
                     cumulative_limit_minor_units=payload.budget_cumulative_minor_units,
@@ -1148,7 +1396,9 @@ class AIFoundationService:
                 budget.unknown_cost_reservation_minor_units = 0
                 budget.revision += 1
                 budget.updated_at = now
-            counter = await self._repository.get_user_counter(user_id, now, for_update=True)
+            counter = await self._repository.get_user_counter(
+                user_id, now, currency=payload.currency, for_update=True
+            )
             if (
                 counter is None
                 or int((counter.window_end - counter.window_start).total_seconds())
@@ -1159,7 +1409,7 @@ class AIFoundationService:
                         id=uuid.uuid4(),
                         user_id=user_id,
                         product_space="paintpilot",
-                        currency=FIXTURE_CURRENCY,
+                        currency=payload.currency,
                         window_start=now,
                         window_end=now + timedelta(seconds=payload.budget_window_seconds),
                         limit_minor_units=payload.budget_cumulative_minor_units,
@@ -1184,7 +1434,16 @@ class AIFoundationService:
                 credential_id=payload.default_credential_id,
                 provider_id=payload.default_provider_definition_id,
                 model_id=payload.default_model_definition_id,
-                safe_metadata={"enabled": payload.enabled, "fixture": True},
+                safe_metadata=(
+                    {"enabled": payload.enabled, "fixture": True}
+                    if payload.currency == FIXTURE_CURRENCY
+                    else {
+                        "enabled": payload.enabled,
+                        "currency": payload.currency,
+                        "fixture": False,
+                        "live_execution_authorized": False,
+                    }
+                ),
             )
             self._complete_command(
                 user_id=user_id,
@@ -1197,7 +1456,6 @@ class AIFoundationService:
 
     async def _project_policy_read(self, project_id: uuid.UUID) -> ProjectPolicyRead:
         policy = await self._repository.get_project_policy(project_id)
-        budget = await self._repository.get_project_budget_policy(project_id)
         if policy is None:
             return ProjectPolicyRead(
                 project_id=project_id,
@@ -1223,10 +1481,79 @@ class AIFoundationService:
                 resolved_status="not_configured",
                 revision=0,
             )
+        budget = await self._repository.get_project_budget_policy(
+            project_id, currency=policy.currency
+        )
         providers, models, capabilities, credentials = await self._repository.policy_allowlists(
             policy.id
         )
         grants = await self._repository.active_grant_credential_ids(project_id)
+        provider = (
+            None
+            if policy.default_provider_definition_id is None
+            else await self._repository.get_provider_by_id(policy.default_provider_definition_id)
+        )
+        model = (
+            None
+            if policy.default_model_definition_id is None
+            else await self._repository.get_model(policy.default_model_definition_id)
+        )
+        credential = (
+            None
+            if policy.default_credential_id is None
+            else await self._repository.get_credential_by_id(policy.default_credential_id)
+        )
+        provider_currency = None if provider is None else _configuration_currency(provider)
+        required_live_capability_keys = {
+            "vision_understanding",
+            "structured_output",
+        }
+        required_live_capability_ids = (
+            set()
+            if provider is None or provider.provider_key != OPENAI_PROVIDER_KEY
+            else set(
+                await self._repository.capability_ids_for_keys(
+                    sorted(required_live_capability_keys)
+                )
+            )
+        )
+        model_capability_keys = (
+            set() if model is None else set(await self._repository.model_capability_keys(model.id))
+        )
+        live_capabilities_ready = (
+            provider is None
+            or provider.provider_key != OPENAI_PROVIDER_KEY
+            or (
+                len(required_live_capability_ids) == len(required_live_capability_keys)
+                and required_live_capability_ids.issubset(set(capabilities))
+                and required_live_capability_keys.issubset(model_capability_keys)
+            )
+        )
+        configuration_ready = (
+            policy.enabled
+            and budget is not None
+            and budget.enabled
+            and provider is not None
+            and model is not None
+            and credential is not None
+            and credential.status == "active"
+            and provider_currency == policy.currency
+            and _model_matches_provider(model, provider)
+            and credential.provider_definition_id == provider.id
+            and credential.provider_key == provider.provider_key
+            and policy.default_provider_definition_id in providers
+            and policy.default_model_definition_id in models
+            and policy.default_credential_id in credentials
+            and policy.default_credential_id in grants
+            and live_capabilities_ready
+        )
+        resolved_status = "blocked"
+        if configuration_ready and provider is not None:
+            resolved_status = (
+                "live_authorization_required"
+                if provider.provider_key == OPENAI_PROVIDER_KEY
+                else "ready"
+            )
         return ProjectPolicyRead(
             project_id=project_id,
             enabled=policy.enabled,
@@ -1243,19 +1570,12 @@ class AIFoundationService:
                 budget.cumulative_limit_minor_units if budget is not None else None
             ),
             budget_window_seconds=budget.window_seconds if budget is not None else None,
-            currency=FIXTURE_CURRENCY,
+            currency=policy.currency,  # type: ignore[arg-type]
             allow_unknown_cost=policy.allow_unknown_cost,
             allow_manual_model_id=policy.allow_manual_model_id,
             allow_fallback=policy.allow_fallback,
             require_paid_call_confirmation=policy.require_paid_call_confirmation,
-            resolved_status=(
-                "ready"
-                if policy.enabled
-                and budget is not None
-                and budget.enabled
-                and policy.default_credential_id in grants
-                else "blocked"
-            ),
+            resolved_status=resolved_status,
             revision=policy.revision,
         )
 
@@ -1339,14 +1659,53 @@ class AIFoundationService:
                 != credential_ids
             ):
                 raise AIResourceNotFoundError
-            provider = await self._repository.get_provider(FIXTURE_PROVIDER_KEY)
-            model = await self._repository.get_model(payload.default_model_definition_id)
+            provider_records = {
+                provider_id: provider
+                for provider_id in sorted(provider_ids)
+                if (provider := await self._repository.get_provider_by_id(provider_id)) is not None
+            }
+            model_records = {
+                model_id: model
+                for model_id in sorted(model_ids)
+                if (model := await self._repository.get_model(model_id)) is not None
+            }
+            if set(provider_records) != provider_ids or set(model_records) != model_ids:
+                raise AdmissionRejectedError
+            if any(
+                _configuration_currency(provider) != payload.currency
+                for provider in provider_records.values()
+            ):
+                raise AdmissionRejectedError
+            if any(
+                model.provider_definition_id not in provider_records
+                or not _model_matches_provider(
+                    model, provider_records[model.provider_definition_id]
+                )
+                for model in model_records.values()
+            ):
+                raise AdmissionRejectedError
+            if any(
+                credential.provider_definition_id not in provider_records
+                or credential.provider_key
+                != provider_records[credential.provider_definition_id].provider_key
+                for credential in credentials
+            ):
+                raise AdmissionRejectedError
+            provider = provider_records[payload.default_provider_definition_id]
+            model = model_records[payload.default_model_definition_id]
+            default_credential = next(
+                (
+                    credential
+                    for credential in credentials
+                    if credential.id == payload.default_credential_id
+                ),
+                None,
+            )
             if (
-                provider is None
-                or provider.id != payload.default_provider_definition_id
-                or provider.provider_key != FIXTURE_PROVIDER_KEY
-                or model is None
-                or model.provider_key != provider.provider_key
+                not _model_matches_provider(model, provider)
+                or default_credential is None
+                or default_credential.provider_definition_id != provider.id
+                or default_credential.provider_key != provider.provider_key
             ):
                 raise AdmissionRejectedError
             now = datetime.now(UTC)
@@ -1359,7 +1718,7 @@ class AIFoundationService:
                     default_model_definition_id=payload.default_model_definition_id,
                     default_credential_id=payload.default_credential_id,
                     per_invocation_limit_minor_units=(payload.per_invocation_limit_minor_units),
-                    currency=FIXTURE_CURRENCY,
+                    currency=payload.currency,
                     allow_unknown_cost=False,
                     unknown_cost_reservation_minor_units=0,
                     allow_manual_model_id=False,
@@ -1377,6 +1736,7 @@ class AIFoundationService:
                 policy.default_model_definition_id = payload.default_model_definition_id
                 policy.default_credential_id = payload.default_credential_id
                 policy.per_invocation_limit_minor_units = payload.per_invocation_limit_minor_units
+                policy.currency = payload.currency
                 policy.allow_unknown_cost = False
                 policy.unknown_cost_reservation_minor_units = 0
                 policy.allow_manual_model_id = False
@@ -1393,13 +1753,15 @@ class AIFoundationService:
                 credentials=list(credential_ids),
                 created_at=now,
             )
-            budget = await self._repository.get_project_budget_policy(project_id, for_update=True)
+            budget = await self._repository.get_project_budget_policy(
+                project_id, currency=payload.currency, for_update=True
+            )
             if budget is None:
                 budget = ProjectBudgetPolicy(
                     id=uuid.uuid4(),
                     project_id=project_id,
                     product_space="paintpilot",
-                    currency=FIXTURE_CURRENCY,
+                    currency=payload.currency,
                     enabled=payload.enabled,
                     per_invocation_limit_minor_units=(payload.per_invocation_limit_minor_units),
                     cumulative_limit_minor_units=payload.cumulative_limit_minor_units,
@@ -1419,7 +1781,9 @@ class AIFoundationService:
                 budget.unknown_cost_reservation_minor_units = 0
                 budget.revision += 1
                 budget.updated_at = now
-            counter = await self._repository.get_project_counter(project_id, now, for_update=True)
+            counter = await self._repository.get_project_counter(
+                project_id, now, currency=payload.currency, for_update=True
+            )
             if (
                 counter is None
                 or int((counter.window_end - counter.window_start).total_seconds())
@@ -1430,7 +1794,7 @@ class AIFoundationService:
                         id=uuid.uuid4(),
                         project_id=project_id,
                         product_space="paintpilot",
-                        currency=FIXTURE_CURRENCY,
+                        currency=payload.currency,
                         window_start=now,
                         window_end=now + timedelta(seconds=payload.budget_window_seconds),
                         limit_minor_units=payload.cumulative_limit_minor_units,
@@ -1456,7 +1820,16 @@ class AIFoundationService:
                 credential_id=payload.default_credential_id,
                 provider_id=payload.default_provider_definition_id,
                 model_id=payload.default_model_definition_id,
-                safe_metadata={"enabled": payload.enabled, "fixture": True},
+                safe_metadata=(
+                    {"enabled": payload.enabled, "fixture": True}
+                    if payload.currency == FIXTURE_CURRENCY
+                    else {
+                        "enabled": payload.enabled,
+                        "currency": payload.currency,
+                        "fixture": False,
+                        "live_execution_authorized": False,
+                    }
+                ),
             )
             self._complete_command(
                 user_id=user_id,
@@ -1519,7 +1892,15 @@ class AIFoundationService:
             or not provider.enabled
             or model is None
             or model.provider_definition_id != provider.id
+            or model.provider_key != provider.provider_key
             or model.status != "active"
+            or (
+                credential is not None
+                and (
+                    credential.provider_definition_id != provider.id
+                    or credential.provider_key != provider.provider_key
+                )
+            )
         ):
             raise AIResourceNotFoundError
 
@@ -1573,29 +1954,28 @@ class AIFoundationService:
             if grant is None:
                 raise AdmissionRejectedError
         preference = await self._repository.get_preference(user_id, for_update=for_update)
-        if (
-            preference is None
-            or not preference.enabled
-            or preference.default_provider_definition_id != payload.provider_definition_id
-            or preference.default_model_definition_id != payload.model_definition_id
-            or (
-                credential is not None and preference.default_credential_id != payload.credential_id
-            )
-            or preference.streaming_enabled
-        ):
+        if preference is None or not preference.enabled or preference.streaming_enabled:
             raise AdmissionRejectedError
         project_policy = None
         if project is not None:
             project_policy = await self._repository.get_project_policy(
                 project.id, for_update=for_update
             )
-            if project_policy is None or not project_policy.enabled:
+            if (
+                project_policy is None
+                or not project_policy.enabled
+                or project_policy.currency != FIXTURE_CURRENCY
+            ):
                 raise AdmissionRejectedError
-        user_budget = await self._repository.get_user_budget_policy(user_id, for_update=for_update)
+        user_budget = await self._repository.get_user_budget_policy(
+            user_id, currency=FIXTURE_CURRENCY, for_update=for_update
+        )
         project_budget = (
             None
             if project is None
-            else await self._repository.get_project_budget_policy(project.id, for_update=for_update)
+            else await self._repository.get_project_budget_policy(
+                project.id, currency=FIXTURE_CURRENCY, for_update=for_update
+            )
         )
         if (
             user_budget is None
@@ -1614,11 +1994,15 @@ class AIFoundationService:
         ):
             raise AdmissionRejectedError
         now = datetime.now(UTC)
-        user_counter = await self._repository.get_user_counter(user_id, now, for_update=for_update)
+        user_counter = await self._repository.get_user_counter(
+            user_id, now, currency=FIXTURE_CURRENCY, for_update=for_update
+        )
         project_counter = (
             None
             if project is None
-            else await self._repository.get_project_counter(project.id, now, for_update=for_update)
+            else await self._repository.get_project_counter(
+                project.id, now, currency=FIXTURE_CURRENCY, for_update=for_update
+            )
         )
         if user_counter is None or (project is not None and project_counter is None):
             raise AdmissionRejectedError
@@ -1643,9 +2027,16 @@ class AIFoundationService:
             or not provider.enabled
             or provider.status != "active"
             or model is None
+            or model.provider_definition_id != provider.id
             or model.provider_key != provider.provider_key
             or model.status != "active"
-            or (credential is not None and credential.provider_definition_id != provider.id)
+            or (
+                credential is not None
+                and (
+                    credential.provider_definition_id != provider.id
+                    or credential.provider_key != provider.provider_key
+                )
+            )
         ):
             raise AdmissionRejectedError
         capability_keys = sorted(set(payload.requested_capabilities))
@@ -1719,7 +2110,223 @@ class AIFoundationService:
             capability_keys=capability_keys,
         )
 
+    async def live_saved_selection_blockers(
+        self,
+        *,
+        user_id: uuid.UUID,
+        project_id: uuid.UUID,
+        provider_definition_id: uuid.UUID,
+        model_definition_id: uuid.UUID,
+        credential_id: uuid.UUID,
+        required_capability_keys: list[str],
+        estimate_minor_units: int,
+    ) -> list[str]:
+        """Evaluate a saved live selection without reading a credential or dispatching.
+
+        Phase 3B keeps live execution source-disabled.  This read-only admission mirror
+        makes every other prerequisite explicit so the UI cannot imply that a missing
+        Grant, allowlist, or USD budget would become executable by flipping that gate.
+        """
+
+        blockers: list[str] = []
+        capability_keys = sorted(set(required_capability_keys))
+        now = datetime.now(UTC)
+        async with self._session.begin():
+            active_user = await self._repository.lock_active_user(user_id)
+            provider = await self._repository.get_provider_by_id(provider_definition_id)
+            model = await self._repository.get_model(model_definition_id)
+            credential = await self._repository.get_owned_credential(
+                credential_id=credential_id,
+                owner_user_id=user_id,
+            )
+            grant = await self._repository.get_active_grant(
+                credential_id=credential_id,
+                project_id=project_id,
+            )
+            preference = await self._repository.get_preference(user_id)
+            policy = await self._repository.get_project_policy(project_id)
+            user_budget = await self._repository.get_user_budget_policy(
+                user_id,
+                currency=USD_CURRENCY,
+            )
+            project_budget = await self._repository.get_project_budget_policy(
+                project_id,
+                currency=USD_CURRENCY,
+            )
+            user_counter = await self._repository.get_user_counter(
+                user_id,
+                now,
+                currency=USD_CURRENCY,
+            )
+            project_counter = await self._repository.get_project_counter(
+                project_id,
+                now,
+                currency=USD_CURRENCY,
+            )
+            capability_ids = set(await self._repository.capability_ids_for_keys(capability_keys))
+            model_capabilities = (
+                set()
+                if model is None
+                else set(await self._repository.model_capability_keys(model.id))
+            )
+            providers: list[uuid.UUID] = []
+            models: list[uuid.UUID] = []
+            capabilities: list[uuid.UUID] = []
+            credentials: list[uuid.UUID] = []
+            if policy is not None:
+                (
+                    providers,
+                    models,
+                    capabilities,
+                    credentials,
+                ) = await self._repository.policy_allowlists(policy.id)
+
+        if active_user is None:
+            blockers.append("user_inactive")
+        if (
+            provider is None
+            or provider.provider_key != OPENAI_PROVIDER_KEY
+            or _configuration_currency(provider) != USD_CURRENCY
+        ):
+            blockers.append("openai_provider_contract_invalid")
+        if (
+            provider is None
+            or model is None
+            or model.id != model_definition_id
+            or not _model_matches_provider(model, provider)
+        ):
+            blockers.append("openai_model_contract_invalid")
+        if (
+            not capability_keys
+            or len(capability_ids) != len(capability_keys)
+            or not set(capability_keys).issubset(model_capabilities)
+        ):
+            blockers.append("model_capabilities_missing")
+        if credential is None or credential.status != "active":
+            blockers.append("credential_not_owned_or_inactive")
+        elif (
+            provider is None
+            or credential.provider_definition_id != provider.id
+            or credential.provider_key != provider.provider_key
+        ):
+            blockers.append("credential_provider_mismatch")
+        elif (
+            credential.last_validation_status != "provider_valid"
+            or credential.last_successful_validation_at is None
+        ):
+            blockers.append("credential_live_validation_required")
+        if grant is None:
+            blockers.append("credential_grant_missing")
+        if preference is None or not preference.enabled or preference.streaming_enabled:
+            blockers.append("user_preference_not_enabled")
+        if policy is None or not policy.enabled:
+            blockers.append("project_policy_not_configured")
+        else:
+            if policy.currency != USD_CURRENCY:
+                blockers.append("project_policy_currency_mismatch")
+            if (
+                policy.allow_unknown_cost
+                or policy.allow_manual_model_id
+                or policy.allow_fallback
+                or not policy.require_paid_call_confirmation
+            ):
+                blockers.append("project_policy_controls_not_strict")
+            if provider_definition_id not in providers:
+                blockers.append("provider_not_allowlisted")
+            if model_definition_id not in models:
+                blockers.append("model_not_allowlisted")
+            if credential_id not in credentials:
+                blockers.append("credential_not_allowlisted")
+            if not capability_ids.issubset(set(capabilities)):
+                blockers.append("capability_not_allowlisted")
+        if (
+            user_budget is None
+            or not user_budget.enabled
+            or user_budget.currency != USD_CURRENCY
+            or user_budget.allow_unknown_cost
+        ):
+            blockers.append("user_budget_not_configured")
+        if (
+            project_budget is None
+            or not project_budget.enabled
+            or project_budget.currency != USD_CURRENCY
+            or project_budget.allow_unknown_cost
+        ):
+            blockers.append("project_budget_not_configured")
+        if user_counter is None or project_counter is None:
+            blockers.append("budget_window_not_active")
+        if (
+            user_budget is not None
+            and project_budget is not None
+            and policy is not None
+            and estimate_minor_units
+            > min(
+                user_budget.per_invocation_limit_minor_units,
+                project_budget.per_invocation_limit_minor_units,
+                policy.per_invocation_limit_minor_units,
+            )
+        ):
+            blockers.append("per_invocation_budget_exceeded")
+        if user_budget is not None and user_counter is not None:
+            if (
+                int((user_counter.window_end - user_counter.window_start).total_seconds())
+                != user_budget.window_seconds
+                or user_counter.limit_minor_units != user_budget.cumulative_limit_minor_units
+            ):
+                blockers.append("user_budget_window_mismatch")
+            if (
+                user_counter.committed_minor_units
+                + user_counter.reserved_minor_units
+                + estimate_minor_units
+                > user_budget.cumulative_limit_minor_units
+            ):
+                blockers.append("user_cumulative_budget_exceeded")
+        if project_budget is not None and project_counter is not None:
+            if (
+                int((project_counter.window_end - project_counter.window_start).total_seconds())
+                != project_budget.window_seconds
+                or project_counter.limit_minor_units != project_budget.cumulative_limit_minor_units
+            ):
+                blockers.append("project_budget_window_mismatch")
+            if (
+                project_counter.committed_minor_units
+                + project_counter.reserved_minor_units
+                + estimate_minor_units
+                > project_budget.cumulative_limit_minor_units
+            ):
+                blockers.append("project_cumulative_budget_exceeded")
+        return list(dict.fromkeys(blockers))
+
+    @staticmethod
+    def _reject_public_paint_plan_invocation(payload: InvocationPreviewRequest) -> None:
+        if (
+            payload.invocation_family == "paint_plan_generation"
+            or payload.payload.paint_plan_input is not None
+        ):
+            raise AdmissionRejectedError
+
+    @staticmethod
+    def _require_internal_paint_plan_invocation(payload: InvocationPreviewRequest) -> None:
+        if (
+            payload.invocation_family != "paint_plan_generation"
+            or payload.payload.paint_plan_input is None
+            or payload.payload.prompt_label != "paint-plan.v1"
+        ):
+            raise AdmissionRejectedError
+
     async def preview_invocation(
+        self, *, payload: InvocationPreviewRequest, principal: PrincipalContext
+    ) -> InvocationPreviewRead:
+        self._reject_public_paint_plan_invocation(payload)
+        return await self._preview_invocation(payload=payload, principal=principal)
+
+    async def preview_paint_plan_invocation(
+        self, *, payload: InvocationPreviewRequest, principal: PrincipalContext
+    ) -> InvocationPreviewRead:
+        self._require_internal_paint_plan_invocation(payload)
+        return await self._preview_invocation(payload=payload, principal=principal)
+
+    async def _preview_invocation(
         self, *, payload: InvocationPreviewRequest, principal: PrincipalContext
     ) -> InvocationPreviewRead:
         async with self._session.begin():
@@ -1807,6 +2414,8 @@ class AIFoundationService:
                     dispatched_at=attempt.dispatched_at,
                     terminal_at=attempt.terminal_at,
                     final_error_category=attempt.final_error_category,
+                    provider_request_id_status=attempt.provider_request_id_status,  # type: ignore[arg-type]
+                    provider_request_id=attempt.provider_request_id,
                     safe_provider_metadata=attempt.safe_provider_metadata,
                 )
                 for attempt in attempts
@@ -1858,6 +2467,50 @@ class AIFoundationService:
                 principal=principal,
             )
             now = datetime.now(UTC)
+            safe_payload: dict[str, object] = {
+                "fixture": True,
+                "local_only": True,
+                "scenario": payload.payload.scenario,
+                "artifacts": [artifact.model_dump(mode="json") for artifact in payload.artifacts],
+                "temporary_credential": payload.temporary_credential is not None,
+            }
+            paint_plan_source = payload.payload.paint_plan_input
+            if paint_plan_source is not None:
+                safe_payload["paint_plan_provenance"] = {
+                    "image_set_fingerprint": paint_plan_source.image_set_fingerprint,
+                    "image_assets": [
+                        image.model_dump(mode="json") for image in paint_plan_source.image_assets
+                    ],
+                    "readiness_review_id": str(paint_plan_source.readiness_review_id),
+                    "readiness_review_version": paint_plan_source.readiness_review_version,
+                    "region_set_id": str(paint_plan_source.region_set.id),
+                    "region_set_version": paint_plan_source.region_set.version,
+                    "region_geometry_fingerprint": (
+                        paint_plan_source.region_set.geometry_fingerprint
+                    ),
+                    "prompt_template_id": str(paint_plan_source.prompt_template_id),
+                    "prompt_template_key": paint_plan_source.prompt_template_key,
+                    "prompt_template_version": paint_plan_source.prompt_template_version,
+                    "prompt_content_hash": paint_plan_source.prompt_content_hash,
+                    "generation_locale": paint_plan_source.generation_locale,
+                    "response_schema_version": paint_plan_source.response_schema_version,
+                }
+                safe_payload["paint_plan_contract"] = {
+                    "paint_regions": [
+                        {
+                            "region_id": str(region.id),
+                            "stable_region_key": str(region.stable_region_key),
+                            "region_label": region.label,
+                        }
+                        for region in paint_plan_source.region_set.regions
+                        if region.kind == "paint"
+                    ],
+                    "excluded_region_ids": [
+                        str(region.id)
+                        for region in paint_plan_source.region_set.regions
+                        if region.kind == "exclude"
+                    ],
+                }
             invocation = InvocationRequest(
                 id=uuid.uuid4(),
                 requesting_user_id=user_id,
@@ -1877,15 +2530,7 @@ class AIFoundationService:
                 total_elapsed_time_limit_ms=payload.total_elapsed_time_limit_ms,
                 confirmation_snapshot={"confirm_fixture_use": True},
                 budget_snapshot={"currency": FIXTURE_CURRENCY},
-                safe_payload={
-                    "fixture": True,
-                    "local_only": True,
-                    "scenario": payload.payload.scenario,
-                    "artifacts": [
-                        artifact.model_dump(mode="json") for artifact in payload.artifacts
-                    ],
-                    "temporary_credential": payload.temporary_credential is not None,
-                },
+                safe_payload=safe_payload,
                 status="pending",
                 final_attempt_id=None,
                 started_at=None,
@@ -2234,12 +2879,28 @@ class AIFoundationService:
                     safe_metadata={"fixture": True, "cancel_won": True},
                 )
                 return False
-            if error is None:
-                from creativedeploy_api.ai.fixture_provider import FixtureInvocationResult
+            from creativedeploy_api.ai.fixture_provider import FixtureInvocationResult
 
+            fixture_result: FixtureInvocationResult | None = None
+            validated_output: dict[str, object] | None = None
+            if error is None:
                 if not isinstance(result, FixtureInvocationResult):
                     raise AIConflictError
-                actual = result.cost_minor_units
+                fixture_result = result
+                validated_output = result.output
+                if invocation.invocation_family == "paint_plan_generation":
+                    try:
+                        validated_output = _validated_paint_plan_output(
+                            result.output,
+                            safe_payload=invocation.safe_payload,
+                        )
+                    except (TypeError, ValueError, ValidationError):
+                        error = FixtureProviderError("schema_invalid")
+                        can_retry = False
+            if error is None:
+                assert fixture_result is not None
+                assert validated_output is not None
+                actual = fixture_result.cost_minor_units
                 user_counter.reserved_minor_units -= reserved
                 user_counter.committed_minor_units += actual
                 user_counter.revision += 1
@@ -2251,18 +2912,18 @@ class AIFoundationService:
                 reservation.settled_at = now
                 reservation.revision += 1
                 attempt.status = "succeeded"
-                attempt.output_reference = result.output
+                attempt.output_reference = validated_output
                 attempt.safe_provider_metadata = {
                     "fixture": True,
                     "local_only": True,
-                    "input_units": result.input_units,
-                    "output_units": result.output_units,
+                    "input_units": fixture_result.input_units,
+                    "output_units": fixture_result.output_units,
                 }
                 attempt.terminal_at = now
                 attempt.revision += 1
                 invocation.status = "succeeded"
                 invocation.final_attempt_id = attempt.id
-                invocation.output_reference = result.output
+                invocation.output_reference = validated_output
                 invocation.final_error_category = None
                 invocation.terminal_at = now
                 invocation.updated_at = now
@@ -2277,8 +2938,8 @@ class AIFoundationService:
                             model_definition_id=attempt.model_definition_id,
                             source="fixture_adapter",
                             canonical_sequence=1,
-                            input_units=result.input_units,
-                            output_units=result.output_units,
+                            input_units=fixture_result.input_units,
+                            output_units=fixture_result.output_units,
                             safe_metadata={"fixture": True},
                             created_at=now,
                         ),
@@ -2327,6 +2988,52 @@ class AIFoundationService:
                 reservation.revision += 1
                 attempt.status = "outcome_unknown"
                 invocation.status = "outcome_unknown"
+            elif fixture_result is not None:
+                actual = fixture_result.cost_minor_units
+                user_counter.reserved_minor_units -= reserved
+                user_counter.committed_minor_units += actual
+                user_counter.revision += 1
+                if project_counter is not None:
+                    project_counter.reserved_minor_units -= reserved
+                    project_counter.committed_minor_units += actual
+                    project_counter.revision += 1
+                reservation.state = "settled"
+                reservation.settled_at = now
+                reservation.revision += 1
+                self._repository.add_all(
+                    [
+                        AIUsageLedger(
+                            id=uuid.uuid4(),
+                            invocation_id=invocation.id,
+                            attempt_id=attempt.id,
+                            provider_definition_id=attempt.provider_definition_id,
+                            model_definition_id=attempt.model_definition_id,
+                            source="fixture_adapter_invalid_output",
+                            canonical_sequence=1,
+                            input_units=fixture_result.input_units,
+                            output_units=fixture_result.output_units,
+                            safe_metadata={
+                                "fixture": True,
+                                "output_persisted": False,
+                            },
+                            created_at=now,
+                        ),
+                        AICostLedger(
+                            id=uuid.uuid4(),
+                            invocation_id=invocation.id,
+                            attempt_id=attempt.id,
+                            provider_definition_id=attempt.provider_definition_id,
+                            model_definition_id=attempt.model_definition_id,
+                            source="fixture_adapter_invalid_output",
+                            canonical_sequence=1,
+                            amount_minor_units=actual,
+                            currency=FIXTURE_CURRENCY,
+                            created_at=now,
+                        ),
+                    ]
+                )
+                attempt.status = "failed"
+                invocation.status = "failed"
             else:
                 user_counter.reserved_minor_units -= reserved
                 user_counter.revision += 1
@@ -2338,10 +3045,13 @@ class AIFoundationService:
                 reservation.revision += 1
                 attempt.status = "failed"
                 invocation.status = "running" if can_retry else "failed"
+            attempt.output_reference = None
             attempt.final_error_category = category
             attempt.terminal_at = now
             attempt.revision += 1
             invocation.final_error_category = category
+            invocation.output_reference = None
+            invocation.final_attempt_id = None
             invocation.terminal_at = None if can_retry else now
             invocation.updated_at = now
             invocation.revision += 1
@@ -2371,6 +3081,38 @@ class AIFoundationService:
             return can_retry
 
     async def create_invocation(
+        self,
+        *,
+        payload: InvocationCreateRequest,
+        principal: PrincipalContext,
+        idempotency_key: uuid.UUID,
+        request_id: uuid.UUID,
+    ) -> InvocationRead:
+        self._reject_public_paint_plan_invocation(payload)
+        return await self._create_invocation(
+            payload=payload,
+            principal=principal,
+            idempotency_key=idempotency_key,
+            request_id=request_id,
+        )
+
+    async def create_paint_plan_invocation(
+        self,
+        *,
+        payload: InvocationCreateRequest,
+        principal: PrincipalContext,
+        idempotency_key: uuid.UUID,
+        request_id: uuid.UUID,
+    ) -> InvocationRead:
+        self._require_internal_paint_plan_invocation(payload)
+        return await self._create_invocation(
+            payload=payload,
+            principal=principal,
+            idempotency_key=idempotency_key,
+            request_id=request_id,
+        )
+
+    async def _create_invocation(
         self,
         *,
         payload: InvocationCreateRequest,

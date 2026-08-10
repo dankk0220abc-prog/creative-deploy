@@ -128,6 +128,11 @@ class SqlAlchemyAIFoundationRepository:
             )
         ).scalar_one_or_none()
 
+    async def get_provider_by_id(
+        self, provider_definition_id: uuid.UUID
+    ) -> ProviderDefinition | None:
+        return await self.session.get(ProviderDefinition, provider_definition_id)
+
     async def get_model(self, model_id: uuid.UUID) -> ModelDefinition | None:
         return await self.session.get(ModelDefinition, model_id)
 
@@ -180,6 +185,9 @@ class SqlAlchemyAIFoundationRepository:
         if for_update:
             statement = statement.with_for_update()
         return (await self.session.execute(statement)).scalar_one_or_none()
+
+    async def get_credential_by_id(self, credential_id: uuid.UUID) -> CredentialRecord | None:
+        return await self.session.get(CredentialRecord, credential_id)
 
     async def lock_owned_credentials(
         self,
@@ -462,38 +470,43 @@ class SqlAlchemyAIFoundationRepository:
         )
 
     async def get_user_budget_policy(
-        self, user_id: uuid.UUID, *, for_update: bool = False
+        self, user_id: uuid.UUID, *, currency: str, for_update: bool = False
     ) -> UserBudgetPolicy | None:
         statement: Select[tuple[UserBudgetPolicy]] = select(UserBudgetPolicy).where(
             UserBudgetPolicy.user_id == user_id,
             UserBudgetPolicy.product_space == "paintpilot",
-            UserBudgetPolicy.currency == "FIXTURE_CREDITS",
+            UserBudgetPolicy.currency == currency,
         )
         if for_update:
             statement = statement.with_for_update()
         return (await self.session.execute(statement)).scalar_one_or_none()
 
     async def get_project_budget_policy(
-        self, project_id: uuid.UUID, *, for_update: bool = False
+        self, project_id: uuid.UUID, *, currency: str, for_update: bool = False
     ) -> ProjectBudgetPolicy | None:
         statement: Select[tuple[ProjectBudgetPolicy]] = select(ProjectBudgetPolicy).where(
             ProjectBudgetPolicy.project_id == project_id,
             ProjectBudgetPolicy.product_space == "paintpilot",
-            ProjectBudgetPolicy.currency == "FIXTURE_CREDITS",
+            ProjectBudgetPolicy.currency == currency,
         )
         if for_update:
             statement = statement.with_for_update()
         return (await self.session.execute(statement)).scalar_one_or_none()
 
     async def get_user_counter(
-        self, user_id: uuid.UUID, now: datetime, *, for_update: bool = False
+        self,
+        user_id: uuid.UUID,
+        now: datetime,
+        *,
+        currency: str,
+        for_update: bool = False,
     ) -> UserBudgetCounter | None:
         statement: Select[tuple[UserBudgetCounter]] = (
             select(UserBudgetCounter)
             .where(
                 UserBudgetCounter.user_id == user_id,
                 UserBudgetCounter.product_space == "paintpilot",
-                UserBudgetCounter.currency == "FIXTURE_CREDITS",
+                UserBudgetCounter.currency == currency,
                 UserBudgetCounter.window_start <= now,
                 UserBudgetCounter.window_end > now,
             )
@@ -505,14 +518,19 @@ class SqlAlchemyAIFoundationRepository:
         return (await self.session.execute(statement)).scalar_one_or_none()
 
     async def get_project_counter(
-        self, project_id: uuid.UUID, now: datetime, *, for_update: bool = False
+        self,
+        project_id: uuid.UUID,
+        now: datetime,
+        *,
+        currency: str,
+        for_update: bool = False,
     ) -> ProjectBudgetCounter | None:
         statement: Select[tuple[ProjectBudgetCounter]] = (
             select(ProjectBudgetCounter)
             .where(
                 ProjectBudgetCounter.project_id == project_id,
                 ProjectBudgetCounter.product_space == "paintpilot",
-                ProjectBudgetCounter.currency == "FIXTURE_CREDITS",
+                ProjectBudgetCounter.currency == currency,
                 ProjectBudgetCounter.window_start <= now,
                 ProjectBudgetCounter.window_end > now,
             )

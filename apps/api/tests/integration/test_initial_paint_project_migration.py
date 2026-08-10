@@ -75,7 +75,7 @@ ALEMBIC_COMMAND = (
     "-c",
     "apps/api/alembic.ini",
 )
-BUSINESS_TABLES = {
+PHASE_3A_BUSINESS_TABLES = {
     "ai_audit_events",
     "ai_command_idempotency_records",
     "ai_cost_ledger",
@@ -116,6 +116,14 @@ BUSINESS_TABLES = {
     "user_budget_policies",
     "user_provider_preferences",
 }
+PHASE_3B_BUSINESS_TABLES = {
+    "paint_plan_region_instructions",
+    "paint_plan_review_events",
+    "paint_plans",
+    "prompt_template_definitions",
+    "provider_pricing_snapshots",
+}
+CURRENT_BUSINESS_TABLES = PHASE_3A_BUSINESS_TABLES | PHASE_3B_BUSINESS_TABLES
 EXPECTED_COLUMNS = {
     "user_accounts": (
         "id",
@@ -2119,7 +2127,7 @@ def _assert_schema(connection: psycopg.Connection[tuple[Any, ...]]) -> None:
             """
         ).fetchall()
     }
-    assert tables == BUSINESS_TABLES | {"alembic_version"}
+    assert tables == CURRENT_BUSINESS_TABLES | {"alembic_version"}
 
     for table, expected_columns in EXPECTED_COLUMNS.items():
         columns = tuple(
@@ -2904,9 +2912,30 @@ def test_initial_paint_project_migration_round_trip_and_constraints(
     temporary_database_url = temporary_database.url
     temporary_database_name = temporary_database.name
 
+    assert len(PHASE_3A_BUSINESS_TABLES) == 39
+    assert len(PHASE_3B_BUSINESS_TABLES) == 5
+    assert CURRENT_BUSINESS_TABLES - PHASE_3A_BUSINESS_TABLES == PHASE_3B_BUSINESS_TABLES
+    assert len(CURRENT_BUSINESS_TABLES) == 44
+
+    _run_alembic(temporary_database_url, "upgrade", "3a04fab2e7a5")
+    with psycopg.connect(
+        **_connection_kwargs(temporary_database_url, temporary_database_name)
+    ) as connection:
+        phase3a_tables = {
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT tablename
+                FROM pg_tables
+                WHERE schemaname = 'public'
+                """
+            ).fetchall()
+        }
+        assert phase3a_tables == PHASE_3A_BUSINESS_TABLES | {"alembic_version"}
+
     _run_alembic(temporary_database_url, "upgrade", "head")
     current_result = _run_alembic(temporary_database_url, "current")
-    assert "3a04fab2e7a5 (head)" in current_result.stdout
+    assert "3b01a1c2d3e4 (head)" in current_result.stdout
     check_result = _run_alembic(temporary_database_url, "check")
     assert "No new upgrade operations detected." in check_result.stdout
 
@@ -2941,16 +2970,18 @@ def test_initial_paint_project_migration_round_trip_and_constraints(
         **_connection_kwargs(temporary_database_url, temporary_database_name)
     ) as connection:
         _assert_schema(connection)
-        phase3a_seed_counts = {
-            "provider_definitions": 1,
-            "model_definitions": 2,
+        current_seed_counts = {
+            "provider_definitions": 2,
+            "model_definitions": 3,
             "capability_definitions": 3,
-            "provider_capabilities": 3,
-            "model_capabilities": 5,
+            "provider_capabilities": 6,
+            "model_capabilities": 8,
+            "provider_pricing_snapshots": 1,
+            "prompt_template_definitions": 1,
         }
-        for table in BUSINESS_TABLES:
+        for table in CURRENT_BUSINESS_TABLES:
             query = sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(table))
-            assert connection.execute(query).fetchone() == (phase3a_seed_counts.get(table, 0),)
+            assert connection.execute(query).fetchone() == (current_seed_counts.get(table, 0),)
 
 
 def test_phase3a_downgrade_refuses_governed_facts_without_deleting_them(
@@ -2978,7 +3009,7 @@ def test_phase3a_downgrade_refuses_governed_facts_without_deleting_them(
         _run_alembic(temporary_database_url, "downgrade", "7f3a2b9c4d1e")
 
     current_result = _run_alembic(temporary_database_url, "current")
-    assert "3a04fab2e7a5 (head)" in current_result.stdout
+    assert "3b01a1c2d3e4 (head)" in current_result.stdout
     with psycopg.connect(
         **_connection_kwargs(temporary_database_url, temporary_database_name)
     ) as connection:
@@ -5422,7 +5453,7 @@ def test_phase3a_fixture_seed_downgrade_refuses_references_then_deletes_exact_se
 
     with pytest.raises(AssertionError, match="fixture Registry identities are referenced"):
         _run_alembic(temporary_database_url, "downgrade", "3a03e9a1d6f4")
-    assert "3a04fab2e7a5 (head)" in _run_alembic(temporary_database_url, "current").stdout
+    assert "3b01a1c2d3e4 (head)" in _run_alembic(temporary_database_url, "current").stdout
     with (
         psycopg.connect(
             **_connection_kwargs(temporary_database_url, temporary_database_name)
@@ -5550,7 +5581,7 @@ def test_phase3a_fixture_seed_downgrade_refuses_non_seed_model_before_delete(
     ) as downgrade_error:
         _run_alembic(temporary_database_url, "downgrade", "3a03e9a1d6f4")
     assert "ForeignKeyViolation" not in str(downgrade_error.value)
-    assert "3a04fab2e7a5 (head)" in _run_alembic(temporary_database_url, "current").stdout
+    assert "3b01a1c2d3e4 (head)" in _run_alembic(temporary_database_url, "current").stdout
     with psycopg.connect(
         **_connection_kwargs(temporary_database_url, temporary_database_name)
     ) as connection:

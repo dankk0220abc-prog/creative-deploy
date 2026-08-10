@@ -38,6 +38,9 @@ from creativedeploy_api.db.models import (
     ModelCapability,
     ModelDefinition,
     OidcLoginFlow,
+    PaintPlan,
+    PaintPlanRegionInstruction,
+    PaintPlanReviewEvent,
     PaintProject,
     ProjectBudgetCounter,
     ProjectBudgetPolicy,
@@ -47,8 +50,10 @@ from creativedeploy_api.db.models import (
     ProjectModelPolicyCredential,
     ProjectModelPolicyModel,
     ProjectModelPolicyProvider,
+    PromptTemplateDefinition,
     ProviderCapability,
     ProviderDefinition,
+    ProviderPricingSnapshot,
     Region,
     RegionSet,
     RegionSetReview,
@@ -117,6 +122,15 @@ EXPECTED_PHASE_3A_MODELS = frozenset(
         AICostLedger,
         AIAuditEvent,
         AICommandIdempotencyRecord,
+    }
+)
+EXPECTED_PHASE_3B_MODELS = frozenset(
+    {
+        ProviderPricingSnapshot,
+        PromptTemplateDefinition,
+        PaintPlan,
+        PaintPlanRegionInstruction,
+        PaintPlanReviewEvent,
     }
 )
 
@@ -350,9 +364,22 @@ EXPECTED_PHASE_3A_TABLES = frozenset(
         "user_provider_preferences",
     }
 )
+EXPECTED_PHASE_3B_TABLES = frozenset(
+    {
+        "provider_pricing_snapshots",
+        "prompt_template_definitions",
+        "paint_plans",
+        "paint_plan_region_instructions",
+        "paint_plan_review_events",
+    }
+)
 EXPECTED_PHASE_3A_CHECK_CONSTRAINT_NAMES = frozenset(
     {
         "ck_ai_cost_ledger_fixture_currency_only",
+        "ck_ai_cost_ledger_measurement_consistent",
+        "ck_ai_cost_ledger_measurement_status_allowed",
+        "ck_ai_usage_ledger_measurement_consistent",
+        "ck_ai_usage_ledger_measurement_status_allowed",
         "ck_budget_reservations_fixture_currency_only",
         "ck_budget_reservations_state_allowed",
         "ck_capability_definitions_status_allowed",
@@ -360,6 +387,8 @@ EXPECTED_PHASE_3A_CHECK_CONSTRAINT_NAMES = frozenset(
         "ck_credential_records_no_self_replacement",
         "ck_credential_records_status_allowed",
         "ck_invocation_attempts_fixture_currency_only",
+        "ck_invocation_attempts_provider_request_id_consistent",
+        "ck_invocation_attempts_provider_request_id_status_allowed",
         "ck_invocation_attempts_status_allowed",
         "ck_invocation_requests_canonicalization_version",
         "ck_invocation_requests_family_allowed",
@@ -508,17 +537,141 @@ EXPECTED_PHASE_3A_INDEX_NAMES = frozenset(
         "uq_invocation_attempts_active",
     }
 )
-EXPECTED_TABLES = EXPECTED_PHASE_1F_TABLES | EXPECTED_PHASE_3A_TABLES
-EXPECTED_CONSTRAINT_NAMES = EXPECTED_PHASE_1F_CONSTRAINT_NAMES | EXPECTED_PHASE_3A_CONSTRAINT_NAMES
-EXPECTED_INDEX_NAMES = EXPECTED_PHASE_1F_INDEX_NAMES | EXPECTED_PHASE_3A_INDEX_NAMES
+EXPECTED_PHASE_3B_CHECK_CONSTRAINT_NAMES = frozenset(
+    {
+        "ck_paint_plan_region_instructions_confidence_allowed",
+        "ck_paint_plan_region_instructions_kind_paint",
+        "ck_paint_plan_region_instructions_label_safe",
+        "ck_paint_plan_region_instructions_sequence_allowed",
+        "ck_paint_plan_region_instructions_text_safe",
+        "ck_paint_plan_region_instructions_warnings_bounded",
+        "ck_paint_plan_review_events_action_allowed",
+        "ck_paint_plan_review_events_actor_safe",
+        "ck_paint_plan_review_events_reason_safe",
+        "ck_paint_plan_review_events_reject_reason_required",
+        "ck_paint_plan_review_events_version_positive",
+        "ck_paint_plans_actor_snapshots_safe",
+        "ck_paint_plans_actor_type_allowed",
+        "ck_paint_plans_content_hash_format",
+        "ck_paint_plans_instruction_count_allowed",
+        "ck_paint_plans_lifecycle_allowed",
+        "ck_paint_plans_lineage_consistent",
+        "ck_paint_plans_model_revisions_positive",
+        "ck_paint_plans_model_snapshots_safe",
+        "ck_paint_plans_overall_approach_safe",
+        "ck_paint_plans_pricing_snapshot_required",
+        "ck_paint_plans_prompt_contract_format",
+        "ck_paint_plans_revision_actor_consistent",
+        "ck_paint_plans_revision_kind_allowed",
+        "ck_paint_plans_revisions_positive",
+        "ck_paint_plans_safety_notes_bounded",
+        "ck_paint_plans_source_fingerprints_format",
+        "ck_paint_plans_source_versions_positive",
+        "ck_paint_plans_title_safe",
+        "ck_prompt_template_definitions_body_bounded",
+        "ck_prompt_template_definitions_hash_format",
+        "ck_prompt_template_definitions_key_format",
+        "ck_prompt_template_definitions_schema_format",
+        "ck_prompt_template_definitions_status_allowed",
+        "ck_prompt_template_definitions_version_positive",
+        "ck_provider_pricing_snapshots_currency_usd",
+        "ck_provider_pricing_snapshots_model_id_safe",
+        "ck_provider_pricing_snapshots_prices_nonnegative",
+        "ck_provider_pricing_snapshots_provider_key_safe",
+        "ck_provider_pricing_snapshots_source_url_safe",
+        "ck_provider_pricing_snapshots_time_order",
+        "ck_provider_pricing_snapshots_unit_basis_allowed",
+        "ck_provider_pricing_snapshots_version_safe",
+    }
+)
+EXPECTED_PHASE_3B_FOREIGN_KEY_NAMES = frozenset(
+    {
+        "fk_paint_plan_region_instructions_plan_region_set",
+        "fk_paint_plan_region_instructions_region_same_set",
+        "fk_paint_plan_review_events_actor_user",
+        "fk_paint_plan_review_events_exact_revision",
+        "fk_paint_plans_lineage_same_project_owner",
+        "fk_paint_plans_model",
+        "fk_paint_plans_parent_same_project_owner",
+        "fk_paint_plans_pricing_snapshot_exact_model",
+        "fk_paint_plans_project_owner",
+        "fk_paint_plans_prompt_exact_contract",
+        "fk_paint_plans_provider",
+        "fk_paint_plans_source_attempt",
+        "fk_paint_plans_source_invocation",
+        "fk_paint_plans_source_readiness_review",
+        "fk_paint_plans_source_region_set_same_project_owner",
+        "fk_provider_pricing_snapshots_model",
+        "fk_provider_pricing_snapshots_provider",
+    }
+)
+EXPECTED_PHASE_3B_UNIQUE_CONSTRAINT_NAMES = frozenset(
+    {
+        "uq_paint_plan_region_instructions_plan_region",
+        "uq_paint_plan_region_instructions_plan_sequence",
+        "uq_paint_plan_region_instructions_plan_stable_key",
+        "uq_paint_plan_review_events_plan_action",
+        "uq_paint_plans_exact_revision",
+        "uq_paint_plans_id_region_set",
+        "uq_paint_plans_lineage_revision",
+        "uq_paint_plans_project_owner_id",
+        "uq_paint_plans_project_version",
+        "uq_prompt_template_definitions_exact_contract",
+        "uq_prompt_template_definitions_key_version",
+        "uq_provider_pricing_snapshots_exact_model",
+        "uq_provider_pricing_snapshots_provider_model_version",
+    }
+)
+EXPECTED_PHASE_3B_PRIMARY_KEY_NAMES = frozenset(
+    f"pk_{table_name}" for table_name in EXPECTED_PHASE_3B_TABLES
+)
+EXPECTED_PHASE_3B_CONSTRAINT_NAMES = (
+    EXPECTED_PHASE_3B_CHECK_CONSTRAINT_NAMES
+    | EXPECTED_PHASE_3B_FOREIGN_KEY_NAMES
+    | EXPECTED_PHASE_3B_UNIQUE_CONSTRAINT_NAMES
+    | EXPECTED_PHASE_3B_PRIMARY_KEY_NAMES
+)
+EXPECTED_PHASE_3B_INDEX_NAMES = frozenset(
+    {
+        "ix_paint_plan_region_instructions_plan_sequence",
+        "ix_paint_plan_review_events_owner_project_created",
+        "ix_paint_plans_lineage_revision",
+        "ix_paint_plans_owner_project_version",
+        "ix_paint_plans_source_invocation",
+        "ix_provider_pricing_snapshots_model_effective",
+        "uq_paint_plan_review_events_decision",
+        "uq_paint_plans_generated_attempt",
+        "uq_paint_plans_one_current_per_project",
+    }
+)
+EXPECTED_TABLES = EXPECTED_PHASE_1F_TABLES | EXPECTED_PHASE_3A_TABLES | EXPECTED_PHASE_3B_TABLES
+EXPECTED_CONSTRAINT_NAMES = (
+    EXPECTED_PHASE_1F_CONSTRAINT_NAMES
+    | EXPECTED_PHASE_3A_CONSTRAINT_NAMES
+    | EXPECTED_PHASE_3B_CONSTRAINT_NAMES
+)
+EXPECTED_INDEX_NAMES = (
+    EXPECTED_PHASE_1F_INDEX_NAMES | EXPECTED_PHASE_3A_INDEX_NAMES | EXPECTED_PHASE_3B_INDEX_NAMES
+)
 EXPECTED_DATABASE_IDENTIFIERS = EXPECTED_TABLES | EXPECTED_CONSTRAINT_NAMES | EXPECTED_INDEX_NAMES
 EXPECTED_CHECK_CONSTRAINTS_BY_TABLE = MappingProxyType(
     {
         "ai_audit_events": frozenset(),
         "ai_command_idempotency_records": frozenset(),
-        "ai_cost_ledger": frozenset({"ck_ai_cost_ledger_fixture_currency_only"}),
+        "ai_cost_ledger": frozenset(
+            {
+                "ck_ai_cost_ledger_fixture_currency_only",
+                "ck_ai_cost_ledger_measurement_consistent",
+                "ck_ai_cost_ledger_measurement_status_allowed",
+            }
+        ),
         "ai_invocation_events": frozenset(),
-        "ai_usage_ledger": frozenset(),
+        "ai_usage_ledger": frozenset(
+            {
+                "ck_ai_usage_ledger_measurement_consistent",
+                "ck_ai_usage_ledger_measurement_status_allowed",
+            }
+        ),
         "auth_sessions": frozenset(
             {
                 "ck_auth_sessions_expiry_after_creation",
@@ -609,6 +762,8 @@ EXPECTED_CHECK_CONSTRAINTS_BY_TABLE = MappingProxyType(
         "invocation_attempts": frozenset(
             {
                 "ck_invocation_attempts_fixture_currency_only",
+                "ck_invocation_attempts_provider_request_id_consistent",
+                "ck_invocation_attempts_provider_request_id_status_allowed",
                 "ck_invocation_attempts_status_allowed",
             }
         ),
@@ -645,6 +800,47 @@ EXPECTED_CHECK_CONSTRAINTS_BY_TABLE = MappingProxyType(
                 "ck_paint_projects_updated_at_not_before_created_at",
             }
         ),
+        "paint_plan_region_instructions": frozenset(
+            {
+                "ck_paint_plan_region_instructions_confidence_allowed",
+                "ck_paint_plan_region_instructions_kind_paint",
+                "ck_paint_plan_region_instructions_label_safe",
+                "ck_paint_plan_region_instructions_sequence_allowed",
+                "ck_paint_plan_region_instructions_text_safe",
+                "ck_paint_plan_region_instructions_warnings_bounded",
+            }
+        ),
+        "paint_plan_review_events": frozenset(
+            {
+                "ck_paint_plan_review_events_action_allowed",
+                "ck_paint_plan_review_events_actor_safe",
+                "ck_paint_plan_review_events_reason_safe",
+                "ck_paint_plan_review_events_reject_reason_required",
+                "ck_paint_plan_review_events_version_positive",
+            }
+        ),
+        "paint_plans": frozenset(
+            {
+                "ck_paint_plans_actor_snapshots_safe",
+                "ck_paint_plans_actor_type_allowed",
+                "ck_paint_plans_content_hash_format",
+                "ck_paint_plans_instruction_count_allowed",
+                "ck_paint_plans_lifecycle_allowed",
+                "ck_paint_plans_lineage_consistent",
+                "ck_paint_plans_model_revisions_positive",
+                "ck_paint_plans_model_snapshots_safe",
+                "ck_paint_plans_overall_approach_safe",
+                "ck_paint_plans_pricing_snapshot_required",
+                "ck_paint_plans_prompt_contract_format",
+                "ck_paint_plans_revision_actor_consistent",
+                "ck_paint_plans_revision_kind_allowed",
+                "ck_paint_plans_revisions_positive",
+                "ck_paint_plans_safety_notes_bounded",
+                "ck_paint_plans_source_fingerprints_format",
+                "ck_paint_plans_source_versions_positive",
+                "ck_paint_plans_title_safe",
+            }
+        ),
         "project_budget_counters": frozenset(
             {
                 "ck_project_budget_counters_fixture_currency_only",
@@ -669,6 +865,28 @@ EXPECTED_CHECK_CONSTRAINTS_BY_TABLE = MappingProxyType(
                 "ck_provider_definitions_base_url_policy_allowed",
                 "ck_provider_definitions_catalog_mode_allowed",
                 "ck_provider_definitions_status_allowed",
+            }
+        ),
+        "provider_pricing_snapshots": frozenset(
+            {
+                "ck_provider_pricing_snapshots_currency_usd",
+                "ck_provider_pricing_snapshots_model_id_safe",
+                "ck_provider_pricing_snapshots_prices_nonnegative",
+                "ck_provider_pricing_snapshots_provider_key_safe",
+                "ck_provider_pricing_snapshots_source_url_safe",
+                "ck_provider_pricing_snapshots_time_order",
+                "ck_provider_pricing_snapshots_unit_basis_allowed",
+                "ck_provider_pricing_snapshots_version_safe",
+            }
+        ),
+        "prompt_template_definitions": frozenset(
+            {
+                "ck_prompt_template_definitions_body_bounded",
+                "ck_prompt_template_definitions_hash_format",
+                "ck_prompt_template_definitions_key_format",
+                "ck_prompt_template_definitions_schema_format",
+                "ck_prompt_template_definitions_status_allowed",
+                "ck_prompt_template_definitions_version_positive",
             }
         ),
         "region_set_reviews": frozenset(
@@ -835,6 +1053,7 @@ MIGRATION_PATHS = (
     / "migrations"
     / "versions"
     / "2b1c4d5e6f70_add_governed_identity_and_private_storage.py",
+    API_ROOT / "migrations" / "versions" / "3b01a1c2d3e4_add_phase3b_paint_plan_foundation.py",
 )
 PHASE_3A_MIGRATION_PATHS = (
     API_ROOT / "migrations" / "versions" / "3a01c7e9b4d2_add_phase3a_registries.py",
@@ -1145,20 +1364,27 @@ def _check_sql_by_name(tables: Iterable[Table]) -> dict[str, str]:
     }
 
 
-def test_registered_models_and_metadata_contain_exact_phase_1f_and_phase3a_sets() -> None:
+def test_registered_models_and_metadata_contain_exact_phase_1f_phase3a_and_phase3b_sets() -> None:
     registered_phase_1f = set(REGISTERED_MODELS[:14])
-    registered_phase_3a = set(REGISTERED_MODELS[14:])
+    registered_phase_3a = set(REGISTERED_MODELS[14:39])
+    registered_phase_3b = set(REGISTERED_MODELS[39:])
     registered_complete = set(REGISTERED_MODELS)
-    expected_complete = EXPECTED_PHASE_1F_MODELS | EXPECTED_PHASE_3A_MODELS
+    expected_complete = (
+        EXPECTED_PHASE_1F_MODELS | EXPECTED_PHASE_3A_MODELS | EXPECTED_PHASE_3B_MODELS
+    )
 
     assert not EXPECTED_PHASE_1F_MODELS - registered_phase_1f
     assert not registered_phase_1f - EXPECTED_PHASE_1F_MODELS
     assert not EXPECTED_PHASE_3A_MODELS - registered_phase_3a
     assert not registered_phase_3a - EXPECTED_PHASE_3A_MODELS
+    assert not EXPECTED_PHASE_3B_MODELS - registered_phase_3b
+    assert not registered_phase_3b - EXPECTED_PHASE_3B_MODELS
     assert not expected_complete - registered_complete
     assert not registered_complete - expected_complete
     assert not EXPECTED_PHASE_1F_MODELS & EXPECTED_PHASE_3A_MODELS
-    assert len(REGISTERED_MODELS) == 39
+    assert not EXPECTED_PHASE_1F_MODELS & EXPECTED_PHASE_3B_MODELS
+    assert not EXPECTED_PHASE_3A_MODELS & EXPECTED_PHASE_3B_MODELS
+    assert len(REGISTERED_MODELS) == 44
     assert set(Base.metadata.tables) == EXPECTED_TABLES
     assert {model.__table__.name for model in REGISTERED_MODELS} == EXPECTED_TABLES
     assert not {
@@ -1215,7 +1441,7 @@ def test_all_database_identifiers_fit_postgresql_limit() -> None:
     identifiers = _metadata_identifiers()
 
     assert identifiers == EXPECTED_DATABASE_IDENTIFIERS
-    assert len(identifiers) == 372
+    assert len(identifiers) == 470
     assert all(
         len(identifier.encode("utf-8")) <= POSTGRESQL_IDENTIFIER_LIMIT for identifier in identifiers
     )
@@ -1282,7 +1508,35 @@ def test_phase3a_orm_and_migrations_match_exact_metadata_contract() -> None:
     migration_check_sql = _check_sql_by_name(migration.tables.values())
     migration_check_sql.update({name: sql for _table, name, sql in migration.added_checks})
     assert set(orm_phase3a_check_sql) == EXPECTED_PHASE_3A_CHECK_CONSTRAINT_NAMES
-    assert migration_check_sql == orm_phase3a_check_sql
+    phase3b_added_checks = {
+        "ck_ai_cost_ledger_measurement_consistent",
+        "ck_ai_cost_ledger_measurement_status_allowed",
+        "ck_ai_usage_ledger_measurement_consistent",
+        "ck_ai_usage_ledger_measurement_status_allowed",
+        "ck_invocation_attempts_provider_request_id_consistent",
+        "ck_invocation_attempts_provider_request_id_status_allowed",
+    }
+    phase3b_expanded_checks = {
+        "ck_ai_cost_ledger_fixture_currency_only",
+        "ck_budget_reservations_fixture_currency_only",
+        "ck_invocation_attempts_fixture_currency_only",
+        "ck_invocation_requests_family_allowed",
+        "ck_model_definitions_fixture_currency_only",
+        "ck_project_budget_counters_fixture_currency_only",
+        "ck_project_budget_policies_fixture_currency_only",
+        "ck_project_model_policies_fixture_currency_only",
+        "ck_user_budget_counters_fixture_currency_only",
+        "ck_user_budget_policies_fixture_currency_only",
+    }
+    unchanged_checks = (
+        EXPECTED_PHASE_3A_CHECK_CONSTRAINT_NAMES - phase3b_added_checks - phase3b_expanded_checks
+    )
+    assert set(migration_check_sql) == (
+        EXPECTED_PHASE_3A_CHECK_CONSTRAINT_NAMES - phase3b_added_checks
+    )
+    assert {name: migration_check_sql[name] for name in unchanged_checks} == {
+        name: orm_phase3a_check_sql[name] for name in unchanged_checks
+    }
 
 
 def test_explicit_identifier_names_do_not_collide_in_postgresql_namespaces() -> None:
@@ -1755,7 +2009,7 @@ def fail(*args, **kwargs):
 
 sqlalchemy.ext.asyncio.create_async_engine = fail
 from creativedeploy_api.db.models import REGISTERED_MODELS
-assert len(REGISTERED_MODELS) == 39
+assert len(REGISTERED_MODELS) == 44
 """
     result = subprocess.run(
         [sys.executable, "-c", source],

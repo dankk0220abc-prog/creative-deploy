@@ -2,7 +2,7 @@ SHELL := /bin/sh
 
 PYTHON_PROJECT := apps/api
 ALEMBIC_CONFIG := apps/api/alembic.ini
-ALEMBIC_HEAD := 3a04fab2e7a5
+ALEMBIC_HEAD := 3b01a1c2d3e4
 API_CHECK_PATHS := apps/api/src apps/api/tests apps/api/migrations
 WEB_PACKAGE := @creativedeploy/web
 ENV_FILE ?= .env
@@ -16,6 +16,8 @@ INTEGRATION_DATABASE_ENV := env \
 	-u POSTGRES_DB \
 	-u POSTGRES_PORT \
 	-u PHASE3A_FIXTURE_ENABLED \
+	-u PHASE3B_PAINT_PLAN_ENABLED \
+	-u VITE_PHASE3B_PAINT_PLAN_ENABLED \
 	-u CREDENTIAL_FIXTURE_ROOT_KEY_FILE \
 	-u STAGING_RUN_ID \
 	CREATIVEDEPLOY_ENV_FILE=/dev/null
@@ -74,9 +76,11 @@ WEB_COMMAND_ENV := env \
 	-u REQUIRE_CSRF_ORIGIN \
 	-u STRUCTURED_LOGS \
 	-u PHASE3A_FIXTURE_ENABLED \
+	-u PHASE3B_PAINT_PLAN_ENABLED \
 	-u CREDENTIAL_FIXTURE_ROOT_KEY_FILE \
 	-u STAGING_RUN_ID \
-	-u VITE_PHASE3A_FIXTURE_ENABLED
+	-u VITE_PHASE3A_FIXTURE_ENABLED \
+	-u VITE_PHASE3B_PAINT_PLAN_ENABLED
 API_UNIT_COMMAND_ENV := env \
 	-u APP_ENV \
 	-u APP_NAME \
@@ -132,10 +136,26 @@ API_UNIT_COMMAND_ENV := env \
 	-u REQUIRE_CSRF_ORIGIN \
 	-u STRUCTURED_LOGS \
 	-u PHASE3A_FIXTURE_ENABLED \
+	-u PHASE3B_PAINT_PLAN_ENABLED \
+	-u VITE_PHASE3B_PAINT_PLAN_ENABLED \
 	-u CREDENTIAL_FIXTURE_ROOT_KEY_FILE \
 	-u STAGING_RUN_ID
 
-.PHONY: bootstrap bootstrap-env db-up db-down api web test-api test-api-integration test-web \
+PHASE3B_UNIT_TESTS := \
+	apps/api/tests/unit/test_ai_foundation_configuration_contract.py \
+	apps/api/tests/unit/test_ai_foundation_security.py \
+	apps/api/tests/unit/test_database_metadata.py \
+	apps/api/tests/unit/test_paint_plan_models.py \
+	apps/api/tests/unit/test_paint_plan_schema.py \
+	apps/api/tests/unit/test_paint_project_models.py \
+	apps/api/tests/unit/test_provider_transport.py \
+	apps/api/tests/unit/test_region_geometry.py \
+	apps/api/tests/unit/test_phase3b_validation_contract.py \
+	apps/api/tests/unit/test_secret_scan_diff.py
+PHASE3B_INTEGRATION_TEST := apps/api/tests/integration/test_phase3b_paint_plan_api.py
+
+.PHONY: bootstrap bootstrap-env db-up db-down api web test-api test-api-integration \
+	test-api-phase3b test-web \
 	lint-api format-check-api typecheck-api lint-web typecheck-web build-web \
 	migration-current migration-heads migration-history migration-check \
 	check require-env config-check ensure-db validate-run-id artifact-config artifact-build \
@@ -299,6 +319,21 @@ test-api-integration: ensure-db
 	$(INTEGRATION_DATABASE_ENV) \
 		DATABASE_URL="$$integration_database_url" uv run --project $(PYTHON_PROJECT) \
 		pytest apps/api/tests/integration -m integration
+
+test-api-phase3b: ensure-db
+	@set -eu; \
+	integration_database_url="$$($(BACKEND_ENV_FILE) uv run --project $(PYTHON_PROJECT) python -c \
+		'from creativedeploy_api.core.config import Settings; print(Settings().require_database_url().get_secret_value())')"; \
+	$(INTEGRATION_DATABASE_ENV) DATABASE_URL="$$integration_database_url" \
+		uv run --project $(PYTHON_PROJECT) alembic -c $(ALEMBIC_CONFIG) upgrade head; \
+	current_revision="$$($(INTEGRATION_DATABASE_ENV) DATABASE_URL="$$integration_database_url" \
+		uv run --project $(PYTHON_PROJECT) alembic -c $(ALEMBIC_CONFIG) current)"; \
+	printf '%s\n' "$$current_revision"; \
+	test "$$current_revision" = "$(ALEMBIC_HEAD) (head)" || \
+		(echo "Phase 3B database is not at the expected unique Alembic head $(ALEMBIC_HEAD)." >&2; exit 1); \
+	$(API_UNIT_COMMAND_ENV) uv run --project $(PYTHON_PROJECT) pytest -q $(PHASE3B_UNIT_TESTS); \
+	$(INTEGRATION_DATABASE_ENV) DATABASE_URL="$$integration_database_url" \
+		uv run --project $(PYTHON_PROJECT) pytest -q "$(PHASE3B_INTEGRATION_TEST)" -m integration
 
 test-web:
 	$(WEB_COMMAND_ENV) $(PNPM) --filter $(WEB_PACKAGE) test --run

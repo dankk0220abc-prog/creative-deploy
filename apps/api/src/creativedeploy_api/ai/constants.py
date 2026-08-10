@@ -21,6 +21,7 @@ INVOCATION_FAMILIES: Final = (
     "fixture_credential_validation",
     "fixture_model_catalog",
     "fixture_invocation",
+    "paint_plan_generation",
 )
 INVOCATION_STATUSES: Final = (
     "pending",

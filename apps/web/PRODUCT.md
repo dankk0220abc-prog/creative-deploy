@@ -25,3 +25,13 @@ Desktop is information-dense but readable. At 720px and below, columns become a 
 ## Release boundary
 
 Phase 3A First Slice performs no real provider call, has no custom provider URL, has no real monetary currency, and provides no production or staging enablement. The feature is hidden in the web application unless `VITE_PHASE3A_FIXTURE_ENABLED=true`; the API separately fails closed unless its own development/test fixture gate and binary root-key file are valid.
+
+## Phase 3B Paint Plan workbench
+
+Phase 3B extends the incumbent image-first project workbench with one project-scoped Paint Plan route. The governed source remains visually first: up to four current ImageSet role snapshots, the exact approved RegionSet, and a clear paint-versus-exclude summary appear before provider controls or generated text.
+
+The owner flow selects a server-returned Provider, compatible model, and saved credential with an active project grant; previews admission and honest cost availability; explicitly confirms one deterministic fixture generation; and works with a typed multi-region `paint-plan.v1` document. Each edit and regeneration creates a new exact revision. Submit, approve, and reject controls appear only when the API returns the corresponding `allowed_actions`; reviewers never receive frontend-invented authority. Immutable history and stale-source boundaries remain visible.
+
+OpenAI may appear as an honest registered choice, but its execution mode is “live authorization required.” This web slice must not enable its generation control, claim it is validated, accept a temporary key, or translate unavailable usage or cost into zero. Provider, model, source, prompt, schema, invocation, and content identifiers are available in collapsed technical details rather than dominating the workbench.
+
+The Phase 3B route is hidden unless `VITE_PHASE3B_PAINT_PLAN_ENABLED=true`; the API retains an independent fail-closed gate. The responsive contract is bilingual `en-US`/`zh-CN`, touch-safe at 390px, long-value safe, and visually continuous with the graphite, copper, teal, and warm off-white PaintPilot system. It adds no marketing composition, gradients, provider logos, decorative motion, or verified repaint claim.
