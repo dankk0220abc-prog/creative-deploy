@@ -33,8 +33,8 @@ class RevisionConnection:
         return RevisionResult(self.revision)
 
 
-def test_current_phase3a_revision_is_accepted() -> None:
-    connection = RevisionConnection("3a04fab2e7a5")
+def test_current_phase3b_revision_is_accepted() -> None:
+    connection = RevisionConnection("3b01a1c2d3e4")
 
     assert operations._alembic_revision(connection) == operations.EXPECTED_ALEMBIC_REVISION  # type: ignore[arg-type]
 
@@ -46,11 +46,55 @@ def test_unsupported_revision_fails_closed() -> None:
         operations._alembic_revision(connection)  # type: ignore[arg-type]
 
 
-def test_phase3a_tables_extend_the_authoritative_full_recovery_inventory() -> None:
+def test_phase3b_tables_extend_the_authoritative_full_recovery_inventory() -> None:
     assert len(operations.LEGACY_TABLES) == 14
     assert len(operations.PHASE3A_TABLES) == 25
-    assert (*operations.LEGACY_TABLES, *operations.PHASE3A_TABLES) == operations.TABLES
-    assert set(operations.MIGRATION_SEED_FINGERPRINTS) <= set(operations.PHASE3A_TABLES)
+    assert operations.PHASE3B_TABLES == (
+        "provider_pricing_snapshots",
+        "prompt_template_definitions",
+        "paint_plans",
+        "paint_plan_region_instructions",
+        "paint_plan_review_events",
+    )
+    assert len(operations.TABLES) == 44
+    assert (
+        *operations.LEGACY_TABLES,
+        *operations.PHASE3A_TABLES,
+        *operations.PHASE3B_TABLES,
+    ) == operations.TABLES
+    assert set(operations.MIGRATION_SEED_FINGERPRINTS) <= set(operations.TABLES)
+
+
+def test_exact_phase3b_migration_seed_state_is_a_supported_fresh_restore_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    counts = {table: 0 for table in operations.TABLES}
+    for table, (count, _fingerprint) in operations.MIGRATION_SEED_FINGERPRINTS.items():
+        counts[table] = count
+    monkeypatch.setattr(
+        operations,
+        "_table_rows_fingerprint",
+        lambda _connection, table: operations.MIGRATION_SEED_FINGERPRINTS[table][1],
+    )
+
+    assert operations._is_migration_seed_only(object(), counts) is True  # type: ignore[arg-type]
+
+
+def test_legacy_39_table_seed_state_is_not_a_valid_phase3b_restore_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    counts = {table: 0 for table in operations.TABLES}
+    legacy_counts = {
+        "provider_definitions": 1,
+        "capability_definitions": 3,
+        "model_definitions": 2,
+        "provider_capabilities": 3,
+        "model_capabilities": 5,
+    }
+    counts.update(legacy_counts)
+    monkeypatch.setattr(operations, "_table_rows_fingerprint", lambda *_: "unused")
+
+    assert operations._is_migration_seed_only(object(), counts) is False  # type: ignore[arg-type]
 
 
 def test_backup_root_requires_exact_attempt_owner_and_mode(
@@ -209,6 +253,26 @@ def test_manifest_revision_matches_backup_and_restore_contract(
     )
     operations._write_detached_manifest_signature(root, manifest, signing)
     with pytest.raises(operations.OperationsError, match="revision is not supported"):
+        operations._read_manifest(root)
+
+
+def test_manifest_rejects_legacy_39_table_inventory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_signing(monkeypatch, tmp_path)
+    signing = operations._backup_signing_config()
+    root = tmp_path / "backup"
+    manifest = write_signed_manifest(root, signing)
+    for table in operations.PHASE3B_TABLES:
+        manifest["table_counts"].pop(table)
+    (root / operations.MANIFEST_PATH).write_text(
+        json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    operations._write_detached_manifest_signature(root, manifest, signing)
+
+    with pytest.raises(operations.OperationsError, match="table counts are invalid"):
         operations._read_manifest(root)
 
 
@@ -679,7 +743,12 @@ def test_final_object_failure_rolls_back_database_restore_transaction(
     monkeypatch.setattr(
         operations,
         "_restore_table",
-        lambda *_: database_writes.append("table"),
+        lambda *_, **__: database_writes.append("table"),
+    )
+    monkeypatch.setattr(
+        operations,
+        "_restore_paint_plan_history",
+        lambda *_: database_writes.append("paint-plan-history"),
     )
     monkeypatch.setattr(
         operations,
