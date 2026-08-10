@@ -220,6 +220,7 @@ class Settings(BaseSettings):
     paintpilot_demo_seed_display_name: PrincipalDisplayNameSetting | None = None
     paintpilot_demo_seed_email: str | None = None
     phase3a_fixture_enabled: bool = False
+    phase3b_paint_plan_enabled: bool = False
     credential_fixture_root_key_file: Path | None = None
     staging_run_id: str | None = None
 
@@ -385,6 +386,15 @@ class Settings(BaseSettings):
             if self.credential_fixture_root_key_file is None:
                 raise ValueError(
                     "CREDENTIAL_FIXTURE_ROOT_KEY_FILE is required when Phase 3A is enabled."
+                )
+        if self.phase3b_paint_plan_enabled:
+            if not self.phase3a_fixture_enabled:
+                raise ValueError(
+                    "PHASE3B_PAINT_PLAN_ENABLED requires the offline Phase 3A fixture gate."
+                )
+            if self.app_env not in {"development", "test"} or self.staging_run_id is not None:
+                raise ValueError(
+                    "Phase 3B Paint Plan mode is permitted only in non-staging development/test."
                 )
         return self
 

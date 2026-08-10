@@ -426,6 +426,21 @@ if [ "${upload_status}" != "201" ]; then
   exit 1
 fi
 image_id=$(json_field "${TEMP_ROOT}/image.json" id)
+for reference_role in reference_back reference_angle; do
+  reference_status=$(https_curl --silent --show-error --cookie "${OWNER_JAR}" \
+    --output "${TEMP_ROOT}/${reference_role}.json" --write-out '%{http_code}' --request POST \
+    --header "Origin: ${BASE_URL}" --header "X-CSRF-Token: ${owner_csrf}" \
+    --header "Idempotency-Key: $(uuidgen)" \
+    --form "file=@${TEMP_ROOT}/primary.jpg;type=image/jpeg" \
+    --form "role=${reference_role}" --form source_type=user_photographed \
+    --form intended_usage=private_project --form rights_attestation_confirmed=true \
+    --form rights_attestation_version=1 \
+    "${BASE_URL}/api/v1/paint-projects/${project_id}/images")
+  if [ "${reference_status}" != "201" ]; then
+    echo "staging ${reference_role} upload returned ${reference_status}, expected 201" >&2
+    exit 1
+  fi
+done
 oidc_login reviewer-c "${REVIEWER_JAR}" "${TEMP_ROOT}/reviewer-session.json"
 reviewer_id=$(json_user_id "${TEMP_ROOT}/reviewer-session.json")
 membership_status=$(https_curl --silent --show-error --cookie "${OWNER_JAR}" \
@@ -439,8 +454,12 @@ if [ "${membership_status}" != "200" ]; then
 fi
 compose_source exec -T api python - seed "${owner_id}" "${project_id}" \
   < "${REPOSITORY_ROOT}/scripts/verify_phase3a_backup_rows.py"
+compose_source exec -T api python - seed "${owner_id}" "${project_id}" \
+  < "${REPOSITORY_ROOT}/scripts/verify_phase3b_backup_rows.py"
 compose_source exec -T api python - verify "${owner_id}" "${project_id}" \
   < "${REPOSITORY_ROOT}/scripts/verify_phase3a_backup_rows.py"
+compose_source exec -T api python - verify "${owner_id}" "${project_id}" \
+  < "${REPOSITORY_ROOT}/scripts/verify_phase3b_backup_rows.py"
 https_curl --fail --silent --show-error --cookie "${REVIEWER_JAR}" \
   --output "${TEMP_ROOT}/source-object.jpg" \
   "${BASE_URL}/api/v1/paint-projects/${project_id}/images/${image_id}/content"
@@ -491,10 +510,10 @@ root=Path(sys.argv[1])
 manifest=json.loads((root/"manifest.json").read_text(encoding="utf-8"))
 assert manifest["format"] == "creativedeploy-staging-backup-v1"
 assert manifest["manifest_version"] == 1
-assert manifest["alembic_revision"] == "3a04fab2e7a5"
+assert manifest["alembic_revision"] == "3b01a1c2d3e4"
 assert manifest["backup_id"] == sys.argv[2]
-assert manifest["object_count"] == 1
-assert len(manifest["objects"]) == 1
+assert manifest["object_count"] == 3
+assert len(manifest["objects"]) == 3
 assert manifest["authenticity"] == {
     "algorithm": "HMAC-SHA-256",
     "canonicalization": "json-sort-keys-compact-ascii-v1",
@@ -504,7 +523,7 @@ assert manifest["authenticity"] == {
 assert (root/"manifest.hmac.json").is_file()
 assert manifest["table_counts"]["paint_projects"] == 1
 assert manifest["table_counts"]["project_memberships"] == 1
-assert manifest["table_counts"]["image_assets"] == 1
+assert manifest["table_counts"]["image_assets"] == 3
 phase3a_counts={table:1 for table in (
     "provider_definitions",
     "capability_definitions",
@@ -533,20 +552,36 @@ phase3a_counts={table:1 for table in (
     "ai_command_idempotency_records",
 )}
 phase3a_counts.update({
+    "provider_definitions":2,
     "capability_definitions":3,
-    "model_definitions":2,
-    "provider_capabilities":3,
-    "model_capabilities":5,
+    "model_definitions":3,
+    "provider_capabilities":6,
+    "model_capabilities":8,
     "credential_records":2,
     "invocation_attempts":2,
 })
+phase3b_counts={
+    "provider_pricing_snapshots":1,
+    "prompt_template_definitions":1,
+    "paint_plans":2,
+    "paint_plan_region_instructions":4,
+    "paint_plan_review_events":2,
+}
 assert set(manifest["table_counts"]) == {
     "user_accounts", "external_identities", "paint_projects", "project_memberships",
     "oidc_login_flows", "auth_sessions", "state_transition_events",
     "command_idempotency_records", "image_assets", "image_set_readiness_reviews",
-    "region_sets", "regions", "region_vertices", "region_set_reviews", *phase3a_counts,
+    "region_sets", "regions", "region_vertices", "region_set_reviews",
+    *phase3a_counts, *phase3b_counts,
 }
+assert len(manifest["table_counts"]) == 44
 assert {table:manifest["table_counts"][table] for table in phase3a_counts} == phase3a_counts
+assert {table:manifest["table_counts"][table] for table in phase3b_counts} == phase3b_counts
+assert manifest["table_counts"]["image_set_readiness_reviews"] == 1
+assert manifest["table_counts"]["region_sets"] == 1
+assert manifest["table_counts"]["regions"] == 2
+assert manifest["table_counts"]["region_vertices"] == 8
+assert manifest["table_counts"]["region_set_reviews"] == 1
 ' "${BACKUP_ROOT}/${BACKUP_ID}" "${BACKUP_ID}" "${SIGNING_KEY_ID}"
 capture_safe_logs "${SOURCE_PROJECT}" "${TEMP_ROOT}/source-services.log" \
   "${SOURCE_SECRET_ROOT}"
@@ -574,6 +609,8 @@ run_with_staging_log_capture \
 wait_ready
 compose_restore exec -T api python - verify "${owner_id}" "${project_id}" \
   < "${REPOSITORY_ROOT}/scripts/verify_phase3a_backup_rows.py"
+compose_restore exec -T api python - verify "${owner_id}" "${project_id}" \
+  < "${REPOSITORY_ROOT}/scripts/verify_phase3b_backup_rows.py"
 
 # Deliberately alter only the isolated restore target object while retaining the
 # signed size, content type, and metadata checksum. Run this before restored
@@ -753,5 +790,5 @@ restore_down=1
 echo "STAGING_DRILL_PASS backup_format=creativedeploy-staging-backup-v1"
 echo "STAGING_DRILL_METRICS backup_seconds=${backup_seconds} restore_seconds=${restore_seconds} synthetic_rpo_seconds=0"
 echo "STAGING_DRILL_PROOFS https=pass tls_policy=pass exact_host_origin=pass file_secrets=pass structured_logs=pass"
-echo "STAGING_DRILL_PROOFS backup=pass detached_authenticity=pass restore=pass exact_retry=pass checksum_refusal=pass manifest_tamper_refusal=pass byte_mismatch_refusal=pass private_object=pass permissions=pass phase3a_data=pass"
+echo "STAGING_DRILL_PROOFS backup=pass detached_authenticity=pass restore=pass exact_retry=pass checksum_refusal=pass manifest_tamper_refusal=pass byte_mismatch_refusal=pass private_object=pass permissions=pass phase3a_data=pass phase3b_data=pass phase3b_relationships=pass"
 echo "STAGING_DRILL_CLEANUP source=removed restore=removed temporary_evidence=scheduled"

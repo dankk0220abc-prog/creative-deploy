@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import psycopg
+from psycopg.types.json import Jsonb
 
 from creativedeploy_api.core.config import Settings
 from creativedeploy_api.tools.staging_backup_restore import (
@@ -44,14 +45,23 @@ AUDIT_ID = uuid.UUID("3b000000-0000-4000-8000-000000000021")
 COMMAND_ID = uuid.UUID("3b000000-0000-4000-8000-000000000022")
 REQUEST_ID = uuid.UUID("3b000000-0000-4000-8000-000000000023")
 IDEMPOTENCY_KEY = uuid.UUID("3b000000-0000-4000-8000-000000000024")
+READINESS_REVIEW_ID = uuid.UUID("3c000000-0000-4000-8000-000000000001")
+REGION_SET_ID = uuid.UUID("3c000000-0000-4000-8000-000000000002")
+PAINT_PLAN_PROMPT_ID = uuid.UUID("3b000000-0000-4000-8000-000000000301")
+IMAGE_SET_FINGERPRINT = "4" * 64
+GEOMETRY_FINGERPRINT = "5" * 64
+PAINT_PLAN_PROMPT_HASH = (
+    "8f946b8ae444637aa56b8624118f45b539eb314bf5bb6ed9013e7b89b0561de6"
+)
 
 EXPECTED_COUNTS = {table: 1 for table in PHASE3A_TABLES}
 EXPECTED_COUNTS.update(
     {
         "capability_definitions": 3,
-        "model_definitions": 2,
-        "provider_capabilities": 3,
-        "model_capabilities": 5,
+        "model_definitions": 3,
+        "provider_definitions": 2,
+        "provider_capabilities": 6,
+        "model_capabilities": 8,
         "credential_records": 2,
         "invocation_attempts": 2,
     }
@@ -75,6 +85,60 @@ def seed(
 ) -> None:
     _revision(connection)
     with connection.transaction():
+        image_rows = connection.execute(
+            """
+            SELECT id, role, version, sha256, declared_content_type, byte_size
+            FROM image_assets
+            WHERE paint_project_id = %s AND is_current
+            ORDER BY role
+            """,
+            (project_id,),
+        ).fetchall()
+        if {str(row["role"]) for row in image_rows} != {
+            "primary_front",
+            "reference_angle",
+            "reference_back",
+        }:
+            raise AssertionError(
+                "Phase 3B staging source requires three exact current image roles"
+            )
+        image_facts = [
+            {
+                "id": str(row["id"]),
+                "version": int(row["version"]),
+                "sha256": str(row["sha256"]),
+                "media_type": str(row["declared_content_type"]),
+                "byte_length": int(row["byte_size"]),
+            }
+            for row in image_rows
+        ]
+        safe_payload = {
+            "fixture": "staging-backup",
+            "artifacts": [
+                {
+                    "id": image["id"],
+                    "revision": image["version"],
+                    "content_hash": f"sha256:{image['sha256']}",
+                    "media_type": image["media_type"],
+                    "byte_length": image["byte_length"],
+                }
+                for image in image_facts
+            ],
+            "paint_plan_provenance": {
+                "image_set_fingerprint": IMAGE_SET_FINGERPRINT,
+                "image_assets": image_facts,
+                "readiness_review_id": str(READINESS_REVIEW_ID),
+                "readiness_review_version": 1,
+                "region_set_id": str(REGION_SET_ID),
+                "region_set_version": 1,
+                "region_geometry_fingerprint": GEOMETRY_FINGERPRINT,
+                "prompt_template_id": str(PAINT_PLAN_PROMPT_ID),
+                "prompt_template_key": "paint-plan",
+                "prompt_template_version": 1,
+                "prompt_content_hash": PAINT_PLAN_PROMPT_HASH,
+                "response_schema_version": "paint-plan.v1",
+            },
+        }
         connection.execute(
             """
             INSERT INTO credential_records (
@@ -217,10 +281,10 @@ def seed(
                 safe_payload, status, started_at, terminal_at, revision,
                 created_at, updated_at
             ) VALUES (
-                %s, %s, 'paintpilot', %s, %s, 'fixture_invocation', %s,
+                %s, %s, 'paintpilot', %s, %s, 'paint_plan_generation', %s,
                 'phase3a-v1', %s, '["text_generation"]'::jsonb, %s, %s, %s,
                 %s, 2, 30000, '{}'::jsonb, '{"currency":"FIXTURE_CREDITS"}'::jsonb,
-                '{"fixture":"staging-backup"}'::jsonb, 'succeeded', now(), now(),
+                %s, 'succeeded', now(), now(),
                 1, now(), now()
             )
             """,
@@ -235,6 +299,7 @@ def seed(
                 MODEL_ID,
                 CREDENTIAL_ID,
                 REQUEST_ID,
+                Jsonb(safe_payload),
             ),
         )
         connection.execute(
@@ -443,7 +508,9 @@ def verify(
         SELECT request.final_attempt_id, final_attempt.retry_of_attempt_id,
                reservation.user_counter_id, reservation.project_counter_id,
                usage.input_units, cost.amount_minor_units,
-               event.to_status, audit.outcome
+               event.to_status, audit.outcome, request.invocation_family,
+               request.safe_payload #>> '{paint_plan_provenance,region_set_id}' AS region_set_id,
+               request.safe_payload #>> '{paint_plan_provenance,prompt_template_id}' AS prompt_id
         FROM invocation_requests AS request
         JOIN invocation_attempts AS final_attempt ON final_attempt.id = request.final_attempt_id
         JOIN budget_reservations AS reservation ON reservation.attempt_id = final_attempt.id
@@ -464,6 +531,9 @@ def verify(
         2,
         "succeeded",
         "succeeded",
+        "paint_plan_generation",
+        str(REGION_SET_ID),
+        str(PAINT_PLAN_PROMPT_ID),
     ):
         raise AssertionError(
             "invocation, budget, ledger, and audit recovery relationship mismatch"

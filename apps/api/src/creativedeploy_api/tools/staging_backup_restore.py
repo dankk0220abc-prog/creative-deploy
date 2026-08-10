@@ -11,6 +11,7 @@ import base64
 import csv
 import hashlib
 import hmac
+import io
 import json
 import os
 import re
@@ -38,7 +39,7 @@ from creativedeploy_api.core.secret_files import SecretFileError, read_secret_fi
 from creativedeploy_api.storage.images import STORAGE_KEY_PATTERN
 
 BACKUP_FORMAT = "creativedeploy-staging-backup-v1"
-EXPECTED_ALEMBIC_REVISION = "3a04fab2e7a5"
+EXPECTED_ALEMBIC_REVISION = "3b01a1c2d3e4"
 MANIFEST_VERSION = 1
 MANIFEST_SIGNATURE_FORMAT = "creativedeploy-manifest-signature-v1"
 MANIFEST_SIGNATURE_ALGORITHM = "HMAC-SHA-256"
@@ -93,7 +94,14 @@ PHASE3A_TABLES = (
     "ai_audit_events",
     "ai_command_idempotency_records",
 )
-TABLES = (*LEGACY_TABLES, *PHASE3A_TABLES)
+PHASE3B_TABLES = (
+    "provider_pricing_snapshots",
+    "prompt_template_definitions",
+    "paint_plans",
+    "paint_plan_region_instructions",
+    "paint_plan_review_events",
+)
+TABLES = (*LEGACY_TABLES, *PHASE3A_TABLES, *PHASE3B_TABLES)
 
 # Migration D creates deterministic reference rows in every fresh head database.
 # A restore may replace only this exact seed-only state; any other partial state
@@ -101,24 +109,32 @@ TABLES = (*LEGACY_TABLES, *PHASE3A_TABLES)
 # primary key, not merely identifiers or row counts.
 MIGRATION_SEED_FINGERPRINTS: dict[str, tuple[int, str]] = {
     "provider_definitions": (
-        1,
-        "86b13330b8460c469e3d4b0b050934c91ce05310036cf83381a64059415c5d37",
+        2,
+        "fd4f9620178eb5e00b50852b039af8f6212c3277b4f32f2f06ecdb0f441cbaf6",
     ),
     "capability_definitions": (
         3,
         "e640acaa636c6e413e316782e9452c8802b8c6bee9091018205674f57dfd15e8",
     ),
     "model_definitions": (
-        2,
-        "a0712648e2b9591139fad42d5500e790d7e0c3f845c17f565f0449e8e3844294",
+        3,
+        "0c38422e31003c95810a9e5243ab13b76e693f7beed90791ca81b1dd5382462f",
     ),
     "provider_capabilities": (
-        3,
-        "48b9cd6af9c2418b9204989040984bbddac5691d2e7b825af28a8861ae3a5b40",
+        6,
+        "d0f00e4e6c06d102f8e6ca374c4b47af29e4936bac78a9182cea9807f3459657",
     ),
     "model_capabilities": (
-        5,
-        "c109bf6894742d9ed3f2614ffcb5cc3c0492ba68ea91ffa06b2ac88439ef773d",
+        8,
+        "8ec83f30927d00895c5e5e9f82f4427fa45004ba79a9acf379f0741ef9d39142",
+    ),
+    "provider_pricing_snapshots": (
+        1,
+        "0e8c46ab531eb7d587eba9e635be347d3fbeb496fb59a8294f30d03b8589490f",
+    ),
+    "prompt_template_definitions": (
+        1,
+        "4a1e148603126350c0eab5f990423036c0c39c6bec505f704ed95580294c3672",
     ),
 }
 DEFERRED_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -134,6 +150,9 @@ ORDER_COLUMNS: dict[str, tuple[str, ...]] = {
     "region_sets": ("paint_project_id", "version", "id"),
     "regions": ("region_set_id", "z_index", "id"),
     "region_vertices": ("region_set_id", "region_id", "sequence"),
+    "paint_plans": ("paint_project_id", "version", "id"),
+    "paint_plan_region_instructions": ("paint_plan_id", "sequence", "id"),
+    "paint_plan_review_events": ("paint_plan_id", "created_at", "id"),
 }
 
 
@@ -867,11 +886,6 @@ def _is_migration_seed_only(
     return True
 
 
-def _clear_migration_seed(connection: psycopg.Connection[dict[str, Any]]) -> None:
-    for table in reversed(tuple(MIGRATION_SEED_FINGERPRINTS)):
-        connection.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(table)))
-
-
 def _restore_objects(
     client: Any,
     bucket: str,
@@ -911,7 +925,11 @@ def _restore_objects(
 
 
 def _restore_table(
-    connection: psycopg.Connection[dict[str, Any]], table: str, source: Path
+    connection: psycopg.Connection[dict[str, Any]],
+    table: str,
+    source: Path,
+    *,
+    preserve_existing: bool = False,
 ) -> None:
     with source.open("r", encoding="utf-8", newline="") as stream:
         reader = csv.reader(stream)
@@ -921,6 +939,13 @@ def _restore_table(
             raise OperationsError(f"Backup table {table} has no CSV header.") from error
     if tuple(columns) != _table_columns(connection, table):
         raise OperationsError(f"Backup table {table} columns do not match the target.")
+    if preserve_existing and table in MIGRATION_SEED_FINGERPRINTS:
+        # A seed-only target has already been verified row-for-row by
+        # _is_migration_seed_only. These migration-owned rows are immutable, so
+        # retain them without requiring CREATE TEMP or another elevated grant.
+        # The transaction's final backup comparison still fails closed if the
+        # signed source differs from those deterministic rows.
+        return
     statement = sql.SQL("COPY {} ({}) FROM STDIN WITH (FORMAT CSV, HEADER TRUE)").format(
         sql.Identifier(table),
         sql.SQL(", ").join(sql.Identifier(column) for column in columns),
@@ -928,6 +953,189 @@ def _restore_table(
     with source.open("rb") as stream, connection.cursor().copy(statement) as copy:
         while chunk := stream.read(64 * 1024):
             copy.write(chunk)
+
+
+def _mark_copy_csv_nulls(payload: str, sentinel: str) -> str:
+    """Make unquoted empty COPY CSV fields visible to Python's CSV parser."""
+    output: list[str] = []
+    field_start = True
+    in_quotes = False
+    index = 0
+    while index < len(payload):
+        character = payload[index]
+        if in_quotes:
+            output.append(character)
+            if character == '"':
+                if index + 1 < len(payload) and payload[index + 1] == '"':
+                    output.append('"')
+                    index += 2
+                    continue
+                in_quotes = False
+            index += 1
+            continue
+        if field_start and character in {",", "\r", "\n"}:
+            output.append(sentinel)
+        output.append(character)
+        if character == '"' and field_start:
+            in_quotes = True
+            field_start = False
+        elif character == ",":
+            field_start = True
+        elif character in {"\r", "\n"}:
+            field_start = True
+            if character == "\r" and index + 1 < len(payload) and payload[index + 1] == "\n":
+                output.append("\n")
+                index += 1
+        else:
+            field_start = False
+        index += 1
+    if field_start and payload.endswith(","):
+        output.append(sentinel)
+    return "".join(output)
+
+
+def _read_restore_rows(
+    connection: psycopg.Connection[dict[str, Any]], table: str, source: Path
+) -> tuple[tuple[str, ...], list[dict[str, str | None]]]:
+    try:
+        with source.open("r", encoding="utf-8", newline="") as stream:
+            payload = stream.read()
+    except OSError as error:
+        raise OperationsError(f"Backup table {table} could not be read.") from error
+    sentinel = f"__creativedeploy_copy_null_{uuid.uuid4().hex}__"
+    while sentinel in payload:
+        sentinel = f"__creativedeploy_copy_null_{uuid.uuid4().hex}__"
+    reader = csv.DictReader(io.StringIO(_mark_copy_csv_nulls(payload, sentinel), newline=""))
+    columns = tuple(reader.fieldnames or ())
+    if columns != _table_columns(connection, table):
+        raise OperationsError(f"Backup table {table} columns do not match the target.")
+    rows: list[dict[str, str | None]] = []
+    for raw_row in reader:
+        if None in raw_row or set(raw_row) != set(columns):
+            raise OperationsError(f"Backup table {table} has an invalid CSV row.")
+        rows.append(
+            {column: None if raw_row[column] == sentinel else raw_row[column] for column in columns}
+        )
+    return columns, rows
+
+
+def _insert_restore_row(
+    connection: psycopg.Connection[dict[str, Any]],
+    table: str,
+    columns: tuple[str, ...],
+    row: dict[str, str | None],
+    *,
+    overrides: dict[str, str] | None = None,
+) -> None:
+    values = [
+        overrides[column] if overrides is not None and column in overrides else row[column]
+        for column in columns
+    ]
+    connection.execute(
+        sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(
+            sql.Identifier(table),
+            sql.SQL(", ").join(sql.Identifier(column) for column in columns),
+            sql.SQL(", ").join(sql.Placeholder() for _ in columns),
+        ),
+        values,
+    )
+
+
+def _set_paint_plan_lifecycle_constraints(
+    connection: psycopg.Connection[dict[str, Any]], state: str
+) -> None:
+    if state not in {"IMMEDIATE", "DEFERRED"}:
+        raise OperationsError("Paint Plan restore constraint state is invalid.")
+    connection.execute(
+        sql.SQL(
+            "SET CONSTRAINTS paint_plans_verify_review_lifecycle, "
+            "paint_plan_reviews_verify_lifecycle {}"
+        ).format(sql.SQL(state))
+    )
+
+
+def _restore_paint_plan_history(connection: psycopg.Connection[dict[str, Any]], root: Path) -> None:
+    plan_columns, plans = _read_restore_rows(
+        connection,
+        "paint_plans",
+        root / "tables" / "paint_plans.csv",
+    )
+    review_columns, reviews = _read_restore_rows(
+        connection,
+        "paint_plan_review_events",
+        root / "tables" / "paint_plan_review_events.csv",
+    )
+    reviews_by_plan: dict[str, list[dict[str, str | None]]] = {}
+    for review in reviews:
+        plan_id = review["paint_plan_id"]
+        if plan_id is None:
+            raise OperationsError("Backup Paint Plan review is missing its revision.")
+        reviews_by_plan.setdefault(plan_id, []).append(review)
+    restored_review_ids: set[str] = set()
+    for plan in sorted(
+        plans,
+        key=lambda row: (
+            str(row["paint_project_id"]),
+            int(str(row["version"])),
+            str(row["id"]),
+        ),
+    ):
+        plan_id = plan["id"]
+        revision_kind = plan["revision_kind"]
+        final_lifecycle = plan["lifecycle"]
+        if plan_id is None or revision_kind is None or final_lifecycle is None:
+            raise OperationsError("Backup Paint Plan revision state is incomplete.")
+        initial_lifecycle = "edited" if revision_kind == "edited" else "generated"
+        _insert_restore_row(
+            connection,
+            "paint_plans",
+            plan_columns,
+            plan,
+            overrides={"lifecycle": initial_lifecycle},
+        )
+        current_lifecycle = initial_lifecycle
+        events = sorted(
+            reviews_by_plan.get(plan_id, []),
+            key=lambda row: (
+                0 if row["action"] == "submit" else 1,
+                str(row["created_at"]),
+                str(row["id"]),
+            ),
+        )
+        for event in events:
+            action = event["action"]
+            next_lifecycle = {
+                "submit": "under_review",
+                "approve": "approved",
+                "reject": "rejected",
+            }.get(action or "")
+            event_id = event["id"]
+            if next_lifecycle is None or event_id is None:
+                raise OperationsError("Backup Paint Plan review action is invalid.")
+            _insert_restore_row(
+                connection,
+                "paint_plan_review_events",
+                review_columns,
+                event,
+            )
+            restored_review_ids.add(event_id)
+            connection.execute(
+                "UPDATE paint_plans SET lifecycle = %s WHERE id = %s",
+                (next_lifecycle, plan_id),
+            )
+            _set_paint_plan_lifecycle_constraints(connection, "IMMEDIATE")
+            _set_paint_plan_lifecycle_constraints(connection, "DEFERRED")
+            current_lifecycle = next_lifecycle
+        if final_lifecycle == "superseded":
+            connection.execute(
+                "UPDATE paint_plans SET lifecycle = 'superseded' WHERE id = %s",
+                (plan_id,),
+            )
+        elif current_lifecycle != final_lifecycle:
+            raise OperationsError("Backup Paint Plan lifecycle and review history do not match.")
+    expected_review_ids = {str(review["id"]) for review in reviews if review["id"] is not None}
+    if restored_review_ids != expected_review_ids:
+        raise OperationsError("Backup Paint Plan review history is incomplete.")
 
 
 def _restore_pointers(connection: psycopg.Connection[dict[str, Any]], root: Path) -> None:
@@ -1032,11 +1240,22 @@ def restore(backup_id: str, *, dry_run: bool) -> None:
         _restore_objects(client, bucket, root, inventory)
         if all_empty or seed_only:
             with connection.transaction():
-                if seed_only:
-                    _clear_migration_seed(connection)
                 for table in TABLES:
-                    _restore_table(connection, table, root / "tables" / f"{table}.csv")
-                _restore_pointers(connection, root)
+                    if table == PHASE3B_TABLES[0]:
+                        # Paint Plan provenance is enforced before insert and
+                        # requires the invocation's deferred final-attempt
+                        # pointer. Every pointer target is present once the
+                        # legacy and Phase 3A tables have been restored.
+                        _restore_pointers(connection, root)
+                    if table == "paint_plans":
+                        _restore_paint_plan_history(connection, root)
+                    elif table != "paint_plan_review_events":
+                        _restore_table(
+                            connection,
+                            table,
+                            root / "tables" / f"{table}.csv",
+                            preserve_existing=seed_only,
+                        )
                 if not _database_matches_backup(connection, root):
                     raise OperationsError("Restored PostgreSQL data does not match the backup.")
                 _verify_restored_objects(connection, client, bucket, inventory)

@@ -129,6 +129,7 @@ def test_settings_flag_defaults_off_without_reading_a_root_key() -> None:
         _env_file=None,
     )
     assert settings.phase3a_fixture_enabled is False
+    assert settings.phase3b_paint_plan_enabled is False
     assert settings.credential_fixture_root_key_file is None
 
 
@@ -158,6 +159,37 @@ def test_settings_rejects_enabled_fixture_without_key_or_in_production(
             credential_fixture_root_key_file=key_file,
             _env_file=None,
         )
+
+
+def test_settings_phase3b_gate_requires_offline_fixture_and_rejects_staging(
+    tmp_path: Path,
+) -> None:
+    key_file = tmp_path / "root.key"
+    key_file.write_bytes(os.urandom(32))
+    key_file.chmod(0o400)
+    common = {
+        "app_env": "test",
+        "database_url": "postgresql+psycopg://user:pass@localhost/database",
+        "_env_file": None,
+    }
+    with pytest.raises(ValueError, match="requires the offline Phase 3A fixture gate"):
+        Settings(**common, phase3b_paint_plan_enabled=True)
+    with pytest.raises(ValueError, match="forbidden in staging-style runs"):
+        Settings(
+            **common,
+            phase3a_fixture_enabled=True,
+            phase3b_paint_plan_enabled=True,
+            credential_fixture_root_key_file=key_file,
+            staging_run_id="staging-proof",
+        )
+
+    settings = Settings(
+        **common,
+        phase3a_fixture_enabled=True,
+        phase3b_paint_plan_enabled=True,
+        credential_fixture_root_key_file=key_file,
+    )
+    assert settings.phase3b_paint_plan_enabled is True
 
 
 def test_canonicalization_normalizes_unicode_time_decimal_and_key_order() -> None:

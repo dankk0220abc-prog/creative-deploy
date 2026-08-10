@@ -44,6 +44,13 @@ from creativedeploy_api.db.models.image_asset import ImageAsset
 from creativedeploy_api.db.models.image_set_readiness_review import (
     ImageSetReadinessReview,
 )
+from creativedeploy_api.db.models.paint_plan import (
+    PaintPlan,
+    PaintPlanRegionInstruction,
+    PaintPlanReviewEvent,
+    PromptTemplateDefinition,
+    ProviderPricingSnapshot,
+)
 from creativedeploy_api.db.models.paint_project import PaintProject
 from creativedeploy_api.db.models.region_set import (
     Region,
@@ -93,6 +100,11 @@ REGISTERED_MODELS: Final[tuple[type[Base], ...]] = (
     AICostLedger,
     AIAuditEvent,
     AICommandIdempotencyRecord,
+    ProviderPricingSnapshot,
+    PromptTemplateDefinition,
+    PaintPlan,
+    PaintPlanRegionInstruction,
+    PaintPlanReviewEvent,
 )
 
 __all__ = [
@@ -116,6 +128,9 @@ __all__ = [
     "ModelCapability",
     "ModelDefinition",
     "OidcLoginFlow",
+    "PaintPlan",
+    "PaintPlanRegionInstruction",
+    "PaintPlanReviewEvent",
     "PaintProject",
     "ProjectBudgetCounter",
     "ProjectBudgetPolicy",
@@ -125,8 +140,10 @@ __all__ = [
     "ProjectModelPolicyCredential",
     "ProjectModelPolicyModel",
     "ProjectModelPolicyProvider",
+    "PromptTemplateDefinition",
     "ProviderCapability",
     "ProviderDefinition",
+    "ProviderPricingSnapshot",
     "Region",
     "RegionSet",
     "RegionSetReview",

@@ -1,16 +1,39 @@
-"""Strict Phase 3A fixture-only request and safe response contracts."""
+"""Strict AI foundation configuration requests and safe response contracts."""
 
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
+
+from creativedeploy_api.schemas.paint_plans import PaintPlanFixtureSource
 
 FixtureCurrency = Literal["FIXTURE_CREDITS"]
+Currency = Literal["FIXTURE_CREDITS", "USD"]
+ProviderKey = Literal["fixture_local", "openai"]
+CredentialSecret = Annotated[SecretStr, Field(min_length=1, max_length=4096)]
+CredentialValidationStatus = Literal[
+    "fixture_valid",
+    "fixture_invalid",
+    "live_validation_not_authorized",
+]
+RequestUUID = Annotated[
+    UUID,
+    BeforeValidator(lambda value: UUID(value) if isinstance(value, str) else value),
+]
 InvocationFamily = Literal[
     "fixture_credential_validation",
     "fixture_model_catalog",
     "fixture_invocation",
+    "paint_plan_generation",
 ]
 InvocationStatus = Literal[
     "pending",
@@ -66,7 +89,7 @@ class ModelRead(StrictModel):
     status: str
     context_window: int | None
     pricing_minor_units: int | None
-    pricing_currency: FixtureCurrency | None
+    pricing_currency: Currency | None
     local_only: bool
     capabilities: list[CapabilityRead]
 
@@ -100,14 +123,14 @@ class CredentialListResponse(StrictModel):
 
 
 class TemporaryCredentialValidationRequest(StrictModel):
-    provider_key: Literal["fixture_local"]
-    credential: SecretStr
+    provider_key: ProviderKey
+    credential: CredentialSecret
 
 
 class CredentialCreateRequest(StrictModel):
-    provider_key: Literal["fixture_local"]
+    provider_key: ProviderKey
     alias: Annotated[str, Field(min_length=1, max_length=120)]
-    credential: SecretStr
+    credential: CredentialSecret
     confirm_save: Literal[True]
 
     @field_validator("alias")
@@ -121,7 +144,7 @@ class CredentialCreateRequest(StrictModel):
 
 class CredentialReplaceRequest(StrictModel):
     alias: Annotated[str, Field(min_length=1, max_length=120)]
-    credential: SecretStr
+    credential: CredentialSecret
     expected_revision: Annotated[int, Field(ge=1)]
     confirm_replace: Literal[True]
 
@@ -132,17 +155,17 @@ class CredentialMutationRequest(StrictModel):
 
 
 class CredentialValidationResponse(StrictModel):
-    provider_key: Literal["fixture_local"]
+    provider_key: ProviderKey
     valid: bool
-    validation_status: Literal["fixture_valid", "fixture_invalid"]
+    validation_status: CredentialValidationStatus
     message_code: str
-    fixture: Literal[True]
-    local_only: Literal[True]
+    fixture: bool
+    local_only: bool
     persisted: bool
 
 
 class CredentialGrantRequest(StrictModel):
-    project_id: UUID
+    project_id: RequestUUID
     expected_credential_revision: Annotated[int, Field(ge=1)]
 
 
@@ -158,12 +181,13 @@ class CredentialGrantRead(StrictModel):
 
 class UserPreferenceUpdate(StrictModel):
     enabled: bool
-    default_provider_definition_id: UUID | None
-    default_model_definition_id: UUID | None
-    default_credential_id: UUID | None
+    default_provider_definition_id: RequestUUID | None
+    default_model_definition_id: RequestUUID | None
+    default_credential_id: RequestUUID | None
     timeout_ms: Annotated[int, Field(ge=1, le=120_000)]
     streaming_enabled: Literal[False]
     cost_warning_minor_units: Annotated[int, Field(ge=0)] | None
+    currency: Currency = "FIXTURE_CREDITS"
     budget_per_invocation_minor_units: Annotated[int, Field(ge=1)]
     budget_cumulative_minor_units: Annotated[int, Field(ge=1)]
     budget_window_seconds: Annotated[int, Field(ge=60, le=2_592_000)]
@@ -178,7 +202,7 @@ class UserPreferenceRead(StrictModel):
     timeout_ms: int
     streaming_enabled: bool
     cost_warning_minor_units: int | None
-    currency: FixtureCurrency
+    currency: Currency
     budget_per_invocation_minor_units: int | None
     budget_cumulative_minor_units: int | None
     budget_window_seconds: int | None
@@ -187,16 +211,17 @@ class UserPreferenceRead(StrictModel):
 
 class ProjectPolicyUpdate(StrictModel):
     enabled: bool
-    default_provider_definition_id: UUID
-    default_model_definition_id: UUID
-    default_credential_id: UUID
-    provider_allowlist: list[UUID]
-    model_allowlist: list[UUID]
-    capability_allowlist: list[UUID]
-    credential_allowlist: list[UUID]
+    default_provider_definition_id: RequestUUID
+    default_model_definition_id: RequestUUID
+    default_credential_id: RequestUUID
+    provider_allowlist: list[RequestUUID]
+    model_allowlist: list[RequestUUID]
+    capability_allowlist: list[RequestUUID]
+    credential_allowlist: list[RequestUUID]
     per_invocation_limit_minor_units: Annotated[int, Field(ge=1)]
     cumulative_limit_minor_units: Annotated[int, Field(ge=1)]
     budget_window_seconds: Annotated[int, Field(ge=60, le=2_592_000)]
+    currency: Currency = "FIXTURE_CREDITS"
     allow_unknown_cost: Literal[False]
     allow_manual_model_id: Literal[False]
     allow_fallback: Literal[False]
@@ -228,7 +253,7 @@ class ProjectPolicyRead(StrictModel):
     per_invocation_limit_minor_units: int | None
     cumulative_limit_minor_units: int | None
     budget_window_seconds: int | None
-    currency: FixtureCurrency
+    currency: Currency
     allow_unknown_cost: bool
     allow_manual_model_id: bool
     allow_fallback: bool
@@ -248,10 +273,20 @@ class FixtureInvocationPayload(StrictModel):
         "rate_limited",
         "outcome_unknown",
     ] = "success"
+    paint_plan_input: PaintPlanFixtureSource | None = None
+
+    @model_validator(mode="after")
+    def governed_paint_plan_marker_matches_payload(self) -> "FixtureInvocationPayload":
+        is_paint_plan = self.prompt_label == "paint-plan.v1"
+        if is_paint_plan != (self.paint_plan_input is not None):
+            raise ValueError("paint-plan.v1 requires exactly one governed paint_plan_input")
+        if is_paint_plan and self.fixture_input != "governed-server-snapshot":
+            raise ValueError("paint-plan.v1 fixture input must be server-governed")
+        return self
 
 
 class ArtifactIdentity(StrictModel):
-    id: UUID
+    id: RequestUUID
     revision: Annotated[int, Field(ge=1)]
     content_hash: Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
     media_type: Annotated[str, Field(min_length=3, max_length=160)]
@@ -260,11 +295,11 @@ class ArtifactIdentity(StrictModel):
 
 class InvocationPreviewRequest(StrictModel):
     product_space: Literal["paintpilot"]
-    project_id: UUID | None
+    project_id: RequestUUID | None
     invocation_family: InvocationFamily
-    provider_definition_id: UUID
-    model_definition_id: UUID
-    credential_id: UUID | None = None
+    provider_definition_id: RequestUUID
+    model_definition_id: RequestUUID
+    credential_id: RequestUUID | None = None
     temporary_credential: SecretStr | None = None
     requested_capabilities: list[str]
     artifacts: list[ArtifactIdentity] = Field(default_factory=list, max_length=16)
@@ -310,6 +345,8 @@ class AttemptRead(StrictModel):
     dispatched_at: datetime | None
     terminal_at: datetime | None
     final_error_category: str | None
+    provider_request_id_status: Literal["absent", "provided", "unavailable"]
+    provider_request_id: str | None
     safe_provider_metadata: dict[str, object]
 
 

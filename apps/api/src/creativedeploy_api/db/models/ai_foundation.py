@@ -1,4 +1,4 @@
-"""Phase 3A fixture-only multi-provider foundation persistence models."""
+"""Governed multi-provider foundation persistence models."""
 
 # ruff: noqa: E501
 
@@ -106,7 +106,7 @@ class ModelDefinition(Base):
             name=conv("ck_model_definitions_status_allowed"),
         ),
         CheckConstraint(
-            "pricing_currency IS NULL OR pricing_currency = 'FIXTURE_CREDITS'",
+            "pricing_currency IS NULL OR pricing_currency IN ('FIXTURE_CREDITS','USD')",
             name=conv("ck_model_definitions_fixture_currency_only"),
         ),
         ForeignKeyConstraint(
@@ -400,7 +400,7 @@ class ProjectModelPolicy(Base):
     __tablename__ = "project_model_policies"
     __table_args__ = (
         CheckConstraint(
-            "currency = 'FIXTURE_CREDITS'",
+            "currency IN ('FIXTURE_CREDITS','USD')",
             name=conv("ck_project_model_policies_fixture_currency_only"),
         ),
         CheckConstraint(
@@ -600,7 +600,7 @@ class UserBudgetPolicy(Base):
     __tablename__ = "user_budget_policies"
     __table_args__ = (
         CheckConstraint(
-            "currency = 'FIXTURE_CREDITS'",
+            "currency IN ('FIXTURE_CREDITS','USD')",
             name=conv("ck_user_budget_policies_fixture_currency_only"),
         ),
         ForeignKeyConstraint(
@@ -635,7 +635,7 @@ class ProjectBudgetPolicy(Base):
     __tablename__ = "project_budget_policies"
     __table_args__ = (
         CheckConstraint(
-            "currency = 'FIXTURE_CREDITS'",
+            "currency IN ('FIXTURE_CREDITS','USD')",
             name=conv("ck_project_budget_policies_fixture_currency_only"),
         ),
         ForeignKeyConstraint(
@@ -670,7 +670,7 @@ class UserBudgetCounter(Base):
     __tablename__ = "user_budget_counters"
     __table_args__ = (
         CheckConstraint(
-            "currency = 'FIXTURE_CREDITS'",
+            "currency IN ('FIXTURE_CREDITS','USD')",
             name=conv("ck_user_budget_counters_fixture_currency_only"),
         ),
         CheckConstraint(
@@ -712,7 +712,7 @@ class ProjectBudgetCounter(Base):
     __tablename__ = "project_budget_counters"
     __table_args__ = (
         CheckConstraint(
-            "currency = 'FIXTURE_CREDITS'",
+            "currency IN ('FIXTURE_CREDITS','USD')",
             name=conv("ck_project_budget_counters_fixture_currency_only"),
         ),
         CheckConstraint(
@@ -754,7 +754,7 @@ class InvocationRequest(Base):
     __tablename__ = "invocation_requests"
     __table_args__ = (
         CheckConstraint(
-            "invocation_family IN ('fixture_credential_validation','fixture_model_catalog','fixture_invocation')",
+            "invocation_family IN ('fixture_credential_validation','fixture_model_catalog','fixture_invocation','paint_plan_generation')",
             name=conv("ck_invocation_requests_family_allowed"),
         ),
         CheckConstraint(
@@ -872,8 +872,22 @@ class InvocationAttempt(Base):
             name=conv("ck_invocation_attempts_status_allowed"),
         ),
         CheckConstraint(
-            "currency = 'FIXTURE_CREDITS'",
+            "currency IN ('FIXTURE_CREDITS','USD')",
             name=conv("ck_invocation_attempts_fixture_currency_only"),
+        ),
+        CheckConstraint(
+            "provider_request_id_status IN ('absent','provided','unavailable')",
+            name=conv("ck_invocation_attempts_provider_request_id_status_allowed"),
+        ),
+        CheckConstraint(
+            "(provider_request_id_status = 'provided' "
+            "AND provider_request_id IS NOT NULL "
+            "AND length(provider_request_id) BETWEEN 1 AND 200 "
+            "AND provider_request_id = btrim(provider_request_id) "
+            "AND provider_request_id !~ '[[:cntrl:]]') "
+            "OR (provider_request_id_status IN ('absent','unavailable') "
+            "AND provider_request_id IS NULL)",
+            name=conv("ck_invocation_attempts_provider_request_id_consistent"),
         ),
         ForeignKeyConstraint(
             ["invocation_id"],
@@ -940,6 +954,10 @@ class InvocationAttempt(Base):
     final_error_category: Mapped[str | None] = mapped_column(String(64))
     output_reference: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     safe_provider_metadata: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    provider_request_id_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'absent'")
+    )
+    provider_request_id: Mapped[str | None] = mapped_column(String(200))
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     created_at: Mapped[datetime] = _created_at()
@@ -953,7 +971,7 @@ class BudgetReservation(Base):
             name=conv("ck_budget_reservations_state_allowed"),
         ),
         CheckConstraint(
-            "currency = 'FIXTURE_CREDITS'",
+            "currency IN ('FIXTURE_CREDITS','USD')",
             name=conv("ck_budget_reservations_fixture_currency_only"),
         ),
         ForeignKeyConstraint(
@@ -1028,6 +1046,18 @@ class AIInvocationEvent(Base):
 class AIUsageLedger(Base):
     __tablename__ = "ai_usage_ledger"
     __table_args__ = (
+        CheckConstraint(
+            "measurement_status IN ('measured','unavailable')",
+            name=conv("ck_ai_usage_ledger_measurement_status_allowed"),
+        ),
+        CheckConstraint(
+            "(measurement_status = 'measured' "
+            "AND input_units IS NOT NULL AND input_units >= 0 "
+            "AND output_units IS NOT NULL AND output_units >= 0) "
+            "OR (measurement_status = 'unavailable' "
+            "AND input_units IS NULL AND output_units IS NULL)",
+            name=conv("ck_ai_usage_ledger_measurement_consistent"),
+        ),
         ForeignKeyConstraint(
             ["invocation_id"],
             ["invocation_requests.id"],
@@ -1067,8 +1097,11 @@ class AIUsageLedger(Base):
     )
     source: Mapped[str] = mapped_column(String(32), nullable=False)
     canonical_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
-    input_units: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    output_units: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    measurement_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'measured'")
+    )
+    input_units: Mapped[int | None] = mapped_column(BigInteger)
+    output_units: Mapped[int | None] = mapped_column(BigInteger)
     safe_metadata: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = _created_at()
 
@@ -1077,7 +1110,18 @@ class AICostLedger(Base):
     __tablename__ = "ai_cost_ledger"
     __table_args__ = (
         CheckConstraint(
-            "currency = 'FIXTURE_CREDITS'", name=conv("ck_ai_cost_ledger_fixture_currency_only")
+            "currency IN ('FIXTURE_CREDITS','USD')",
+            name=conv("ck_ai_cost_ledger_fixture_currency_only"),
+        ),
+        CheckConstraint(
+            "measurement_status IN ('estimated','measured','unavailable')",
+            name=conv("ck_ai_cost_ledger_measurement_status_allowed"),
+        ),
+        CheckConstraint(
+            "(measurement_status IN ('estimated','measured') "
+            "AND amount_minor_units IS NOT NULL AND amount_minor_units >= 0) "
+            "OR (measurement_status = 'unavailable' AND amount_minor_units IS NULL)",
+            name=conv("ck_ai_cost_ledger_measurement_consistent"),
         ),
         ForeignKeyConstraint(
             ["invocation_id"],
@@ -1118,7 +1162,10 @@ class AICostLedger(Base):
     )
     source: Mapped[str] = mapped_column(String(32), nullable=False)
     canonical_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
-    amount_minor_units: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    measurement_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'measured'")
+    )
+    amount_minor_units: Mapped[int | None] = mapped_column(BigInteger)
     currency: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = _created_at()
 

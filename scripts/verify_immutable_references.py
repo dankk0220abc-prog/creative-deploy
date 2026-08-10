@@ -52,18 +52,19 @@ def main() -> None:
         docker_references.extend(
             re.findall(r"^\s+image:\s+(\S+)$", read(path), flags=re.MULTILINE)
         )
-    docker_references.extend(
-        re.findall(
-            r"^\s+(zricethezav/gitleaks:\S+@sha256:[0-9a-f]{64})\s+\\$",
-            read("scripts/secret_scan.sh"),
-            flags=re.MULTILINE,
+    for path in ("scripts/secret_scan.sh", "scripts/secret_scan_diff.sh"):
+        docker_references.extend(
+            re.findall(
+                r"^\s+(zricethezav/gitleaks:\S+@sha256:[0-9a-f]{64})\s+\\$",
+                read(path),
+                flags=re.MULTILINE,
+            )
         )
-    )
     docker_references.extend(
         re.findall(r"^\s+image:\s+(\S+)$", workflow, flags=re.MULTILINE)
     )
     require(
-        len(docker_references) == 11, "unexpected executable container reference count"
+        len(docker_references) == 12, "unexpected executable container reference count"
     )
     for reference in docker_references:
         require(
