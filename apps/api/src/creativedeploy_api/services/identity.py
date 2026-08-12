@@ -100,10 +100,10 @@ class ResolvedSession:
 
 
 def validated_return_to(value: str | None) -> str:
-    """Allow only a same-origin PaintPilot route."""
+    """Allow only an explicitly supported same-origin product route."""
     candidate = value or "/paintpilot/projects"
     if (
-        not candidate.startswith("/paintpilot")
+        not candidate.startswith(("/paintpilot", "/arcana"))
         or candidate.startswith("//")
         or "\\" in candidate
         or "\r" in candidate

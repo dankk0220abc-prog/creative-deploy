@@ -21,6 +21,7 @@ from creativedeploy_api.services.ai_foundation import (
     AIFoundationService,
     Phase3UnavailableError,
 )
+from creativedeploy_api.services.arcana import ArcanaService
 from creativedeploy_api.services.identity import (
     AuthenticationService,
     InvalidCsrfTokenError,
@@ -223,4 +224,15 @@ def get_paint_plan_service(
 PaintPlanServiceDependency = Annotated[
     PaintPlanService,
     Depends(get_paint_plan_service),
+]
+
+
+def get_arcana_service(session: DatabaseSessionDependency) -> ArcanaService:
+    """Build the owner-scoped, network-incapable Arcana service."""
+    return ArcanaService(session)
+
+
+ArcanaServiceDependency = Annotated[
+    ArcanaService,
+    Depends(get_arcana_service),
 ]

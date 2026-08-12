@@ -78,7 +78,7 @@ def test_phase3b_models_are_registered_as_one_exact_additive_slice() -> None:
         PaintPlanReviewEvent,
     )
 
-    assert REGISTERED_MODELS[-5:] == expected
+    assert REGISTERED_MODELS[39:44] == expected
     assert {model.__table__.name for model in expected} == {
         "provider_pricing_snapshots",
         "prompt_template_definitions",

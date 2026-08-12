@@ -32,7 +32,7 @@ def _target_block(makefile: str, name: str) -> str:
 
 def test_phase3b_makefile_head_and_environment_denylists_are_fail_closed() -> None:
     makefile = MAKEFILE.read_text(encoding="utf-8")
-    assert "ALEMBIC_HEAD := 3b01a1c2d3e4" in makefile
+    assert "ALEMBIC_HEAD := 4c01a2b3c4d5" in makefile
 
     for assignment in (
         "INTEGRATION_DATABASE_ENV",

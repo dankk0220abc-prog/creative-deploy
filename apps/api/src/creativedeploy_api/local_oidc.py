@@ -146,7 +146,7 @@ def create_local_oidc_app(
     lock = asyncio.Lock()
 
     app = FastAPI(
-        title="PaintPilot Local OIDC Provider",
+        title="CreativeDeploy Local OIDC Provider",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -233,8 +233,8 @@ def create_local_oidc_app(
         page = (
             '<!doctype html><html><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
-            "<title>PaintPilot local sign in</title></head><body>"
-            "<main><h1>PaintPilot local sign in</h1>"
+            "<title>CreativeDeploy local sign in</title></head><body>"
+            "<main><h1>CreativeDeploy local sign in</h1>"
             "<p>Synthetic development/test users only.</p>"
             '<form method="post" action="/authorize">'
             f'<input type="hidden" name="request_id" value="{html.escape(request_id)}">'

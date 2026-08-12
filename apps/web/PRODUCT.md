@@ -35,3 +35,9 @@ The owner flow selects a server-returned Provider, compatible model, and saved c
 OpenAI may appear as an honest registered choice, but its execution mode is “live authorization required.” This web slice must not enable its generation control, claim it is validated, accept a temporary key, or translate unavailable usage or cost into zero. Provider, model, source, prompt, schema, invocation, and content identifiers are available in collapsed technical details rather than dominating the workbench.
 
 The Phase 3B route is hidden unless `VITE_PHASE3B_PAINT_PLAN_ENABLED=true`; the API retains an independent fail-closed gate. The responsive contract is bilingual `en-US`/`zh-CN`, touch-safe at 390px, long-value safe, and visually continuous with the graphite, copper, teal, and warm off-white PaintPilot system. It adds no marketing composition, gradients, provider logos, decorative motion, or verified repaint claim.
+
+## Arcana core proof slice
+
+Arcana is CreativeDeploy's second product space: a private, editorial Tarot reading table rather than a horoscope app or social feed. Its first complete loop uses one original-data 78-card reference deck and one Past / Present / Future spread. A user saves one immutable three-card draw, receives a deterministic local structured Fixture interpretation, writes a separate personal interpretation and private notes, reopens history, and prepares a local-only share preview.
+
+Arcana shares CreativeDeploy account/session, locale, CSRF, SQLAlchemy/Alembic, and Provider provenance conventions without inheriting PaintPilot's image and Region assumptions. Its visual world uses smoke-green ink, mineral red paper, bone text, restrained rules, and original CSS geometry. It uses no commercial deck artwork, gradients, glow, network inference, API key, public sharing, or external cost. Desktop and 390px are equal acceptance targets; final visual acceptance remains user-owned.

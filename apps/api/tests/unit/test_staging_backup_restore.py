@@ -33,8 +33,8 @@ class RevisionConnection:
         return RevisionResult(self.revision)
 
 
-def test_current_phase3b_revision_is_accepted() -> None:
-    connection = RevisionConnection("3b01a1c2d3e4")
+def test_current_arcana_revision_is_accepted() -> None:
+    connection = RevisionConnection("4c01a2b3c4d5")
 
     assert operations._alembic_revision(connection) == operations.EXPECTED_ALEMBIC_REVISION  # type: ignore[arg-type]
 
