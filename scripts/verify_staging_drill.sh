@@ -510,7 +510,7 @@ root=Path(sys.argv[1])
 manifest=json.loads((root/"manifest.json").read_text(encoding="utf-8"))
 assert manifest["format"] == "creativedeploy-staging-backup-v1"
 assert manifest["manifest_version"] == 1
-assert manifest["alembic_revision"] == "3b01a1c2d3e4"
+assert manifest["alembic_revision"] == "4c01a2b3c4d5"
 assert manifest["backup_id"] == sys.argv[2]
 assert manifest["object_count"] == 3
 assert len(manifest["objects"]) == 3

@@ -39,7 +39,7 @@ from creativedeploy_api.core.secret_files import SecretFileError, read_secret_fi
 from creativedeploy_api.storage.images import STORAGE_KEY_PATTERN
 
 BACKUP_FORMAT = "creativedeploy-staging-backup-v1"
-EXPECTED_ALEMBIC_REVISION = "3b01a1c2d3e4"
+EXPECTED_ALEMBIC_REVISION = "4c01a2b3c4d5"
 MANIFEST_VERSION = 1
 MANIFEST_SIGNATURE_FORMAT = "creativedeploy-manifest-signature-v1"
 MANIFEST_SIGNATURE_ALGORITHM = "HMAC-SHA-256"
