@@ -20,6 +20,11 @@ import { RegionWorkspacePage } from "../pages/RegionWorkspacePage";
 import { AIProjectPolicyPage } from "../pages/AIProjectPolicyPage";
 import { AISettingsPage } from "../pages/AISettingsPage";
 import { PaintPlanWorkspacePage } from "../pages/PaintPlanWorkspacePage";
+import { ArcanaHistoryPage } from "../pages/ArcanaHistoryPage";
+import { ArcanaPage } from "../pages/ArcanaPage";
+import { ArcanaReadingPage } from "../pages/ArcanaReadingPage";
+import { ArcanaSharePage } from "../pages/ArcanaSharePage";
+import { ProductChooserPage } from "../pages/ProductChooserPage";
 
 const appRoutes = {
   createProject: "/paintpilot/projects/new",
@@ -57,7 +62,7 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route element={<AppShell />}>
-        <Route index element={<Navigate replace to={appRoutes.projects} />} />
+        <Route index element={<ProductChooserPage />} />
         <Route
           element={<Navigate replace to={appRoutes.projects} />}
           path="paintpilot"
@@ -65,6 +70,10 @@ export function AppRoutes() {
         <Route element={<LoginPage />} path="paintpilot/login" />
         <Route element={<RequireAuthentication />}>
           <Route element={<ProjectsPage />} path="paintpilot/projects" />
+          <Route element={<ArcanaPage />} path="arcana" />
+          <Route element={<ArcanaHistoryPage />} path="arcana/journal" />
+          <Route element={<ArcanaReadingPage />} path="arcana/readings/:readingId" />
+          <Route element={<ArcanaSharePage />} path="arcana/readings/:readingId/share" />
           <Route element={<CreateProjectPage />} path="paintpilot/projects/new" />
           <Route
             element={<ProjectDetailPage />}

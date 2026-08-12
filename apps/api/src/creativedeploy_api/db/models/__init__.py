@@ -30,6 +30,14 @@ from creativedeploy_api.db.models.ai_foundation import (
     UserBudgetPolicy,
     UserProviderPreference,
 )
+from creativedeploy_api.db.models.arcana import (
+    TarotCardDefinition,
+    TarotInterpretationRevision,
+    TarotJournalEntry,
+    TarotReading,
+    TarotReadingCard,
+    TarotSpreadDefinition,
+)
 from creativedeploy_api.db.models.command_idempotency_record import (
     CommandIdempotencyRecord,
 )
@@ -105,6 +113,12 @@ REGISTERED_MODELS: Final[tuple[type[Base], ...]] = (
     PaintPlan,
     PaintPlanRegionInstruction,
     PaintPlanReviewEvent,
+    TarotCardDefinition,
+    TarotSpreadDefinition,
+    TarotReading,
+    TarotReadingCard,
+    TarotInterpretationRevision,
+    TarotJournalEntry,
 )
 
 __all__ = [
@@ -149,6 +163,12 @@ __all__ = [
     "RegionSetReview",
     "RegionVertex",
     "StateTransitionEvent",
+    "TarotCardDefinition",
+    "TarotInterpretationRevision",
+    "TarotJournalEntry",
+    "TarotReading",
+    "TarotReadingCard",
+    "TarotSpreadDefinition",
     "UserAccount",
     "UserBudgetCounter",
     "UserBudgetPolicy",

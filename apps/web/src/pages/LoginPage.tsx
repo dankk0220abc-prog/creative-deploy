@@ -13,9 +13,10 @@ export function LoginPage() {
   const returnTo = query.get("return_to");
   const authError = query.get("auth_error");
   const safeReturn =
-    returnTo?.startsWith("/paintpilot") === true
+    returnTo?.startsWith("/paintpilot") === true || returnTo?.startsWith("/arcana") === true
       ? returnTo
       : "/paintpilot/projects";
+  const isArcanaLogin = safeReturn.startsWith("/arcana");
   const retryLogin = () => {
     window.location.assign(loginUrl(safeReturn));
   };
@@ -71,9 +72,10 @@ export function LoginPage() {
   }
 
   return (
-    <div className="page page--login">
+    <div className={`page page--login${isArcanaLogin ? " page--arcana-login" : ""}`}>
       <div className="login-layout">
       <section className="workspace-hero workspace-hero--login" aria-labelledby="login-title">
+        {isArcanaLogin ? <span aria-hidden="true" className="arcana-login__orbit" /> : null}
         <div className="workspace-hero__copy">
           <p className="context-label">{t("login.governedAccess")}</p>
           <h1 id="login-title">

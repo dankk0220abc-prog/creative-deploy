@@ -71,14 +71,25 @@ describe("PaintPilot route tree", () => {
     vi.unstubAllGlobals();
   });
 
-  it.each(["/", "/paintpilot"])(
-    "redirects %s to the Projects workspace",
-    async (entry) => {
+  it("renders the CreativeDeploy product chooser at the root", () => {
+    renderRoute("/");
+
+    expect(
+      screen.getByRole("heading", { name: "Choose your working space", level: 1 }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Arcana/ })).toBeInTheDocument();
+    expect(document.title).toBe("Product Spaces — CreativeDeploy");
+    expect(fetchMock()).not.toHaveBeenCalled();
+  });
+
+  it(
+    "redirects /paintpilot to the Projects workspace",
+    async () => {
       fetchMock().mockResolvedValue(
         jsonResponse({ items: [], total: 0, limit: 20, offset: 0 }),
       );
 
-      renderRoute(entry);
+      renderRoute("/paintpilot");
 
       expect(
         await screen.findByRole("heading", { name: "Paint projects", level: 1 }),
@@ -134,7 +145,7 @@ describe("PaintPilot route tree", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: "PaintPilot could not reach the identity provider",
+        name: "CreativeDeploy could not reach the identity provider",
         level: 1,
       }),
     ).toBeInTheDocument();

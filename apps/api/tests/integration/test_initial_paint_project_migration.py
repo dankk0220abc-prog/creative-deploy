@@ -123,7 +123,17 @@ PHASE_3B_BUSINESS_TABLES = {
     "prompt_template_definitions",
     "provider_pricing_snapshots",
 }
-CURRENT_BUSINESS_TABLES = PHASE_3A_BUSINESS_TABLES | PHASE_3B_BUSINESS_TABLES
+ARCANA_BUSINESS_TABLES = {
+    "tarot_card_definitions",
+    "tarot_interpretation_revisions",
+    "tarot_journal_entries",
+    "tarot_reading_cards",
+    "tarot_readings",
+    "tarot_spread_definitions",
+}
+CURRENT_BUSINESS_TABLES = (
+    PHASE_3A_BUSINESS_TABLES | PHASE_3B_BUSINESS_TABLES | ARCANA_BUSINESS_TABLES
+)
 EXPECTED_COLUMNS = {
     "user_accounts": (
         "id",
@@ -2914,8 +2924,11 @@ def test_initial_paint_project_migration_round_trip_and_constraints(
 
     assert len(PHASE_3A_BUSINESS_TABLES) == 39
     assert len(PHASE_3B_BUSINESS_TABLES) == 5
-    assert CURRENT_BUSINESS_TABLES - PHASE_3A_BUSINESS_TABLES == PHASE_3B_BUSINESS_TABLES
-    assert len(CURRENT_BUSINESS_TABLES) == 44
+    assert len(ARCANA_BUSINESS_TABLES) == 6
+    assert CURRENT_BUSINESS_TABLES - PHASE_3A_BUSINESS_TABLES == (
+        PHASE_3B_BUSINESS_TABLES | ARCANA_BUSINESS_TABLES
+    )
+    assert len(CURRENT_BUSINESS_TABLES) == 50
 
     _run_alembic(temporary_database_url, "upgrade", "3a04fab2e7a5")
     with psycopg.connect(
@@ -2935,7 +2948,7 @@ def test_initial_paint_project_migration_round_trip_and_constraints(
 
     _run_alembic(temporary_database_url, "upgrade", "head")
     current_result = _run_alembic(temporary_database_url, "current")
-    assert "3b01a1c2d3e4 (head)" in current_result.stdout
+    assert "4c01a2b3c4d5 (head)" in current_result.stdout
     check_result = _run_alembic(temporary_database_url, "check")
     assert "No new upgrade operations detected." in check_result.stdout
 
@@ -2978,6 +2991,8 @@ def test_initial_paint_project_migration_round_trip_and_constraints(
             "model_capabilities": 8,
             "provider_pricing_snapshots": 1,
             "prompt_template_definitions": 1,
+            "tarot_card_definitions": 78,
+            "tarot_spread_definitions": 1,
         }
         for table in CURRENT_BUSINESS_TABLES:
             query = sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(table))
@@ -3009,7 +3024,7 @@ def test_phase3a_downgrade_refuses_governed_facts_without_deleting_them(
         _run_alembic(temporary_database_url, "downgrade", "7f3a2b9c4d1e")
 
     current_result = _run_alembic(temporary_database_url, "current")
-    assert "3b01a1c2d3e4 (head)" in current_result.stdout
+    assert "4c01a2b3c4d5 (head)" in current_result.stdout
     with psycopg.connect(
         **_connection_kwargs(temporary_database_url, temporary_database_name)
     ) as connection:
@@ -5453,7 +5468,7 @@ def test_phase3a_fixture_seed_downgrade_refuses_references_then_deletes_exact_se
 
     with pytest.raises(AssertionError, match="fixture Registry identities are referenced"):
         _run_alembic(temporary_database_url, "downgrade", "3a03e9a1d6f4")
-    assert "3b01a1c2d3e4 (head)" in _run_alembic(temporary_database_url, "current").stdout
+    assert "4c01a2b3c4d5 (head)" in _run_alembic(temporary_database_url, "current").stdout
     with (
         psycopg.connect(
             **_connection_kwargs(temporary_database_url, temporary_database_name)
@@ -5581,7 +5596,7 @@ def test_phase3a_fixture_seed_downgrade_refuses_non_seed_model_before_delete(
     ) as downgrade_error:
         _run_alembic(temporary_database_url, "downgrade", "3a03e9a1d6f4")
     assert "ForeignKeyViolation" not in str(downgrade_error.value)
-    assert "3b01a1c2d3e4 (head)" in _run_alembic(temporary_database_url, "current").stdout
+    assert "4c01a2b3c4d5 (head)" in _run_alembic(temporary_database_url, "current").stdout
     with psycopg.connect(
         **_connection_kwargs(temporary_database_url, temporary_database_name)
     ) as connection:

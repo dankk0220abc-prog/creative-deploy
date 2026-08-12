@@ -224,7 +224,7 @@ def _set_project_status_for_contract_test(
         updated = connection.execute(
             """
             UPDATE paint_projects
-            SET status = %s, updated_at = now()
+            SET status = %s, updated_at = GREATEST(now(), created_at)
             WHERE id = %s
             RETURNING id
             """,

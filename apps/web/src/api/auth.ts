@@ -129,7 +129,7 @@ export async function logout(): Promise<void> {
 }
 
 export function loginUrl(returnTo: string): string {
-  const safeReturn = returnTo.startsWith("/paintpilot")
+  const safeReturn = returnTo.startsWith("/paintpilot") || returnTo.startsWith("/arcana")
     ? returnTo
     : "/paintpilot/projects";
   return `/api/v1/auth/login?${new URLSearchParams({ return_to: safeReturn })}`;

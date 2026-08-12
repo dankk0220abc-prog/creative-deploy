@@ -17,6 +17,7 @@ import { LocaleSwitcher } from "./LocaleSwitcher";
 const PROJECTS_PATH = "/paintpilot/projects";
 const CREATE_PROJECT_PATH = "/paintpilot/projects/new";
 const AI_SETTINGS_PATH = "/paintpilot/settings/ai";
+const ARCANA_PATH = "/arcana";
 const isArtifactSmoke = import.meta.env.VITE_RUNTIME_PROFILE === "artifact-smoke";
 const isPublicDemo = import.meta.env.VITE_RUNTIME_PROFILE === "public-demo";
 
@@ -69,6 +70,20 @@ function isPaintPlanWorkspacePath(pathname: string): boolean {
 
 function titleKeyForPath(pathname: string): string {
   const normalizedPathname = normalizePathname(pathname);
+  if (normalizedPathname === "/") {
+    return "title.products";
+  }
+  if (normalizedPathname === ARCANA_PATH) {
+    return "title.arcana";
+  }
+  if (normalizedPathname === `${ARCANA_PATH}/journal`) {
+    return "title.arcanaJournal";
+  }
+  if (normalizedPathname.startsWith(`${ARCANA_PATH}/readings/`)) {
+    return normalizedPathname.endsWith("/share")
+      ? "title.arcanaShare"
+      : "title.arcanaReading";
+  }
   if (normalizedPathname === PROJECTS_PATH) {
     return "title.projects";
   }
@@ -130,6 +145,16 @@ export function AppShell() {
   const previousRouteRef = useRef<string | null>(null);
   const [paginationFocusToken, setPaginationFocusToken] = useState(0);
   const normalizedPathname = normalizePathname(location.pathname);
+  const requestedReturnTo = new URLSearchParams(location.search).get("return_to");
+  const isArcana =
+    normalizedPathname.startsWith(ARCANA_PATH) ||
+    (normalizedPathname === "/paintpilot/login" &&
+      requestedReturnTo?.startsWith(ARCANA_PATH) === true);
+  const isProductChooser = normalizedPathname === "/";
+  const arcanaStartIsCurrent = normalizedPathname === ARCANA_PATH;
+  const arcanaJournalIsCurrent =
+    normalizedPathname === `${ARCANA_PATH}/journal` ||
+    normalizedPathname.startsWith(`${ARCANA_PATH}/readings/`);
   const projectsIsCurrent =
     normalizedPathname === PROJECTS_PATH ||
     isProjectDetailPath(normalizedPathname) ||
@@ -187,28 +212,50 @@ export function AppShell() {
         <div className="platform-header__inner">
           <Link
             aria-label={t("shell.brandLabel")}
-            className="brand-lockup"
-            to={PROJECTS_PATH}
+            className={`brand-lockup${isArcana ? " brand-lockup--arcana" : ""}`}
+            to="/"
           >
             <span className="brand-lockup__platform">CreativeDeploy</span>
             <span aria-hidden="true" className="brand-lockup__divider" />
             <span className="brand-lockup__product">
               <span aria-hidden="true" className="brand-lockup__mark">
-                P
+                {isArcana ? "A" : isProductChooser ? "CD" : "P"}
               </span>
-              PaintPilot
+              {isArcana ? "Arcana" : isProductChooser ? t("products.spaces") : "PaintPilot"}
             </span>
           </Link>
 
-          <nav aria-label={t("shell.navigationLabel")} className="shell-nav">
-            <Link
-              aria-current={projectsIsCurrent ? "page" : undefined}
-              className={navigationClassName(projectsIsCurrent)}
-              to={PROJECTS_PATH}
-            >
-              {t("shell.projects")}
-            </Link>
-            {!isPublicDemo ? (
+          <nav
+            aria-label={t(isArcana ? "arcana.navigationLabel" : "shell.navigationLabel")}
+            className="shell-nav"
+          >
+            {isArcana ? (
+              <>
+                <Link
+                  aria-current={arcanaStartIsCurrent ? "page" : undefined}
+                  className={navigationClassName(arcanaStartIsCurrent)}
+                  to={ARCANA_PATH}
+                >
+                  {t("arcana.nav.start")}
+                </Link>
+                <Link
+                  aria-current={arcanaJournalIsCurrent ? "page" : undefined}
+                  className={navigationClassName(arcanaJournalIsCurrent)}
+                  to={`${ARCANA_PATH}/journal`}
+                >
+                  {t("arcana.nav.journal")}
+                </Link>
+              </>
+            ) : !isProductChooser ? (
+              <>
+                <Link
+                  aria-current={projectsIsCurrent ? "page" : undefined}
+                  className={navigationClassName(projectsIsCurrent)}
+                  to={PROJECTS_PATH}
+                >
+                  {t("shell.projects")}
+                </Link>
+                {!isPublicDemo ? (
               <Link
                 aria-current={createProjectIsCurrent ? "page" : undefined}
                 className={navigationClassName(createProjectIsCurrent)}
@@ -216,8 +263,8 @@ export function AppShell() {
               >
                 {t("shell.createProject")}
               </Link>
-            ) : null}
-            {phase3aFixtureEnabled && authState.status === "authenticated" ? (
+                ) : null}
+                {phase3aFixtureEnabled && authState.status === "authenticated" ? (
               <Link
                 aria-current={aiSettingsIsCurrent ? "page" : undefined}
                 className={navigationClassName(aiSettingsIsCurrent)}
@@ -225,6 +272,8 @@ export function AppShell() {
               >
                 {t("shell.aiSettings")}
               </Link>
+                ) : null}
+              </>
             ) : null}
             {authState.status === "authenticated" ? (
               <>

@@ -20,12 +20,30 @@ from creativedeploy_api.auth.oidc import (
     sha256_text,
 )
 from creativedeploy_api.core.config import Settings
+from creativedeploy_api.services.identity import validated_return_to
 
 ISSUER = "https://identity.example.test"
 CLIENT_ID = "paintpilot-test-client"
 CLIENT_SECRET = "synthetic-unit-secret"
 REDIRECT_URI = "https://paintpilot.example.test/api/v1/auth/callback"
 KID = "unit-signing-key"
+
+
+@pytest.mark.parametrize(
+    ("candidate", "expected"),
+    [
+        ("/paintpilot/projects", "/paintpilot/projects"),
+        ("/arcana", "/arcana"),
+        ("/arcana/readings/reading-id", "/arcana/readings/reading-id"),
+        ("//arcana.example.test", "/paintpilot/projects"),
+        ("/unknown", "/paintpilot/projects"),
+    ],
+)
+def test_return_to_allows_only_supported_same_origin_product_routes(
+    candidate: str,
+    expected: str,
+) -> None:
+    assert validated_return_to(candidate) == expected
 
 
 def _jwk(private_key: rsa.RSAPrivateKey, *, kid: str = KID) -> dict[str, Any]:

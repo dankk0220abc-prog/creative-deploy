@@ -59,6 +59,12 @@ from creativedeploy_api.db.models import (
     RegionSetReview,
     RegionVertex,
     StateTransitionEvent,
+    TarotCardDefinition,
+    TarotInterpretationRevision,
+    TarotJournalEntry,
+    TarotReading,
+    TarotReadingCard,
+    TarotSpreadDefinition,
     UserAccount,
     UserBudgetCounter,
     UserBudgetPolicy,
@@ -131,6 +137,16 @@ EXPECTED_PHASE_3B_MODELS = frozenset(
         PaintPlan,
         PaintPlanRegionInstruction,
         PaintPlanReviewEvent,
+    }
+)
+EXPECTED_ARCANA_MODELS = frozenset(
+    {
+        TarotCardDefinition,
+        TarotSpreadDefinition,
+        TarotReading,
+        TarotReadingCard,
+        TarotInterpretationRevision,
+        TarotJournalEntry,
     }
 )
 
@@ -371,6 +387,16 @@ EXPECTED_PHASE_3B_TABLES = frozenset(
         "paint_plans",
         "paint_plan_region_instructions",
         "paint_plan_review_events",
+    }
+)
+EXPECTED_ARCANA_TABLES = frozenset(
+    {
+        "tarot_card_definitions",
+        "tarot_spread_definitions",
+        "tarot_readings",
+        "tarot_reading_cards",
+        "tarot_interpretation_revisions",
+        "tarot_journal_entries",
     }
 )
 EXPECTED_PHASE_3A_CHECK_CONSTRAINT_NAMES = frozenset(
@@ -644,14 +670,56 @@ EXPECTED_PHASE_3B_INDEX_NAMES = frozenset(
         "uq_paint_plans_one_current_per_project",
     }
 )
-EXPECTED_TABLES = EXPECTED_PHASE_1F_TABLES | EXPECTED_PHASE_3A_TABLES | EXPECTED_PHASE_3B_TABLES
+EXPECTED_ARCANA_CONSTRAINT_NAMES = frozenset(
+    {
+        "ck_tarot_card_definitions_arcana_allowed",
+        "ck_tarot_card_definitions_knowledge_present",
+        "ck_tarot_interpretation_revisions_source_allowed",
+        "ck_tarot_reading_cards_orientation_allowed",
+        "ck_tarot_reading_cards_three_positions",
+        "ck_tarot_readings_locale_allowed",
+        "ck_tarot_readings_question_length",
+        "ck_tarot_readings_status_allowed",
+        "fk_tarot_interpretation_revisions_reading_id_tarot_readings",
+        "fk_tarot_journal_entries_reading_id_tarot_readings",
+        "fk_tarot_reading_cards_card_definition",
+        "fk_tarot_reading_cards_reading_id_tarot_readings",
+        "pk_tarot_card_definitions",
+        "pk_tarot_interpretation_revisions",
+        "pk_tarot_journal_entries",
+        "pk_tarot_reading_cards",
+        "pk_tarot_readings",
+        "pk_tarot_spread_definitions",
+        "uq_tarot_interpretation_revisions_reading_revision",
+        "uq_tarot_journal_entries_reading",
+        "uq_tarot_reading_cards_reading_card",
+        "uq_tarot_reading_cards_reading_position",
+        "uq_tarot_spread_definitions_key_version",
+    }
+)
+EXPECTED_ARCANA_INDEX_NAMES = frozenset(
+    {
+        "ix_tarot_interpretation_revisions_reading",
+        "ix_tarot_readings_owner_created",
+    }
+)
+EXPECTED_TABLES = (
+    EXPECTED_PHASE_1F_TABLES
+    | EXPECTED_PHASE_3A_TABLES
+    | EXPECTED_PHASE_3B_TABLES
+    | EXPECTED_ARCANA_TABLES
+)
 EXPECTED_CONSTRAINT_NAMES = (
     EXPECTED_PHASE_1F_CONSTRAINT_NAMES
     | EXPECTED_PHASE_3A_CONSTRAINT_NAMES
     | EXPECTED_PHASE_3B_CONSTRAINT_NAMES
+    | EXPECTED_ARCANA_CONSTRAINT_NAMES
 )
 EXPECTED_INDEX_NAMES = (
-    EXPECTED_PHASE_1F_INDEX_NAMES | EXPECTED_PHASE_3A_INDEX_NAMES | EXPECTED_PHASE_3B_INDEX_NAMES
+    EXPECTED_PHASE_1F_INDEX_NAMES
+    | EXPECTED_PHASE_3A_INDEX_NAMES
+    | EXPECTED_PHASE_3B_INDEX_NAMES
+    | EXPECTED_ARCANA_INDEX_NAMES
 )
 EXPECTED_DATABASE_IDENTIFIERS = EXPECTED_TABLES | EXPECTED_CONSTRAINT_NAMES | EXPECTED_INDEX_NAMES
 EXPECTED_CHECK_CONSTRAINTS_BY_TABLE = MappingProxyType(
@@ -950,6 +1018,30 @@ EXPECTED_CHECK_CONSTRAINTS_BY_TABLE = MappingProxyType(
                 "ck_state_transition_events_user_display_name_required",
             }
         ),
+        "tarot_card_definitions": frozenset(
+            {
+                "ck_tarot_card_definitions_arcana_allowed",
+                "ck_tarot_card_definitions_knowledge_present",
+            }
+        ),
+        "tarot_interpretation_revisions": frozenset(
+            {"ck_tarot_interpretation_revisions_source_allowed"}
+        ),
+        "tarot_journal_entries": frozenset(),
+        "tarot_reading_cards": frozenset(
+            {
+                "ck_tarot_reading_cards_orientation_allowed",
+                "ck_tarot_reading_cards_three_positions",
+            }
+        ),
+        "tarot_readings": frozenset(
+            {
+                "ck_tarot_readings_locale_allowed",
+                "ck_tarot_readings_question_length",
+                "ck_tarot_readings_status_allowed",
+            }
+        ),
+        "tarot_spread_definitions": frozenset(),
         "user_accounts": frozenset(
             {
                 "ck_user_accounts_display_name_normalized",
@@ -1054,6 +1146,7 @@ MIGRATION_PATHS = (
     / "versions"
     / "2b1c4d5e6f70_add_governed_identity_and_private_storage.py",
     API_ROOT / "migrations" / "versions" / "3b01a1c2d3e4_add_phase3b_paint_plan_foundation.py",
+    API_ROOT / "migrations" / "versions" / "4c01a2b3c4d5_add_arcana_core_proof_slice.py",
 )
 PHASE_3A_MIGRATION_PATHS = (
     API_ROOT / "migrations" / "versions" / "3a01c7e9b4d2_add_phase3a_registries.py",
@@ -1364,13 +1457,17 @@ def _check_sql_by_name(tables: Iterable[Table]) -> dict[str, str]:
     }
 
 
-def test_registered_models_and_metadata_contain_exact_phase_1f_phase3a_and_phase3b_sets() -> None:
+def test_registered_models_and_metadata_contain_exact_additive_sets() -> None:
     registered_phase_1f = set(REGISTERED_MODELS[:14])
     registered_phase_3a = set(REGISTERED_MODELS[14:39])
-    registered_phase_3b = set(REGISTERED_MODELS[39:])
+    registered_phase_3b = set(REGISTERED_MODELS[39:44])
+    registered_arcana = set(REGISTERED_MODELS[44:])
     registered_complete = set(REGISTERED_MODELS)
     expected_complete = (
-        EXPECTED_PHASE_1F_MODELS | EXPECTED_PHASE_3A_MODELS | EXPECTED_PHASE_3B_MODELS
+        EXPECTED_PHASE_1F_MODELS
+        | EXPECTED_PHASE_3A_MODELS
+        | EXPECTED_PHASE_3B_MODELS
+        | EXPECTED_ARCANA_MODELS
     )
 
     assert not EXPECTED_PHASE_1F_MODELS - registered_phase_1f
@@ -1379,12 +1476,17 @@ def test_registered_models_and_metadata_contain_exact_phase_1f_phase3a_and_phase
     assert not registered_phase_3a - EXPECTED_PHASE_3A_MODELS
     assert not EXPECTED_PHASE_3B_MODELS - registered_phase_3b
     assert not registered_phase_3b - EXPECTED_PHASE_3B_MODELS
+    assert not EXPECTED_ARCANA_MODELS - registered_arcana
+    assert not registered_arcana - EXPECTED_ARCANA_MODELS
     assert not expected_complete - registered_complete
     assert not registered_complete - expected_complete
     assert not EXPECTED_PHASE_1F_MODELS & EXPECTED_PHASE_3A_MODELS
     assert not EXPECTED_PHASE_1F_MODELS & EXPECTED_PHASE_3B_MODELS
     assert not EXPECTED_PHASE_3A_MODELS & EXPECTED_PHASE_3B_MODELS
-    assert len(REGISTERED_MODELS) == 44
+    assert not EXPECTED_ARCANA_MODELS & (
+        EXPECTED_PHASE_1F_MODELS | EXPECTED_PHASE_3A_MODELS | EXPECTED_PHASE_3B_MODELS
+    )
+    assert len(REGISTERED_MODELS) == 50
     assert set(Base.metadata.tables) == EXPECTED_TABLES
     assert {model.__table__.name for model in REGISTERED_MODELS} == EXPECTED_TABLES
     assert not {
@@ -1441,7 +1543,7 @@ def test_all_database_identifiers_fit_postgresql_limit() -> None:
     identifiers = _metadata_identifiers()
 
     assert identifiers == EXPECTED_DATABASE_IDENTIFIERS
-    assert len(identifiers) == 470
+    assert len(identifiers) == 501
     assert all(
         len(identifier.encode("utf-8")) <= POSTGRESQL_IDENTIFIER_LIMIT for identifier in identifiers
     )
@@ -2009,7 +2111,7 @@ def fail(*args, **kwargs):
 
 sqlalchemy.ext.asyncio.create_async_engine = fail
 from creativedeploy_api.db.models import REGISTERED_MODELS
-assert len(REGISTERED_MODELS) == 44
+assert len(REGISTERED_MODELS) == 50
 """
     result = subprocess.run(
         [sys.executable, "-c", source],
