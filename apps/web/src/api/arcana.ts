@@ -44,9 +44,30 @@ export interface TarotPositionInterpretation {
   contribution: string;
 }
 
+export interface TarotRetrievedContext {
+  source_id: string;
+  source_title: string;
+  source_type: string;
+  repository_reference: string;
+  chunk_id: string;
+  section: string;
+  content: string;
+  retrieval_rationale: string;
+  retrieval_score_ppm: number | null;
+  locale: ArcanaLocale;
+  corpus_id: string;
+  corpus_version: string;
+}
+
+export interface TarotCitation {
+  source_id: string;
+  chunk_id: string;
+  target_path: string;
+}
+
 export interface TarotInterpretation {
   revision: number;
-  source: "fixture_local" | "user_edit";
+  source: "fixture_local" | "zhipu_live" | "user_edit";
   provider_key: string;
   model_id: string;
   adapter_version: string;
@@ -75,6 +96,8 @@ export interface TarotInterpretation {
     }>;
     uncertainty: string;
   };
+  retrieved_context: TarotRetrievedContext[];
+  citations: TarotCitation[];
   created_at: string;
 }
 

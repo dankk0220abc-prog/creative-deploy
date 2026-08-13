@@ -1,10 +1,12 @@
 """Strict Arcana request, response, and structured interpretation contracts."""
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
+
+from creativedeploy_api.ai.retrieval import RetrievedCitation, RetrievedContextUnit
 
 
 class StrictModel(BaseModel):
@@ -14,6 +16,10 @@ class StrictModel(BaseModel):
 Locale = Literal["zh-CN", "en-US"]
 Orientation = Literal["upright", "reversed"]
 ReadingStatus = Literal["draft", "drawn", "interpreted", "saved"]
+RequestUUID = Annotated[
+    UUID,
+    BeforeValidator(lambda value: UUID(value) if isinstance(value, str) else value),
+]
 
 
 def _clean(value: str) -> str:
@@ -75,6 +81,13 @@ class TarotReadingCreate(StrictModel):
         return _clean(value)
 
 
+class TarotLiveInterpretRequest(StrictModel):
+    provider_definition_id: RequestUUID
+    model_definition_id: RequestUUID
+    credential_id: RequestUUID
+    confirm_paid_live_call: Literal[True]
+
+
 class TarotReadingCardRead(StrictModel):
     card: TarotCardRead
     position_index: Annotated[int, Field(ge=0, le=2)]
@@ -128,15 +141,44 @@ class TarotInterpretationDocument(StrictModel):
     uncertainty: Annotated[str, Field(min_length=1, max_length=500)]
 
 
+ARCANA_LIVE_OUTPUT_CONTRACT: Final = (
+    "Required top-level JSON contract; every field is required, null is forbidden, and extra "
+    "keys are forbidden at every object level:\n"
+    "- schema_version: string literal 'tarot-reading.v2'.\n"
+    "- generation_locale: string equal to the input locale ('zh-CN' or 'en-US').\n"
+    "- question_restatement: string, 1..700 characters.\n"
+    "- summary: string, 1..1200 characters.\n"
+    "- positions: array<object>, exactly 3 items; each object requires only position_key "
+    "('past'|'present'|'future'), card_id (string), orientation ('upright'|'reversed'), "
+    "headline (string, 1..160), and contribution (string, 1..800).\n"
+    "- synthesis: string, 1..1600 characters.\n"
+    "- relationship_analysis: array<object>, 3..4 items; each object requires only kind "
+    "('relationship'|'trend'|'tension'|'turning_point'), headline (string, 1..120), and "
+    "content (string, 1..600).\n"
+    "- actionable_reflections: array<string>, 1..3 items; each item is a string of 1..400 "
+    "characters, never an object.\n"
+    "- reflection_prompts: array<string>, 2..4 items; each item is a string of 1..400 "
+    "characters, never an object.\n"
+    "- knowledge_basis: array<object>, exactly 3 items; each object requires only card_id, "
+    "knowledge_id, source_id, source_title (all strings), and retrieval_mode (string literal "
+    "'repository_local_only').\n"
+    "- uncertainty: string, 1..500 characters."
+)
+
+
 class TarotInterpretationRead(StrictModel):
     revision: int
-    source: Literal["fixture_local", "user_edit"]
+    source: Literal["fixture_local", "zhipu_live", "user_edit"]
     provider_key: str
     model_id: str
     adapter_version: str
     prompt_version: int
     input_hash: str
     document: TarotInterpretationDocument
+    retrieved_context: list[RetrievedContextUnit] = Field(default_factory=list)
+    citations: list[RetrievedCitation] = Field(default_factory=list)
+    source_invocation_id: UUID | None = None
+    source_attempt_id: UUID | None = None
     created_at: datetime
 
 

@@ -221,6 +221,7 @@ class Settings(BaseSettings):
     paintpilot_demo_seed_email: str | None = None
     phase3a_fixture_enabled: bool = False
     phase3b_paint_plan_enabled: bool = False
+    zhipu_live_enabled: bool = False
     credential_fixture_root_key_file: Path | None = None
     staging_run_id: str | None = None
 
@@ -395,6 +396,14 @@ class Settings(BaseSettings):
             if self.app_env not in {"development", "test"} or self.staging_run_id is not None:
                 raise ValueError(
                     "Phase 3B Paint Plan mode is permitted only in non-staging development/test."
+                )
+        if self.zhipu_live_enabled:
+            if not self.phase3a_fixture_enabled:
+                raise ValueError("ZHIPU_LIVE_ENABLED requires the encrypted credential foundation.")
+            if self.app_env not in {"development", "test"} or self.staging_run_id is not None:
+                raise ValueError(
+                    "Zhipu live validation is permitted only in an explicit local "
+                    "development/test run."
                 )
         return self
 

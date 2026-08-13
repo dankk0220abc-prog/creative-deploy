@@ -350,6 +350,28 @@ function PlanDocumentView({ plan }: { plan: PaintPlan }) {
           <p>{t("paintPlan.noSafetyNotes")}</p>
         )}
       </section>
+
+      {plan.document.knowledge_citations.length > 0 ? (
+        <details className="paint-plan-technical paint-plan-citations">
+          <summary>{t("paintPlan.citations")}</summary>
+          <p>{t("paintPlan.citationsCopy")}</p>
+          <ul>
+            {plan.document.knowledge_citations.map((citation) => {
+              const source = plan.retrieved_context.find(
+                (item) =>
+                  item.source_id === citation.source_id &&
+                  item.chunk_id === citation.chunk_id,
+              );
+              return (
+                <li key={`${citation.source_id}:${citation.chunk_id}:${citation.target_path}`}>
+                  <strong>{source?.source_title ?? citation.source_id}</strong>
+                  <span>{source?.section ?? citation.chunk_id} · {citation.target_path}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -820,17 +842,19 @@ export function PaintPlanWorkspacePage() {
     preview?.admissible === true &&
     preview.source_ready &&
     preview.blockers.length === 0 &&
-    preview.execution_mode === "fixture_available" &&
+    (preview.execution_mode === "fixture_available" ||
+      (preview.provider_key === "zhipu" && preview.live_execution_authorized)) &&
     preview.provider_key === selectedProvider?.provider_key &&
     preview.model_id === selectedModel?.model_id;
-  const isLocalTestSelection =
-    selectedProvider?.execution_mode === "fixture_available" &&
+  const isGenerationSelection =
+    (selectedProvider?.execution_mode === "fixture_available" ||
+      selectedProvider?.provider_key === "zhipu") &&
     selectedCredential?.active_grant === true;
   const canGenerate =
     !generationControlsLocked &&
     fixtureConfirmed &&
     requestSelection !== null &&
-    isLocalTestSelection &&
+    isGenerationSelection &&
     workbench.allowed_actions.includes(generationAction);
 
   const changeSelection = (next: SelectionState) => {
@@ -974,7 +998,8 @@ export function PaintPlanWorkspacePage() {
           result.admissible &&
           result.source_ready &&
           result.blockers.length === 0 &&
-          result.execution_mode === "fixture_available"
+          (result.execution_mode === "fixture_available" ||
+            (result.provider_key === "zhipu" && result.live_execution_authorized))
         ) {
           onAdmissible?.();
         }
@@ -1362,8 +1387,8 @@ export function PaintPlanWorkspacePage() {
           </div>
 
           <div className="paint-plan-test-mode" role="status">
-            <strong>{t("paintPlan.testMode")}</strong>
-            <span>{t("paintPlan.testModeCopy")}</span>
+            <strong>{selectedProvider?.provider_key === "zhipu" ? t("paintPlan.liveMode") : t("paintPlan.testMode")}</strong>
+            <span>{selectedProvider?.provider_key === "zhipu" ? t("paintPlan.liveModeCopy") : t("paintPlan.testModeCopy")}</span>
           </div>
 
           {workbench.source_ready &&
@@ -1475,6 +1500,7 @@ export function PaintPlanWorkspacePage() {
                       modelId: model?.id ?? "",
                       credentialId: credential?.id ?? "",
                     });
+                    if (provider?.provider_key === "zhipu") setMaxAttempts(1);
                   }}
                   value={resolvedSelection.providerId}
                 >
@@ -1492,8 +1518,8 @@ export function PaintPlanWorkspacePage() {
 
           {selectedProvider?.execution_mode === "live_authorization_required" ? (
             <div className="paint-plan-live-boundary" role="status">
-              <strong>{t("paintPlan.liveAuthorizationRequired")}</strong>
-              <p>{t("paintPlan.liveBlockedCopy")}</p>
+              <strong>{preview?.live_execution_authorized ? t("paintPlan.liveGateAuthorized") : t("paintPlan.liveAuthorizationRequired")}</strong>
+              <p>{preview?.live_execution_authorized ? t("paintPlan.liveGateAuthorizedCopy") : t("paintPlan.liveBlockedCopy")}</p>
             </div>
           ) : null}
 
@@ -1525,7 +1551,7 @@ export function PaintPlanWorkspacePage() {
               <label>
                 <span>{t("paintPlan.maxAttempts")}</span>
                 <select
-                  disabled={generationControlsLocked}
+                  disabled={generationControlsLocked || selectedProvider?.provider_key === "zhipu"}
                   onChange={(event) => {
                     setMaxAttempts(Number(event.target.value));
                     setPreviewSnapshot(null);
@@ -1534,8 +1560,7 @@ export function PaintPlanWorkspacePage() {
                   value={maxAttempts}
                 >
                   <option value={1}>1</option>
-                  <option value={2}>2</option>
-                  <option value={3}>3</option>
+                  {selectedProvider?.provider_key !== "zhipu" ? <><option value={2}>2</option><option value={3}>3</option></> : null}
                 </select>
               </label>
             </details>
@@ -1561,9 +1586,9 @@ export function PaintPlanWorkspacePage() {
                 <strong>
                   {preview.estimate_status === "estimated" &&
                   preview.estimated_cost_minor_units !== null
-                    ? preview.currency === "USD"
+                    ? preview.currency === "USD" || preview.currency === "CNY"
                       ? new Intl.NumberFormat(i18n.resolvedLanguage ?? "en-US", {
-                          currency: "USD",
+                          currency: preview.currency,
                           style: "currency",
                         }).format(preview.estimated_cost_minor_units / 100)
                       : t("paintPlan.fixtureCreditsValue", {
@@ -1584,7 +1609,7 @@ export function PaintPlanWorkspacePage() {
             </div>
           ) : null}
 
-          {isLocalTestSelection ? (
+          {isGenerationSelection ? (
             <label className="paint-plan-confirmation">
               <input
                 checked={fixtureConfirmed}
@@ -1592,7 +1617,7 @@ export function PaintPlanWorkspacePage() {
                 onChange={(event) => setFixtureConfirmed(event.target.checked)}
                 type="checkbox"
               />
-              <span>{t("paintPlan.confirmFixture")}</span>
+              <span>{selectedProvider?.provider_key === "zhipu" ? t("paintPlan.confirmZhipuLive") : t("paintPlan.confirmFixture")}</span>
             </label>
           ) : null}
 
@@ -1607,8 +1632,8 @@ export function PaintPlanWorkspacePage() {
               command.labelKey === "paintPlan.regenerating")
               ? t(command.labelKey)
               : generationAction === "generate"
-                ? t("paintPlan.generateFixture")
-                : t("paintPlan.regenerateFixture")}
+                ? t(selectedProvider?.provider_key === "zhipu" ? "paintPlan.generateZhipu" : "paintPlan.generateFixture")
+                : t(selectedProvider?.provider_key === "zhipu" ? "paintPlan.regenerateZhipu" : "paintPlan.regenerateFixture")}
           </button>
           <p className="paint-plan-guidance-boundary">
             {t("paintPlan.guidanceBoundary")}
@@ -1917,7 +1942,7 @@ export function PaintPlanWorkspacePage() {
                 <div><dt>{t("paintPlan.inputUnits")}</dt><dd>{viewedPlan.input_units === null ? t("paintPlan.measurementUnavailable") : t("paintPlan.unitsValue", { value: viewedPlan.input_units })}</dd></div>
                 <div><dt>{t("paintPlan.outputUnits")}</dt><dd>{viewedPlan.output_units === null ? t("paintPlan.measurementUnavailable") : t("paintPlan.unitsValue", { value: viewedPlan.output_units })}</dd></div>
                 <div><dt>{t("paintPlan.costStatus")}</dt><dd>{t(`paintPlan.measurementStatus.${viewedPlan.cost_measurement_status}`)}</dd></div>
-                <div><dt>{t("paintPlan.recordedCost")}</dt><dd>{viewedPlan.cost_minor_units === null ? t("paintPlan.costUnavailable") : viewedPlan.cost_currency === "USD" ? new Intl.NumberFormat(i18n.resolvedLanguage ?? "en-US", { currency: "USD", style: "currency" }).format(viewedPlan.cost_minor_units / 100) : t("paintPlan.fixtureCreditsValue", { amount: viewedPlan.cost_minor_units })}</dd></div>
+                <div><dt>{t("paintPlan.recordedCost")}</dt><dd>{viewedPlan.cost_minor_units === null ? t("paintPlan.costUnavailable") : viewedPlan.cost_currency === "USD" || viewedPlan.cost_currency === "CNY" ? new Intl.NumberFormat(i18n.resolvedLanguage ?? "en-US", { currency: viewedPlan.cost_currency, style: "currency" }).format(viewedPlan.cost_minor_units / 100) : t("paintPlan.fixtureCreditsValue", { amount: viewedPlan.cost_minor_units })}</dd></div>
                 <div><dt>{t("paintPlan.requestedByUser")}</dt><dd>{viewedPlan.requested_by_user_id}</dd></div>
                 <div><dt>{t("paintPlan.invocationCreatedAt")}</dt><dd><time dateTime={viewedPlan.invocation_created_at}>{formatProjectTimestamp(viewedPlan.invocation_created_at)}</time></dd></div>
                 <div><dt>{t("paintPlan.createdBy")}</dt><dd>{t(`paintPlan.actorType.${viewedPlan.created_by_actor_type}`)} / {viewedPlan.created_by_actor_display_name_snapshot} ({viewedPlan.created_by_actor_id})</dd></div>

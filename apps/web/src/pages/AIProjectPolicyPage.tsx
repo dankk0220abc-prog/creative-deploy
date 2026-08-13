@@ -28,7 +28,7 @@ interface PolicyData {
   credentials: CredentialRecord[];
   models: ModelDefinition[];
   policy: ProjectPolicy;
-  provider: ProviderDefinition;
+  providers: ProviderDefinition[];
 }
 
 function displayPolicyStatus(t: (key: string) => string, value: string): string {
@@ -53,6 +53,7 @@ export function AIProjectPolicyPage() {
   const [data, setData] = useState<PolicyData | null>(null);
   const [failed, setFailed] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+  const [providerId, setProviderId] = useState("");
   const [modelId, setModelId] = useState("");
   const [credentialId, setCredentialId] = useState("");
   const [capabilityIds, setCapabilityIds] = useState<string[]>([]);
@@ -69,20 +70,22 @@ export function AIProjectPolicyPage() {
     const controller = new AbortController();
     void Promise.all([
       listProviders(controller.signal),
-      listModels("fixture_local", controller.signal),
       listCapabilities(controller.signal),
       listCredentials(controller.signal),
       getProjectPolicy(projectId, controller.signal),
-    ]).then(([providers, models, capabilities, credentials, policy]) => {
-      const provider = providers[0];
-      if (provider === undefined) throw new Error("missing_fixture_provider");
+    ]).then(async ([providers, capabilities, credentials, policy]) => {
+      const models = (await Promise.all(providers.map((provider) => listModels(provider.provider_key, controller.signal)))).flat();
+      const provider = providers.find((item) => item.id === policy.default_provider_definition_id)
+        ?? providers.find((item) => item.provider_key === "fixture_local");
+      if (provider === undefined) throw new Error("missing_provider");
       setFailed(false);
-      setData({ provider, models, capabilities, credentials, policy });
-      setModelId(policy.default_model_definition_id ?? models[0]?.id ?? "");
+      setData({ providers, models, capabilities, credentials, policy });
+      setProviderId(provider.id);
+      setModelId(policy.default_model_definition_id ?? models.find((item) => item.provider_key === provider.provider_key)?.id ?? "");
       setCredentialId(
         policy.default_credential_id ??
           credentials.find((item) =>
-            policy.active_grant_credential_ids.includes(item.id),
+            policy.active_grant_credential_ids.includes(item.id) && item.provider_key === provider.provider_key,
           )?.id ??
           "",
       );
@@ -101,14 +104,23 @@ export function AIProjectPolicyPage() {
     () => data?.models.find((model) => model.id === modelId) ?? null,
     [data, modelId],
   );
+  const selectedProvider = useMemo(
+    () => data?.providers.find((provider) => provider.id === providerId) ?? null,
+    [data, providerId],
+  );
+  const providerModels = useMemo(
+    () => data?.models.filter((model) => model.provider_key === selectedProvider?.provider_key) ?? [],
+    [data, selectedProvider],
+  );
   const grantedCredentials = useMemo(
     () =>
       data?.credentials.filter(
         (credential) =>
           credential.status === "active" &&
+          credential.provider_key === selectedProvider?.provider_key &&
           data.policy.active_grant_credential_ids.includes(credential.id),
       ) ?? [],
-    [data],
+    [data, selectedProvider],
   );
 
   const resetTest = () => {
@@ -126,6 +138,21 @@ export function AIProjectPolicyPage() {
     resetTest();
   };
 
+  const selectProvider = (nextProviderId: string) => {
+    const nextProvider = data?.providers.find((provider) => provider.id === nextProviderId);
+    const nextModel = data?.models.find((model) => model.provider_key === nextProvider?.provider_key);
+    const nextCredential = data?.credentials.find(
+      (credential) => credential.status === "active"
+        && credential.provider_key === nextProvider?.provider_key
+        && data.policy.active_grant_credential_ids.includes(credential.id),
+    );
+    setProviderId(nextProviderId);
+    setModelId(nextModel?.id ?? "");
+    setCapabilityIds(nextModel?.capabilities.map((capability) => capability.id) ?? []);
+    setCredentialId(nextCredential?.id ?? "");
+    resetTest();
+  };
+
   const selectCredential = (nextCredentialId: string) => {
     setCredentialId(nextCredentialId);
     resetTest();
@@ -140,6 +167,9 @@ export function AIProjectPolicyPage() {
     event.preventDefault();
     if (
       data === null ||
+      selectedProvider === null ||
+      selectedModel?.pricing_currency === null ||
+      selectedModel?.pricing_currency === undefined ||
       !isPaintProjectId(projectId) ||
       modelId === "" ||
       credentialId === "" ||
@@ -153,10 +183,11 @@ export function AIProjectPolicyPage() {
     try {
       await updateProjectPolicy({
         projectId,
-        providerId: data.provider.id,
+        providerId: selectedProvider.id,
         modelId,
         credentialId,
         capabilityIds,
+        currency: selectedModel.pricing_currency,
         expectedRevision: data.policy.revision,
       });
       setNotice("saved");
@@ -169,7 +200,7 @@ export function AIProjectPolicyPage() {
   };
 
   const invocationInput = () => {
-    if (data === null || !isPaintProjectId(projectId)) return null;
+    if (data === null || selectedProvider?.provider_key !== "fixture_local" || !isPaintProjectId(projectId)) return null;
     const capabilityKeys = data.capabilities
       .filter((capability) => capabilityIds.includes(capability.id))
       .map((capability) => capability.capability_key);
@@ -178,7 +209,7 @@ export function AIProjectPolicyPage() {
     }
     return {
       projectId,
-      providerId: data.provider.id,
+      providerId: selectedProvider.id,
       modelId,
       credentialId,
       capabilityKeys,
@@ -239,7 +270,7 @@ export function AIProjectPolicyPage() {
       <header className="ai-settings-header ai-settings-header--project">
         <div><h1>{t("ai.page.project.title")}</h1><p>{t("ai.page.project.copy")}</p></div>
       </header>
-      <details className="ai-boundary" role="note"><summary><span className="ai-boundary__signal" aria-hidden="true" /><strong>{t("ai.testMode")}</strong><span className="ai-boundary__learn">{t("ai.learnDetails")}</span></summary><div className="ai-boundary__details"><p>{t("ai.projectBoundaryCopy")}</p><dl><div><dt>Provider</dt><dd>Fixture Provider</dd></div><div><dt>Scope</dt><dd>Local only</dd></div><div><dt>Network</dt><dd>No provider calls</dd></div></dl></div></details>
+      <details className="ai-boundary" role="note"><summary><span className="ai-boundary__signal" aria-hidden="true" /><strong>{t("ai.providerBoundary")}</strong><span className="ai-boundary__learn">{t("ai.learnDetails")}</span></summary><div className="ai-boundary__details"><p>{t("ai.projectBoundaryCopy")}</p><dl><div><dt>Fixture</dt><dd>{t("ai.fixtureDefault")}</dd></div><div><dt>Zhipu</dt><dd>{t("ai.liveGateOff")}</dd></div><div><dt>Budget</dt><dd>{t("ai.databaseAuthoritative")}</dd></div></dl></div></details>
       <nav aria-label={t("ai.flowLabel")} className="ai-setup-path"><Link className="ai-setup-path__link" to="/paintpilot/settings/ai/credentials"><span>1</span>{t("ai.flow.credentials")}</Link><Link className="ai-setup-path__link" to="/paintpilot/settings/ai/models-providers"><span>2</span>{t("ai.flow.models")}</Link><span className="ai-setup-path__link ai-setup-path__link--active"><span>3</span>{t("ai.flow.project")}</span><Link className="ai-setup-path__link" to="/paintpilot/settings/ai/usage-audit"><span>4</span>{t("ai.flow.usage")}</Link></nav>
       <div className="page__content ai-settings-content">
         {failed ? <FeedbackPanel action={{ label: t("common.retry"), onClick: () => { setFailed(false); setData(null); setReloadToken((value) => value + 1); } }} eyebrow={t("ai.unavailableEyebrow")} heading={t("ai.loadFailed")} kind="error"><p>{t("ai.loadFailedCopy")}</p></FeedbackPanel> : null}
@@ -249,8 +280,8 @@ export function AIProjectPolicyPage() {
             <section className="ai-panel ai-panel--registry ai-policy-section ai-policy-section--selection" aria-labelledby="routing-policy-heading">
               <div className="ai-panel__heading"><h2 id="routing-policy-heading">{t("ai.selectModel")}</h2><span className={data.policy.enabled ? "ai-status ai-status--ready" : "ai-status"}>{data.policy.enabled ? t("ai.enabled") : t("ai.status.notConfigured")}</span></div>
               <div className="ai-routing-stack">
-                <div className="ai-routing-step"><div><small>{t("ai.provider")}</small><strong>{data.provider.display_name}</strong></div></div>
-                <label className="ai-routing-step"><div><small>{t("ai.defaultModel")}</small><select value={modelId} onChange={(event) => selectModel(event.target.value)}>{data.models.map((model) => <option value={model.id} key={model.id}>{model.display_name}</option>)}</select></div></label>
+                <label className="ai-routing-step"><div><small>{t("ai.provider")}</small><select value={providerId} onChange={(event) => selectProvider(event.target.value)}>{data.providers.map((provider) => <option disabled={!provider.enabled || !data.models.some((model) => model.provider_key === provider.provider_key && model.status === "active")} value={provider.id} key={provider.id}>{provider.display_name}</option>)}</select></div></label>
+                <label className="ai-routing-step"><div><small>{t("ai.defaultModel")}</small><select value={modelId} onChange={(event) => selectModel(event.target.value)}>{providerModels.map((model) => <option value={model.id} key={model.id}>{model.display_name}</option>)}</select></div></label>
               </div>
             </section>
 
@@ -272,13 +303,13 @@ export function AIProjectPolicyPage() {
 
             <section className="ai-panel ai-panel--quiet ai-policy-section" aria-labelledby="limits-heading">
               <div className="ai-panel__heading"><h2 id="limits-heading">{t("ai.callLimits")}</h2></div>
-              <div className="ai-limit-list"><strong>{t("ai.projectPerCallLimit")}</strong><strong>{t("ai.projectDailyLimit")}</strong><strong>{t("ai.autoFallback")}</strong><strong>{t("ai.unknownCostBlocked")}</strong></div>
+              <div className="ai-limit-list">{selectedProvider?.provider_key === "zhipu" ? <><strong>{t("ai.liveHardCap")}</strong><strong>{t("ai.noAutomaticRetry")}</strong></> : <><strong>{t("ai.projectPerCallLimit")}</strong><strong>{t("ai.projectDailyLimit")}</strong></>}<strong>{t("ai.autoFallback")}</strong><strong>{t("ai.unknownCostBlocked")}</strong></div>
               {notice === "saved" ? <p className="ai-form__notice ai-form__notice--success" role="status">{t("ai.policySaved")}</p> : null}
               {notice === "error" ? <p className="ai-form__notice" role="alert">{t("ai.saveFailed")}</p> : null}
               <button className="button button--primary" disabled={saving || grantedCredentials.length === 0 || capabilityIds.length === 0} type="submit">{saving ? t("ai.saving") : t("ai.savePolicy")}</button>
             </section>
 
-            <section className="ai-panel ai-panel--control ai-policy-section ai-policy-section--test" aria-labelledby="fixture-invocation-heading">
+            {selectedProvider?.provider_key === "fixture_local" ? <section className="ai-panel ai-panel--control ai-policy-section ai-policy-section--test" aria-labelledby="fixture-invocation-heading">
               <div className="ai-panel__heading"><h2 id="fixture-invocation-heading">{t("ai.testConfiguration")}</h2><span className="ai-status">{t("ai.simulated")}</span></div>
               <section className="ai-invocation-check" aria-labelledby="fixture-invocation-heading">
                 <p>{t("ai.invocationCopy")}</p>
@@ -291,7 +322,7 @@ export function AIProjectPolicyPage() {
                 {invocationResult !== null ? <div className="ai-invocation-result" role="status"><div><strong>{t("ai.invocationComplete")}</strong><span className={invocationResult.status === "succeeded" ? "ai-status ai-status--ready" : "ai-status"}>{displayPolicyStatus(t, invocationResult.status)}</span></div><details className="ai-disclosure ai-disclosure--row"><summary>{t("ai.technicalDetails")}</summary><p>{invocationResult.id}</p>{invocationResult.attempts.map((attempt) => <p key={attempt.id}>{t("ai.attemptSummary", { number: attempt.attempt_number, provider: attempt.provider_key, model: attempt.model_id, status: displayPolicyStatus(t, attempt.status) })}</p>)}</details></div> : null}
                 {invocationFailed ? <p className="ai-form__notice" role="alert">{t("ai.invocationRejected")}</p> : null}
               </section>
-            </section>
+            </section> : <section className="ai-panel ai-panel--control ai-policy-section ai-policy-section--test" aria-labelledby="live-invocation-heading"><div className="ai-panel__heading"><h2 id="live-invocation-heading">{t("ai.liveValidation")}</h2><span className="ai-status">{t("ai.liveGated")}</span></div><div className="ai-empty-action"><p>{t("ai.liveProjectCopy")}</p><Link className="button button--secondary" to={`/paintpilot/projects/${projectId}/paint-plan`}>{t("ai.openPaintPlan")}</Link></div></section>}
           </form>
         ) : null}
       </div>

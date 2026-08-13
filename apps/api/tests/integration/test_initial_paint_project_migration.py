@@ -2948,7 +2948,7 @@ def test_initial_paint_project_migration_round_trip_and_constraints(
 
     _run_alembic(temporary_database_url, "upgrade", "head")
     current_result = _run_alembic(temporary_database_url, "current")
-    assert "4c01a2b3c4d5 (head)" in current_result.stdout
+    assert "5a01b2c3d4e5 (head)" in current_result.stdout
     check_result = _run_alembic(temporary_database_url, "check")
     assert "No new upgrade operations detected." in check_result.stdout
 
@@ -2984,12 +2984,12 @@ def test_initial_paint_project_migration_round_trip_and_constraints(
     ) as connection:
         _assert_schema(connection)
         current_seed_counts = {
-            "provider_definitions": 2,
-            "model_definitions": 3,
+            "provider_definitions": 3,
+            "model_definitions": 5,
             "capability_definitions": 3,
-            "provider_capabilities": 6,
-            "model_capabilities": 8,
-            "provider_pricing_snapshots": 1,
+            "provider_capabilities": 9,
+            "model_capabilities": 13,
+            "provider_pricing_snapshots": 3,
             "prompt_template_definitions": 1,
             "tarot_card_definitions": 78,
             "tarot_spread_definitions": 1,
@@ -3024,7 +3024,7 @@ def test_phase3a_downgrade_refuses_governed_facts_without_deleting_them(
         _run_alembic(temporary_database_url, "downgrade", "7f3a2b9c4d1e")
 
     current_result = _run_alembic(temporary_database_url, "current")
-    assert "4c01a2b3c4d5 (head)" in current_result.stdout
+    assert "5a01b2c3d4e5 (head)" in current_result.stdout
     with psycopg.connect(
         **_connection_kwargs(temporary_database_url, temporary_database_name)
     ) as connection:
@@ -5468,7 +5468,7 @@ def test_phase3a_fixture_seed_downgrade_refuses_references_then_deletes_exact_se
 
     with pytest.raises(AssertionError, match="fixture Registry identities are referenced"):
         _run_alembic(temporary_database_url, "downgrade", "3a03e9a1d6f4")
-    assert "4c01a2b3c4d5 (head)" in _run_alembic(temporary_database_url, "current").stdout
+    assert "5a01b2c3d4e5 (head)" in _run_alembic(temporary_database_url, "current").stdout
     with (
         psycopg.connect(
             **_connection_kwargs(temporary_database_url, temporary_database_name)
@@ -5596,7 +5596,7 @@ def test_phase3a_fixture_seed_downgrade_refuses_non_seed_model_before_delete(
     ) as downgrade_error:
         _run_alembic(temporary_database_url, "downgrade", "3a03e9a1d6f4")
     assert "ForeignKeyViolation" not in str(downgrade_error.value)
-    assert "4c01a2b3c4d5 (head)" in _run_alembic(temporary_database_url, "current").stdout
+    assert "5a01b2c3d4e5 (head)" in _run_alembic(temporary_database_url, "current").stdout
     with psycopg.connect(
         **_connection_kwargs(temporary_database_url, temporary_database_name)
     ) as connection:

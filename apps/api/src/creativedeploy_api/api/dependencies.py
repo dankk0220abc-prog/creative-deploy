@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from creativedeploy_api.ai.encryption import CredentialCipher
 from creativedeploy_api.ai.fixture_provider import FixtureProviderAdapter
+from creativedeploy_api.ai.zhipu_provider import ZhipuHTTPTransport
 from creativedeploy_api.auth.cookies import csrf_cookie_name, session_cookie_name
 from creativedeploy_api.auth.oidc import OidcClient
 from creativedeploy_api.core.config import Settings
@@ -31,6 +32,7 @@ from creativedeploy_api.services.image_assets import ImageAssetService
 from creativedeploy_api.services.paint_plans import PaintPlanService
 from creativedeploy_api.services.paint_projects import PaintProjectService
 from creativedeploy_api.services.region_sets import RegionSetService
+from creativedeploy_api.services.zhipu_invocations import GovernedZhipuInvocationService
 from creativedeploy_api.storage.images import ImageStoragePort
 
 
@@ -218,7 +220,15 @@ def get_paint_plan_service(
     if not settings.phase3b_paint_plan_enabled:
         raise Phase3UnavailableError
     storage = cast(ImageStoragePort, request.app.state.image_storage)
-    return PaintPlanService(session, storage, settings, ai_service)
+    cipher = cast(CredentialCipher, request.app.state.ai_cipher)
+    zhipu_transport = getattr(request.app.state, "zhipu_transport", None)
+    live_service = GovernedZhipuInvocationService(
+        session,
+        cipher,
+        live_gate_enabled=settings.zhipu_live_enabled,
+        transport=(zhipu_transport if isinstance(zhipu_transport, ZhipuHTTPTransport) else None),
+    )
+    return PaintPlanService(session, storage, settings, ai_service, live_service=live_service)
 
 
 PaintPlanServiceDependency = Annotated[
@@ -227,9 +237,24 @@ PaintPlanServiceDependency = Annotated[
 ]
 
 
-def get_arcana_service(session: DatabaseSessionDependency) -> ArcanaService:
-    """Build the owner-scoped, network-incapable Arcana service."""
-    return ArcanaService(session)
+def get_arcana_service(request: Request, session: DatabaseSessionDependency) -> ArcanaService:
+    """Build owner-scoped Arcana; Fixture remains independent of the optional live service."""
+    settings = cast(Settings, request.app.state.settings)
+    cipher = getattr(request.app.state, "ai_cipher", None)
+    zhipu_transport = getattr(request.app.state, "zhipu_transport", None)
+    live_service = (
+        None
+        if not isinstance(cipher, CredentialCipher)
+        else GovernedZhipuInvocationService(
+            session,
+            cipher,
+            live_gate_enabled=settings.zhipu_live_enabled,
+            transport=(
+                zhipu_transport if isinstance(zhipu_transport, ZhipuHTTPTransport) else None
+            ),
+        )
+    )
+    return ArcanaService(session, live_service=live_service)
 
 
 ArcanaServiceDependency = Annotated[

@@ -149,6 +149,8 @@ def test_phase3b_tables_have_exact_columns_and_json_nullability() -> None:
         "title",
         "overall_approach",
         "safety_notes",
+        "retrieved_context_snapshot",
+        "citation_snapshot",
         "instruction_count",
         "content_hash",
         "created_by_actor_type",
@@ -193,6 +195,12 @@ def test_phase3b_tables_have_exact_columns_and_json_nullability() -> None:
     assert isinstance(PaintPlan.__table__.c.safety_notes.type, JSONB)
     assert PaintPlan.__table__.c.safety_notes.nullable is False
     assert str(PaintPlan.__table__.c.safety_notes.server_default.arg) == "'[]'::jsonb"
+    assert isinstance(PaintPlan.__table__.c.retrieved_context_snapshot.type, JSONB)
+    assert PaintPlan.__table__.c.retrieved_context_snapshot.nullable is False
+    assert str(PaintPlan.__table__.c.retrieved_context_snapshot.server_default.arg) == "'[]'::jsonb"
+    assert isinstance(PaintPlan.__table__.c.citation_snapshot.type, JSONB)
+    assert PaintPlan.__table__.c.citation_snapshot.nullable is False
+    assert str(PaintPlan.__table__.c.citation_snapshot.server_default.arg) == "'[]'::jsonb"
     assert isinstance(PaintPlanRegionInstruction.__table__.c.warnings.type, JSONB)
     assert PaintPlanRegionInstruction.__table__.c.warnings.nullable is False
     assert PaintPlanReviewEvent.__table__.c.actor_user_id.nullable is True

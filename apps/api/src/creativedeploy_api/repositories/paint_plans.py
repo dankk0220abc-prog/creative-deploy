@@ -227,7 +227,7 @@ class SqlAlchemyPaintPlanRepository:
                     ModelDefinition,
                     ModelDefinition.provider_definition_id == ProviderDefinition.id,
                 )
-                .where(ProviderDefinition.provider_key.in_(("fixture_local", "openai")))
+                .where(ProviderDefinition.provider_key.in_(("fixture_local", "openai", "zhipu")))
                 .order_by(ProviderDefinition.provider_key, ModelDefinition.model_id)
             )
         ).all()

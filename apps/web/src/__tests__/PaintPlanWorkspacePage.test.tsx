@@ -116,6 +116,10 @@ describe("Paint Plan workbench", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Not submitted for review")).toBeInTheDocument();
     expect(screen.getByText("Confidence 87.5%")).toBeInTheDocument();
+    expect(screen.getByText("Knowledge citations")).toBeInTheDocument();
+    expect(
+      screen.getByText("surface preparation · /instructions/0/preparation"),
+    ).toBeInTheDocument();
     expect(
       within(document.querySelector(".paint-plan-document") as HTMLElement).queryByText(
         "Governed fixture paint plan",
@@ -169,7 +173,7 @@ describe("Paint Plan workbench", () => {
     await user.selectOptions(screen.getByLabelText("Model source"), OPENAI_PROVIDER_ID);
 
     expect(screen.getByText("Live authorization required", { selector: "strong" })).toBeInTheDocument();
-    expect(screen.getByText(/not enabled for this release/i)).toBeInTheDocument();
+    expect(screen.getByText(/server-side live gate is off/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Regenerate Paint Plan" })).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: "Check generation conditions" }));
