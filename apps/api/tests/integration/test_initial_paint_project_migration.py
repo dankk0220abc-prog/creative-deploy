@@ -3,6 +3,7 @@
 import asyncio
 import os
 import re
+import runpy
 import secrets
 import subprocess
 import uuid
@@ -20,6 +21,7 @@ from urllib.parse import quote, quote_plus
 import psycopg
 import pytest
 from psycopg import sql
+from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import SecretStr
 from sqlalchemy import text
@@ -2948,7 +2950,7 @@ def test_initial_paint_project_migration_round_trip_and_constraints(
 
     _run_alembic(temporary_database_url, "upgrade", "head")
     current_result = _run_alembic(temporary_database_url, "current")
-    assert "5a01b2c3d4e5 (head)" in current_result.stdout
+    assert "6a01b2c3d4e6 (head)" in current_result.stdout
     check_result = _run_alembic(temporary_database_url, "check")
     assert "No new upgrade operations detected." in check_result.stdout
 
@@ -3024,7 +3026,7 @@ def test_phase3a_downgrade_refuses_governed_facts_without_deleting_them(
         _run_alembic(temporary_database_url, "downgrade", "7f3a2b9c4d1e")
 
     current_result = _run_alembic(temporary_database_url, "current")
-    assert "5a01b2c3d4e5 (head)" in current_result.stdout
+    assert "6a01b2c3d4e6 (head)" in current_result.stdout
     with psycopg.connect(
         **_connection_kwargs(temporary_database_url, temporary_database_name)
     ) as connection:
@@ -3038,6 +3040,97 @@ def test_phase3a_downgrade_refuses_governed_facts_without_deleting_them(
     _run_alembic(temporary_database_url, "downgrade", "7f3a2b9c4d1e")
     downgraded_result = _run_alembic(temporary_database_url, "current")
     assert "7f3a2b9c4d1e" in downgraded_result.stdout
+
+
+def test_credential_fragment_drop_downgrade_readds_only_null_values(
+    temporary_database: TemporaryDatabase,
+) -> None:
+    temporary_database_url = temporary_database.url
+    temporary_database_name = temporary_database.name
+    user_id = uuid.uuid4()
+    credential_id = uuid.uuid4()
+    _run_alembic(temporary_database_url, "upgrade", "5a01b2c3d4e5")
+    with (
+        psycopg.connect(
+            **_connection_kwargs(temporary_database_url, temporary_database_name)
+        ) as connection,
+        connection.transaction(),
+    ):
+        connection.execute(
+            "INSERT INTO user_accounts (id, display_name, email) VALUES (%s, %s, %s)",
+            (user_id, "Fragment migration fixture", "fragment@example.test"),
+        )
+        connection.execute(
+            """
+            INSERT INTO credential_records (
+                id, owner_user_id, provider_definition_id, provider_key,
+                key_fingerprint, alias, status, last_four, revoked_at
+            ) VALUES (%s, %s, %s, 'fixture_local', %s, %s, 'revoked', %s, now())
+            """,
+            (
+                credential_id,
+                user_id,
+                FIXTURE_PROVIDER_ID,
+                "sha256:" + ("a" * 64),
+                "Historical fragment fixture",
+                "2468",
+            ),
+        )
+
+    _run_alembic(temporary_database_url, "upgrade", "head")
+    with psycopg.connect(
+        **_connection_kwargs(temporary_database_url, temporary_database_name)
+    ) as connection:
+        assert connection.execute(
+            """
+            SELECT count(*) FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'credential_records'
+              AND column_name = 'last_four'
+            """
+        ).fetchone() == (0,)
+
+    _run_alembic(temporary_database_url, "downgrade", "5a01b2c3d4e5")
+    with psycopg.connect(
+        **_connection_kwargs(temporary_database_url, temporary_database_name)
+    ) as connection:
+        assert connection.execute(
+            "SELECT last_four FROM credential_records WHERE id = %s", (credential_id,)
+        ).fetchone() == (None,)
+
+    _run_alembic(temporary_database_url, "upgrade", "head")
+
+
+def test_arcana_staging_fixture_seeds_and_verifies_exact_source_graph(
+    temporary_database: TemporaryDatabase,
+) -> None:
+    temporary_database_url = temporary_database.url
+    temporary_database_name = temporary_database.name
+    owner_id = uuid.uuid4()
+    owner_principal_id = f"arcana-dr-owner-{uuid.uuid4().hex}"
+    project_id = uuid.uuid4()
+    _run_alembic(temporary_database_url, "upgrade", "head")
+    fixture = runpy.run_path(str(REPOSITORY_ROOT / "scripts/verify_arcana_backup_rows.py"))
+    with psycopg.connect(
+        **_connection_kwargs(temporary_database_url, temporary_database_name),
+        row_factory=dict_row,
+    ) as connection:
+        with connection.transaction():
+            connection.execute(
+                "INSERT INTO user_accounts (id, display_name, email) VALUES (%s, %s, %s)",
+                (owner_id, "Arcana DR owner", "arcana-dr@example.test"),
+            )
+            connection.execute(
+                """
+                INSERT INTO paint_projects (
+                    id, owner_principal_id, title, requested_target_style,
+                    planning_mode, status
+                ) VALUES (%s, %s, %s, 'cel_shading', 'planning_only_demo', 'DRAFT')
+                """,
+                (project_id, owner_principal_id, "Arcana DR fixture project"),
+            )
+        fixture["seed"](connection, owner_id, project_id)
+        fixture["verify"](connection, owner_id, project_id)
 
 
 def _phase3a_principal(user_id: uuid.UUID, principal_id: str) -> PrincipalContext:
@@ -5468,7 +5561,7 @@ def test_phase3a_fixture_seed_downgrade_refuses_references_then_deletes_exact_se
 
     with pytest.raises(AssertionError, match="fixture Registry identities are referenced"):
         _run_alembic(temporary_database_url, "downgrade", "3a03e9a1d6f4")
-    assert "5a01b2c3d4e5 (head)" in _run_alembic(temporary_database_url, "current").stdout
+    assert "6a01b2c3d4e6 (head)" in _run_alembic(temporary_database_url, "current").stdout
     with (
         psycopg.connect(
             **_connection_kwargs(temporary_database_url, temporary_database_name)
@@ -5596,7 +5689,7 @@ def test_phase3a_fixture_seed_downgrade_refuses_non_seed_model_before_delete(
     ) as downgrade_error:
         _run_alembic(temporary_database_url, "downgrade", "3a03e9a1d6f4")
     assert "ForeignKeyViolation" not in str(downgrade_error.value)
-    assert "5a01b2c3d4e5 (head)" in _run_alembic(temporary_database_url, "current").stdout
+    assert "6a01b2c3d4e6 (head)" in _run_alembic(temporary_database_url, "current").stdout
     with psycopg.connect(
         **_connection_kwargs(temporary_database_url, temporary_database_name)
     ) as connection:

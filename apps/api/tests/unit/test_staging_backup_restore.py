@@ -34,7 +34,7 @@ class RevisionConnection:
 
 
 def test_current_wp2_revision_is_accepted() -> None:
-    connection = RevisionConnection("5a01b2c3d4e5")
+    connection = RevisionConnection("6a01b2c3d4e6")
 
     assert operations._alembic_revision(connection) == operations.EXPECTED_ALEMBIC_REVISION  # type: ignore[arg-type]
 
@@ -46,7 +46,7 @@ def test_unsupported_revision_fails_closed() -> None:
         operations._alembic_revision(connection)  # type: ignore[arg-type]
 
 
-def test_phase3b_tables_extend_the_authoritative_full_recovery_inventory() -> None:
+def test_arcana_tables_extend_the_authoritative_full_recovery_inventory() -> None:
     assert len(operations.LEGACY_TABLES) == 14
     assert len(operations.PHASE3A_TABLES) == 25
     assert operations.PHASE3B_TABLES == (
@@ -56,11 +56,20 @@ def test_phase3b_tables_extend_the_authoritative_full_recovery_inventory() -> No
         "paint_plan_region_instructions",
         "paint_plan_review_events",
     )
-    assert len(operations.TABLES) == 44
+    assert operations.ARCANA_TABLES == (
+        "tarot_card_definitions",
+        "tarot_spread_definitions",
+        "tarot_readings",
+        "tarot_reading_cards",
+        "tarot_interpretation_revisions",
+        "tarot_journal_entries",
+    )
+    assert len(operations.TABLES) == 50
     assert (
         *operations.LEGACY_TABLES,
         *operations.PHASE3A_TABLES,
         *operations.PHASE3B_TABLES,
+        *operations.ARCANA_TABLES,
     ) == operations.TABLES
     assert set(operations.MIGRATION_SEED_FINGERPRINTS) <= set(operations.TABLES)
 
@@ -94,6 +103,14 @@ def test_current_wp2_migration_seed_baseline_is_explicit() -> None:
         "prompt_template_definitions": (
             1,
             "4a1e148603126350c0eab5f990423036c0c39c6bec505f704ed95580294c3672",
+        ),
+        "tarot_card_definitions": (
+            78,
+            "e0cefbd4418b3cbdd2219bfd8d1e6ca33fcde4c39a308679c201d4d8b29cdd71",
+        ),
+        "tarot_spread_definitions": (
+            1,
+            "78a3910fcaf43dfd49b4a22e994eee3ededd17d9cc81813824ef157831376bac",
         ),
     }
 
