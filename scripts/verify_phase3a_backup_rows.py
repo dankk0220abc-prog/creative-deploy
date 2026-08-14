@@ -58,10 +58,10 @@ EXPECTED_COUNTS = {table: 1 for table in PHASE3A_TABLES}
 EXPECTED_COUNTS.update(
     {
         "capability_definitions": 3,
-        "model_definitions": 3,
-        "provider_definitions": 2,
-        "provider_capabilities": 6,
-        "model_capabilities": 8,
+        "model_definitions": 5,
+        "provider_definitions": 3,
+        "provider_capabilities": 9,
+        "model_capabilities": 13,
         "credential_records": 2,
         "invocation_attempts": 2,
     }

@@ -33,8 +33,8 @@ class RevisionConnection:
         return RevisionResult(self.revision)
 
 
-def test_current_arcana_revision_is_accepted() -> None:
-    connection = RevisionConnection("4c01a2b3c4d5")
+def test_current_wp2_revision_is_accepted() -> None:
+    connection = RevisionConnection("5a01b2c3d4e5")
 
     assert operations._alembic_revision(connection) == operations.EXPECTED_ALEMBIC_REVISION  # type: ignore[arg-type]
 
@@ -65,6 +65,39 @@ def test_phase3b_tables_extend_the_authoritative_full_recovery_inventory() -> No
     assert set(operations.MIGRATION_SEED_FINGERPRINTS) <= set(operations.TABLES)
 
 
+def test_current_wp2_migration_seed_baseline_is_explicit() -> None:
+    assert operations.MIGRATION_SEED_FINGERPRINTS == {
+        "provider_definitions": (
+            3,
+            "a532cf375498338ac7e2d1e5d4a35167045d5ec7f40bca627a63f5bd5dbe4557",
+        ),
+        "capability_definitions": (
+            3,
+            "e640acaa636c6e413e316782e9452c8802b8c6bee9091018205674f57dfd15e8",
+        ),
+        "model_definitions": (
+            5,
+            "824f5fc6e1046e7b237cfab840f35ceb03cf6f736e5acc13a6b955255779df5c",
+        ),
+        "provider_capabilities": (
+            9,
+            "176dc5392f198890969d10712fcdaf16efddc30b35c1bdc7f7b843e47b55e4cc",
+        ),
+        "model_capabilities": (
+            13,
+            "f6944cfd3d8f75acdf77598aa362295bb910ad937663dacd9baa91593099918d",
+        ),
+        "provider_pricing_snapshots": (
+            3,
+            "bcabf48b69027fdf222f601967b348bef6bee9c3a64870d26557a7a41f8fa99b",
+        ),
+        "prompt_template_definitions": (
+            1,
+            "4a1e148603126350c0eab5f990423036c0c39c6bec505f704ed95580294c3672",
+        ),
+    }
+
+
 def test_exact_phase3b_migration_seed_state_is_a_supported_fresh_restore_target(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -78,6 +111,40 @@ def test_exact_phase3b_migration_seed_state_is_a_supported_fresh_restore_target(
     )
 
     assert operations._is_migration_seed_only(object(), counts) is True  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("dirty_table", ["paint_projects", "paint_plan_review_events"])
+def test_migration_seed_state_with_application_or_partial_history_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    dirty_table: str,
+) -> None:
+    counts = {table: 0 for table in operations.TABLES}
+    for table, (count, _fingerprint) in operations.MIGRATION_SEED_FINGERPRINTS.items():
+        counts[table] = count
+    counts[dirty_table] = 1
+    monkeypatch.setattr(
+        operations,
+        "_table_rows_fingerprint",
+        lambda *_: pytest.fail("dirty non-seed state must reject before fingerprint checks"),
+    )
+
+    assert operations._is_migration_seed_only(object(), counts) is False  # type: ignore[arg-type]
+
+
+def test_migration_seed_state_with_duplicate_registry_count_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    counts = {table: 0 for table in operations.TABLES}
+    for table, (count, _fingerprint) in operations.MIGRATION_SEED_FINGERPRINTS.items():
+        counts[table] = count
+    counts["provider_definitions"] += 1
+    monkeypatch.setattr(
+        operations,
+        "_table_rows_fingerprint",
+        lambda *_: pytest.fail("duplicate seed count must reject before fingerprint checks"),
+    )
+
+    assert operations._is_migration_seed_only(object(), counts) is False  # type: ignore[arg-type]
 
 
 def test_legacy_39_table_seed_state_is_not_a_valid_phase3b_restore_target(
@@ -768,6 +835,55 @@ def test_final_object_failure_rolls_back_database_restore_transaction(
     assert database_writes
     assert connection.transaction_state.rolled_back
     assert not connection.transaction_state.committed
+
+
+def test_exact_retry_preserves_existing_database_without_restore_writes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_signing(monkeypatch, tmp_path)
+    signing = operations._backup_signing_config()
+    root = tmp_path / "backup"
+    manifest = write_signed_manifest(root, signing)
+    manifest["table_counts"]["paint_projects"] = 1
+    (root / operations.MANIFEST_PATH).write_text(
+        json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    operations._write_detached_manifest_signature(root, manifest, signing)
+    connection = RestoreConnection()
+    client = FakeS3Client()
+    seed_existing_object(client)
+    verification_calls: list[str] = []
+    monkeypatch.setenv("OPERATIONS_QUIESCED", "true")
+    monkeypatch.setenv("RESTORE_TEMPORARY", "true")
+    monkeypatch.setenv("BACKUP_ROOT", str(tmp_path))
+    monkeypatch.setattr(operations, "Settings", DryRunSettings)
+    monkeypatch.setattr(operations, "_read_manifest", lambda _: manifest)
+    monkeypatch.setattr(operations, "_s3_client", lambda _: (client, "bucket"))
+    monkeypatch.setattr(operations, "_database_connection", lambda _: connection)
+    monkeypatch.setattr(
+        operations,
+        "_validate_restore_preconditions",
+        lambda *_: object_inventory(),
+    )
+    monkeypatch.setattr(operations, "_table_counts", lambda _: manifest["table_counts"])
+    monkeypatch.setattr(operations, "_database_matches_backup", lambda *_: True)
+    monkeypatch.setattr(
+        operations,
+        "_restore_table",
+        lambda *_, **__: pytest.fail("exact retry must not rewrite database tables"),
+    )
+    monkeypatch.setattr(
+        operations,
+        "_verify_restored_objects",
+        lambda *_: verification_calls.append("verified"),
+    )
+
+    operations.restore(str(manifest["backup_id"]), dry_run=False)
+
+    assert verification_calls == ["verified"]
+    assert client.put_calls == []
 
 
 def test_restore_dry_run_has_zero_database_or_object_writes(

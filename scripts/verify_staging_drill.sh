@@ -510,7 +510,7 @@ root=Path(sys.argv[1])
 manifest=json.loads((root/"manifest.json").read_text(encoding="utf-8"))
 assert manifest["format"] == "creativedeploy-staging-backup-v1"
 assert manifest["manifest_version"] == 1
-assert manifest["alembic_revision"] == "4c01a2b3c4d5"
+assert manifest["alembic_revision"] == "5a01b2c3d4e5"
 assert manifest["backup_id"] == sys.argv[2]
 assert manifest["object_count"] == 3
 assert len(manifest["objects"]) == 3
@@ -552,16 +552,16 @@ phase3a_counts={table:1 for table in (
     "ai_command_idempotency_records",
 )}
 phase3a_counts.update({
-    "provider_definitions":2,
+    "provider_definitions":3,
     "capability_definitions":3,
-    "model_definitions":3,
-    "provider_capabilities":6,
-    "model_capabilities":8,
+    "model_definitions":5,
+    "provider_capabilities":9,
+    "model_capabilities":13,
     "credential_records":2,
     "invocation_attempts":2,
 })
 phase3b_counts={
-    "provider_pricing_snapshots":1,
+    "provider_pricing_snapshots":3,
     "prompt_template_definitions":1,
     "paint_plans":2,
     "paint_plan_region_instructions":4,
