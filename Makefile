@@ -2,7 +2,7 @@ SHELL := /bin/sh
 
 PYTHON_PROJECT := apps/api
 ALEMBIC_CONFIG := apps/api/alembic.ini
-ALEMBIC_HEAD := 5a01b2c3d4e5
+ALEMBIC_HEAD := 6a01b2c3d4e6
 API_CHECK_PATHS := apps/api/src apps/api/tests apps/api/migrations
 WEB_PACKAGE := @creativedeploy/web
 ENV_FILE ?= .env

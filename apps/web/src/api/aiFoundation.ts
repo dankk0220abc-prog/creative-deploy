@@ -53,7 +53,6 @@ export interface CredentialRecord {
   alias: string;
   provider_key: ProviderKey;
   fingerprint: string;
-  last_four: string | null;
   status: "active" | "revoked" | "replaced";
   created_at: string;
   updated_at: string;

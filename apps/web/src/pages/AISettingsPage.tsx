@@ -231,7 +231,7 @@ function ModelsPanel({ data, onReload }: { data: FoundationData; onReload: () =>
               <label><span>{t("ai.defaultModel")}</span><select disabled={providerModels.length === 0} onChange={(event) => setModelId(event.target.value)} value={modelId}>{providerModels.map((model) => <option key={model.id} value={model.id}>{model.display_name}</option>)}</select></label>
           {activeCredentials.length === 0 ? <div className="ai-empty-action ai-empty-action--embedded"><p>{t("ai.noProviderCredential")}</p><Link className="button button--primary" to={tabPaths.credentials}>{t("ai.addCredential")}</Link></div> : (
               <>
-              <label><span>{t("ai.defaultCredential")}</span><select onChange={(event) => setCredentialId(event.target.value)} value={credentialId}>{activeCredentials.map((credential) => <option key={credential.id} value={credential.id}>{credential.alias} · ••••{credential.last_four}</option>)}</select></label>
+              <label><span>{t("ai.defaultCredential")}</span><select onChange={(event) => setCredentialId(event.target.value)} value={credentialId}>{activeCredentials.map((credential) => <option key={credential.id} value={credential.id}>{credential.alias}</option>)}</select></label>
               {notice === "saved" ? <p className="ai-form__notice ai-form__notice--success" role="status">{t("ai.preferenceSaved")}</p> : null}
               {notice === "error" ? <p className="ai-form__notice" role="alert">{t("ai.saveFailed")}</p> : null}
               {notice === "conflict" ? <p className="ai-form__notice" role="alert">{t("ai.saveConflict")}</p> : null}
@@ -354,7 +354,7 @@ function CredentialsPanel({ credentials, providers, onReload }: { credentials: C
             {credentials.map((credential) => (
               <article className="ai-credential-row" key={credential.id}>
                 <div className="ai-credential-row__top">
-                  <div><h3>{credential.alias}</h3><code>•••• {credential.last_four ?? "—"}</code></div>
+                  <div><h3>{credential.alias}</h3></div>
                   <span className={credential.status === "active" ? "ai-status ai-status--ready" : "ai-status"}>{displayStatus(t, credential.status)}</span>
                 </div>
                 <p className="ai-credential-row__summary">{t("ai.savedCredentialsCopy")}</p>

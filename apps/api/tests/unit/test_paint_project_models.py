@@ -1162,6 +1162,7 @@ MIGRATION_PATHS = (
     API_ROOT / "migrations" / "versions" / "3b01a1c2d3e4_add_phase3b_paint_plan_foundation.py",
     API_ROOT / "migrations" / "versions" / "4c01a2b3c4d5_add_arcana_core_proof_slice.py",
     API_ROOT / "migrations" / "versions" / "5a01b2c3d4e5_add_zhipu_and_shared_citations.py",
+    API_ROOT / "migrations" / "versions" / "6a01b2c3d4e6_drop_credential_plaintext_fragments.py",
 )
 RETIRED_MIGRATION_CONSTRAINT_NAMES = frozenset({"ck_provider_pricing_snapshots_currency_usd"})
 PHASE_3A_MIGRATION_PATHS = (

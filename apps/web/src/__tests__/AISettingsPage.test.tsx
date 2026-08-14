@@ -41,7 +41,6 @@ function credential(id: string, status: "active" | "revoked") {
     alias: status === "active" ? "WP2 replacement" : "WP2 rejected",
     provider_key: "zhipu",
     fingerprint: "redacted-test-fingerprint",
-    last_four: null,
     status,
     created_at: now,
     updated_at: now,

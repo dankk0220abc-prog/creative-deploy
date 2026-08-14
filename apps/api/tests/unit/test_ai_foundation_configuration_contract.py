@@ -47,7 +47,7 @@ from creativedeploy_api.services.ai_foundation import (
     _assert_provider_credential_structure,
     _encrypted_payload,
 )
-from creativedeploy_api.services.zhipu_invocations import WP2_LIVE_VALIDATION_HARD_CAP_FEN
+from creativedeploy_api.services.zhipu_invocations import WP2_GOVERNED_LEDGER_CAP_FEN
 
 USER_ID = uuid.UUID("3b100000-0000-4000-8000-000000000001")
 PROVIDER_ID = uuid.UUID("3b100000-0000-4000-8000-000000000002")
@@ -58,8 +58,8 @@ CAPABILITY_ID = uuid.UUID("3b100000-0000-4000-8000-000000000006")
 STRUCTURED_CAPABILITY_ID = uuid.UUID("3b100000-0000-4000-8000-000000000007")
 
 
-def test_wp2_live_validation_hard_cap_is_one_and_a_half_rmb() -> None:
-    assert WP2_LIVE_VALIDATION_HARD_CAP_FEN == 150
+def test_wp2_governed_ledger_cap_is_one_and_a_half_rmb() -> None:
+    assert WP2_GOVERNED_LEDGER_CAP_FEN == 150
 
 
 def _principal() -> PrincipalContext:
@@ -884,6 +884,7 @@ def test_openai_credential_create_encrypts_without_live_validation(
     )
 
     stored = repository.add.call_args.args[0]
+    assert not hasattr(stored, "last_four")
     assert stored.ciphertext is not None
     assert cipher.decrypt(
         _encrypted_payload(stored),
@@ -898,6 +899,8 @@ def test_openai_credential_create_encrypts_without_live_validation(
     assert stored.last_successful_validation_at is None
     assert response.provider_key == "openai"
     assert response.last_validation_status == "live_validation_not_authorized"
+    assert "last_four" not in response.model_dump(mode="json")
+    assert secret not in response.model_dump_json()
     adapter.validate_credential.assert_not_called()
 
 
@@ -1023,6 +1026,7 @@ def test_openai_credential_replace_encrypts_without_live_validation(
     )
 
     replacement = repository.add.call_args.args[0]
+    assert not hasattr(replacement, "last_four")
     assert replacement.ciphertext is not None
     assert cipher.decrypt(
         _encrypted_payload(replacement),
@@ -1038,6 +1042,8 @@ def test_openai_credential_replace_encrypts_without_live_validation(
     assert replacement.last_successful_validation_at is None
     assert old.status == "replaced"
     assert response.last_validation_status == "live_validation_not_authorized"
+    assert "last_four" not in response.model_dump(mode="json")
+    assert secret not in response.model_dump_json()
     adapter.validate_credential.assert_not_called()
 
 

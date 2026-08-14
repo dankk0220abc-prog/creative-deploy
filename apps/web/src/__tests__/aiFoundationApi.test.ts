@@ -110,7 +110,6 @@ describe("Phase 3A fixture API client", () => {
           alias: "Local fixture key",
           provider_key: "fixture_local",
           fingerprint: "fixture-v1:redacted-fingerprint",
-          last_four: "cdef",
           status: "active",
           created_at: "2026-08-05T00:03:00Z",
           updated_at: "2026-08-05T00:03:00Z",

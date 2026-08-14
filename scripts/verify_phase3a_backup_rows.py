@@ -155,13 +155,13 @@ def seed(
             """
             INSERT INTO credential_records (
                 id, owner_user_id, provider_definition_id, provider_key,
-                key_fingerprint, last_four, alias, status, encryption_version,
+                key_fingerprint, alias, status, encryption_version,
                 data_algorithm, ciphertext, data_nonce, data_authentication_tag,
                 wrapped_dek, wrap_algorithm, wrap_nonce, wrap_authentication_tag,
                 aad_version, replaces_credential_id, revision, created_at, updated_at
             ) VALUES (
                 %s, %s, %s, 'fixture_local', 'synthetic-staging-fingerprint-active',
-                '0000', 'Synthetic active credential', 'active', 'fixture-envelope-v1',
+                'Synthetic active credential', 'active', 'fixture-envelope-v1',
                 'AES-256-GCM', %s, %s, %s, %s, 'AES-256-GCM', %s, %s,
                 'phase3a-v1', %s, 1, now(), now()
             )

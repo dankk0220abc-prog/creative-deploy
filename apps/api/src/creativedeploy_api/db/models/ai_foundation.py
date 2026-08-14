@@ -281,7 +281,6 @@ class CredentialRecord(Base):
     )
     provider_key: Mapped[str] = mapped_column(String(64), nullable=False)
     key_fingerprint: Mapped[str] = mapped_column(String(96), nullable=False)
-    last_four: Mapped[str | None] = mapped_column(String(4))
     alias: Mapped[str] = mapped_column(String(120), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     encryption_version: Mapped[str | None] = mapped_column(String(64))

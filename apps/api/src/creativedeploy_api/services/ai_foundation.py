@@ -338,7 +338,6 @@ def _credential_read(record: CredentialRecord) -> CredentialRead:
         alias=record.alias,
         provider_key=record.provider_key,
         fingerprint=record.key_fingerprint,
-        last_four=record.last_four,
         status=record.status,  # type: ignore[arg-type]
         created_at=record.created_at,
         updated_at=record.updated_at,
@@ -758,7 +757,6 @@ class AIFoundationService:
                 provider_definition_id=provider.id,
                 provider_key=provider.provider_key,
                 key_fingerprint=fingerprint,
-                last_four=plaintext[-4:].decode("utf-8", errors="replace"),
                 alias=payload.alias,
                 status="active",
                 encryption_version=encrypted.encryption_version,
@@ -1058,7 +1056,6 @@ class AIFoundationService:
                 provider_definition_id=old.provider_definition_id,
                 provider_key=old.provider_key,
                 key_fingerprint=fingerprint,
-                last_four=plaintext[-4:].decode("utf-8", errors="replace"),
                 alias=payload.alias.strip(),
                 status="active",
                 encryption_version=encrypted.encryption_version,

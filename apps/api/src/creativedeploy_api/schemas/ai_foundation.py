@@ -109,7 +109,6 @@ class CredentialRead(StrictModel):
     alias: str
     provider_key: str
     fingerprint: str
-    last_four: str | None
     status: Literal["active", "revoked", "replaced"]
     created_at: datetime
     updated_at: datetime
