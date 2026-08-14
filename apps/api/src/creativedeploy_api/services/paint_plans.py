@@ -111,6 +111,7 @@ from creativedeploy_api.services.paint_projects import (
 )
 from creativedeploy_api.services.zhipu_invocations import (
     GovernedZhipuInvocationService,
+    ZhipuBusinessResourceClaim,
     ZhipuLiveSelection,
 )
 from creativedeploy_api.storage.images import ImageStoragePort
@@ -1223,7 +1224,14 @@ class PaintPlanService:
         idempotency_key: uuid.UUID,
         request_id: uuid.UUID,
         regeneration_of_plan_id: uuid.UUID | None,
-    ) -> tuple[PaintPlanDocument, uuid.UUID, uuid.UUID, uuid.UUID, list[RetrievedContextUnit]]:
+    ) -> tuple[
+        PaintPlanDocument,
+        uuid.UUID,
+        uuid.UUID,
+        uuid.UUID,
+        list[RetrievedContextUnit],
+        uuid.UUID,
+    ]:
         if self._live_service is None:
             raise PaintPlanLiveExecutionBlockedError(["zhipu_live_service_unavailable"])
         fixture_source = self._fixture_source(
@@ -1328,6 +1336,16 @@ class PaintPlanService:
             },
         }
         try:
+            resource_scope = (
+                f"zhipu_resource:paintpilot:project:{source.access.project.id}:current-slot:none"
+                if regeneration_of_plan_id is None
+                else (
+                    "zhipu_resource:paintpilot:project:"
+                    f"{source.access.project.id}:current-plan:{regeneration_of_plan_id}:"
+                    "version:"
+                    f"{cast(PaintPlanRegenerateRequest, selection).expected_current_version}"
+                )
+            )
             result = await self._live_service.execute(
                 selection=ZhipuLiveSelection(
                     product_space="paintpilot",
@@ -1350,6 +1368,11 @@ class PaintPlanService:
                 idempotency_key=idempotency_key,
                 request_id=request_id,
                 safe_input_snapshot=safe_input_snapshot,
+                business_claim=ZhipuBusinessResourceClaim(
+                    scope_key=resource_scope,
+                    principal_id=principal.principal_id,
+                    command_type="paint_plan_generation",
+                ),
             )
         except (ProviderContractError, RuntimeError) as error:
             raise PaintPlanOutputInvalidError from error
@@ -1359,6 +1382,7 @@ class PaintPlanService:
             result.attempt_id,
             result.pricing_snapshot_id,
             list(retrieval.units),
+            result.business_claim_id,
         )
 
     async def preview(
@@ -1569,6 +1593,7 @@ class PaintPlanService:
         identity: object,
         retrieved_context: list[RetrievedContextUnit] | None = None,
         provider_pricing_snapshot_id: uuid.UUID | None = None,
+        business_claim_id: uuid.UUID | None = None,
     ) -> PaintPlanRead:
         async with self._session.begin():
             source = await self._load_source(
@@ -1600,6 +1625,17 @@ class PaintPlanService:
                     resource_id=existing.id,
                     response_snapshot=response.model_dump(mode="json"),
                 )
+                if business_claim_id is not None:
+                    assert self._live_service is not None
+                    await self._live_service.complete_business_resource_claim(
+                        claim_id=business_claim_id,
+                        resource_type="paint_plan",
+                        resource_id=existing.id,
+                        response_snapshot={
+                            "phase": "completed",
+                            "paint_plan_id": str(existing.id),
+                        },
+                    )
                 return response
             if not source.ready or source.region_set is None or source.prompt is None:
                 raise PaintPlanSourceNotReadyError(source.blockers)
@@ -1715,6 +1751,17 @@ class PaintPlanService:
                 resource_id=plan.id,
                 response_snapshot=response.model_dump(mode="json"),
             )
+            if business_claim_id is not None:
+                assert self._live_service is not None
+                await self._live_service.complete_business_resource_claim(
+                    claim_id=business_claim_id,
+                    resource_type="paint_plan",
+                    resource_id=plan.id,
+                    response_snapshot={
+                        "phase": "completed",
+                        "paint_plan_id": str(plan.id),
+                    },
+                )
             return response
 
     async def generate(
@@ -1773,6 +1820,7 @@ class PaintPlanService:
                 attempt_id,
                 pricing_id,
                 retrieved_context,
+                business_claim_id,
             ) = await self._generate_zhipu_live(
                 source=source,
                 selection=payload,
@@ -1795,6 +1843,7 @@ class PaintPlanService:
                 identity=identity,
                 retrieved_context=retrieved_context,
                 provider_pricing_snapshot_id=pricing_id,
+                business_claim_id=business_claim_id,
             )
         if provider.provider_key != FIXTURE_PROVIDER_KEY:
             blockers: list[str] = ["live_execution_authorization_required"]
@@ -1917,6 +1966,7 @@ class PaintPlanService:
                 attempt_id,
                 pricing_id,
                 retrieved_context,
+                business_claim_id,
             ) = await self._generate_zhipu_live(
                 source=source,
                 selection=payload,
@@ -1939,6 +1989,7 @@ class PaintPlanService:
                 identity=identity,
                 retrieved_context=retrieved_context,
                 provider_pricing_snapshot_id=pricing_id,
+                business_claim_id=business_claim_id,
             )
         if provider is None or provider.provider_key != FIXTURE_PROVIDER_KEY:
             blockers: list[str] = ["live_execution_authorization_required"]

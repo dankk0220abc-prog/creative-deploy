@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import os
@@ -9,7 +10,10 @@ import socket
 import subprocess
 import uuid
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
+from time import monotonic, sleep
 from typing import Any
 
 import psycopg
@@ -80,6 +84,8 @@ class _OfflineZhipuTransport(ZhipuHTTPTransport):
         self.expected_secret = expected_secret
         self.mode = "success"
         self.calls = 0
+        self.dispatch_entered = Event()
+        self.dispatch_release = Event()
 
     async def execute(
         self,
@@ -93,6 +99,10 @@ class _OfflineZhipuTransport(ZhipuHTTPTransport):
         assert request.model_id in {ZHIPU_GLM_52_MODEL, ZHIPU_GLM_5V_TURBO_MODEL}
         assert "body=[REDACTED]" in repr(request)
         self.calls += 1
+        if self.mode == "blocked_success":
+            self.dispatch_entered.set()
+            while not self.dispatch_release.is_set():
+                await asyncio.sleep(0.01)
         if self.mode == "outcome_unknown":
             raise ProviderContractError("outcome_unknown", dispatch_certainty="unknown")
         messages = request.body["messages"]
@@ -256,8 +266,8 @@ class _OfflineZhipuTransport(ZhipuHTTPTransport):
                     }
                 ],
                 "usage": {
-                    "prompt_tokens": 100,
-                    "completion_tokens": 50,
+                    "prompt_tokens": 1_000_000 if self.mode == "overage_success" else 100,
+                    "completion_tokens": 1_000_000 if self.mode == "overage_success" else 50,
                     "completion_tokens_details": {"reasoning_tokens": 12},
                 },
             },
@@ -622,6 +632,54 @@ def _configure_zhipu_ai(
     )
     assert policy.status_code == 200, policy.text
     return credential["id"]
+
+
+def _grant_existing_zhipu_ai(
+    client: TestClient,
+    project_id: str,
+    credential_id: str,
+) -> None:
+    credential = next(
+        item
+        for item in client.get("/api/v1/ai/credentials").json()["items"]
+        if item["id"] == credential_id
+    )
+    grant = client.post(
+        f"/api/v1/ai/credentials/{credential_id}/grants",
+        headers={"Idempotency-Key": str(uuid.uuid4())},
+        json={
+            "project_id": project_id,
+            "expected_credential_revision": credential["revision"],
+        },
+    )
+    assert grant.status_code == 201, grant.text
+    policy = client.patch(
+        f"/api/v1/paint-projects/{project_id}/ai-model-policy",
+        headers={"Idempotency-Key": str(uuid.uuid4())},
+        json={
+            "enabled": True,
+            "default_provider_definition_id": ZHIPU_PROVIDER_ID,
+            "default_model_definition_id": ZHIPU_GLM_5V_TURBO_MODEL_ID,
+            "default_credential_id": credential_id,
+            "provider_allowlist": [ZHIPU_PROVIDER_ID],
+            "model_allowlist": [ZHIPU_GLM_5V_TURBO_MODEL_ID],
+            "capability_allowlist": [
+                str(FIXTURE_VISION_CAPABILITY_ID),
+                str(FIXTURE_STRUCTURED_CAPABILITY_ID),
+            ],
+            "credential_allowlist": [credential_id],
+            "per_invocation_limit_minor_units": 100,
+            "cumulative_limit_minor_units": 100,
+            "budget_window_seconds": 86_400,
+            "currency": "CNY",
+            "allow_unknown_cost": False,
+            "allow_manual_model_id": False,
+            "allow_fallback": False,
+            "require_paid_call_confirmation": True,
+            "expected_revision": 0,
+        },
+    )
+    assert policy.status_code == 200, policy.text
 
 
 def _selection(image_set: dict[str, Any], region_set: dict[str, Any], credential_id: str) -> dict:
@@ -1522,6 +1580,59 @@ def test_zhipu_arcana_offline_live_coordinator_budget_isolation_and_unknown_outc
         assert journal.status_code == 200
         assert journal.json()["journal"]["notes"] == "Private note"
 
+        concurrent_reading = start_draw(client)
+        concurrent_payload = {
+            "provider_definition_id": ZHIPU_PROVIDER_ID,
+            "model_definition_id": ZHIPU_GLM_52_MODEL_ID,
+            "credential_id": credential["id"],
+            "confirm_paid_live_call": True,
+        }
+        transport.mode = "blocked_success"
+        transport.dispatch_entered.clear()
+        transport.dispatch_release.clear()
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            winner_future = executor.submit(
+                client.post,
+                f"/api/v1/arcana/readings/{concurrent_reading}/interpret-live",
+                headers={"Idempotency-Key": str(uuid.uuid4())},
+                json=concurrent_payload,
+            )
+            assert transport.dispatch_entered.wait(timeout=10)
+            loser_future = executor.submit(
+                client.post,
+                f"/api/v1/arcana/readings/{concurrent_reading}/interpret-live",
+                headers={"Idempotency-Key": str(uuid.uuid4())},
+                json=concurrent_payload,
+            )
+            loser = loser_future.result(timeout=10)
+            assert loser.status_code == 409, loser.text
+            assert transport.calls == 2
+            transport.dispatch_release.set()
+            winner = winner_future.result(timeout=10)
+        assert winner.status_code == 200, winner.text
+        assert transport.calls == 2
+
+        independent_readings = (start_draw(client), start_draw(client))
+        transport.dispatch_entered.clear()
+        transport.dispatch_release.clear()
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            independent_futures = [
+                executor.submit(
+                    client.post,
+                    f"/api/v1/arcana/readings/{reading_id}/interpret-live",
+                    headers={"Idempotency-Key": str(uuid.uuid4())},
+                    json=concurrent_payload,
+                )
+                for reading_id in independent_readings
+            ]
+            deadline = monotonic() + 10
+            while transport.calls < 4 and monotonic() < deadline:
+                sleep(0.01)
+            assert transport.calls == 4
+            transport.dispatch_release.set()
+            independent_responses = [future.result(timeout=10) for future in independent_futures]
+        assert all(response.status_code == 200 for response in independent_responses)
+
         transport.mode = "schema_invalid"
         schema_invalid_reading = start_draw(client)
         schema_invalid = client.post(
@@ -1535,7 +1646,7 @@ def test_zhipu_arcana_offline_live_coordinator_budget_isolation_and_unknown_outc
             },
         )
         assert schema_invalid.status_code == 409
-        assert transport.calls == 2
+        assert transport.calls == 5
 
         transport.mode = "citation_invalid"
         citation_invalid_reading = start_draw(client)
@@ -1550,7 +1661,7 @@ def test_zhipu_arcana_offline_live_coordinator_budget_isolation_and_unknown_outc
             },
         )
         assert citation_invalid.status_code == 409
-        assert transport.calls == 3
+        assert transport.calls == 6
 
         transport.mode = "outcome_unknown"
         unknown_reading = start_draw(client)
@@ -1567,14 +1678,21 @@ def test_zhipu_arcana_offline_live_coordinator_budget_isolation_and_unknown_outc
             json=unknown_payload,
         )
         assert unknown.status_code == 409
-        assert transport.calls == 4
+        assert transport.calls == 7
         duplicate = client.post(
             f"/api/v1/arcana/readings/{unknown_reading}/interpret-live",
             headers={"Idempotency-Key": unknown_key},
             json=unknown_payload,
         )
         assert duplicate.status_code == 409
-        assert transport.calls == 4
+        assert transport.calls == 7
+        duplicate_new_key = client.post(
+            f"/api/v1/arcana/readings/{unknown_reading}/interpret-live",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json=unknown_payload,
+        )
+        assert duplicate_new_key.status_code == 409
+        assert transport.calls == 7
 
         active_principal[0] = other
         other_reading = start_draw(client)
@@ -1584,9 +1702,29 @@ def test_zhipu_arcana_offline_live_coordinator_budget_isolation_and_unknown_outc
             json=unknown_payload,
         )
         assert cross_user.status_code == 409
-        assert transport.calls == 4
+        assert transport.calls == 7
 
         active_principal[0] = owner
+        save_preference(revision=2, cumulative_limit=150)
+        transport.mode = "overage_success"
+        overage_reading = start_draw(client)
+        overage = client.post(
+            f"/api/v1/arcana/readings/{overage_reading}/interpret-live",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json=unknown_payload,
+        )
+        assert overage.status_code == 200, overage.text
+        assert transport.calls == 8
+        transport.mode = "success"
+        blocked_after_overage = start_draw(client)
+        blocked = client.post(
+            f"/api/v1/arcana/readings/{blocked_after_overage}/interpret-live",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json=unknown_payload,
+        )
+        assert blocked.status_code == 409
+        assert transport.calls == 8
+
         transport.mode = "success"
         current_credential = next(
             item
@@ -1606,7 +1744,7 @@ def test_zhipu_arcana_offline_live_coordinator_budget_isolation_and_unknown_outc
             json=unknown_payload,
         )
         assert revoked_attempt.status_code == 409
-        assert transport.calls == 4
+        assert transport.calls == 8
 
     database_url = make_url(settings.database_url.get_secret_value())
     with psycopg.connect(**_connection_kwargs(database_url)) as connection:
@@ -1620,6 +1758,7 @@ def test_zhipu_arcana_offline_live_coordinator_budget_isolation_and_unknown_outc
             JOIN ai_cost_ledger AS c ON c.attempt_id = a.id
             JOIN ai_usage_ledger AS u ON u.attempt_id = a.id
             WHERE i.product_space = 'arcana' AND i.status = 'succeeded'
+              AND r.state = 'settled'
             """
         ).fetchone()
         assert successful == (
@@ -1725,6 +1864,29 @@ def test_zhipu_arcana_offline_live_coordinator_budget_isolation_and_unknown_outc
             1,
             1,
         )
+        overage_state = connection.execute(
+            """
+            SELECT i.status, a.status, r.state,
+                   a.safe_provider_metadata ->> 'accounting_state',
+                   a.safe_provider_metadata ->> 'measured_cost_over_reservation',
+                   c.amount_minor_units, r.reserved_amount
+            FROM invocation_requests AS i
+            JOIN invocation_attempts AS a ON a.invocation_id = i.id
+            JOIN budget_reservations AS r ON r.attempt_id = a.id
+            JOIN ai_cost_ledger AS c ON c.attempt_id = a.id
+            WHERE i.safe_payload ->> 'reading_id' = %s
+            """,
+            (overage_reading,),
+        ).fetchone()
+        assert overage_state is not None
+        assert overage_state[:5] == (
+            "succeeded",
+            "succeeded",
+            "reconciliation_required",
+            "reconciliation_required",
+            "true",
+        )
+        assert overage_state[5] > overage_state[6]
         credential_state = connection.execute(
             """
             SELECT status, ciphertext, wrapped_dek, last_validation_status
@@ -1733,14 +1895,23 @@ def test_zhipu_arcana_offline_live_coordinator_budget_isolation_and_unknown_outc
             (credential["id"],),
         ).fetchone()
         assert credential_state == ("revoked", None, None, "provider_valid")
-        committed = connection.execute(
+        measured_total = connection.execute(
             """
             SELECT coalesce(sum(amount_minor_units), 0)
             FROM ai_cost_ledger
             WHERE currency = 'CNY' AND amount_minor_units IS NOT NULL
             """
         ).fetchone()
-        assert committed is not None and 0 <= committed[0] <= 100
+        assert measured_total is not None and measured_total[0] > 150
+        claim_states = connection.execute(
+            """
+            SELECT execution_status, count(*)
+            FROM command_idempotency_records
+            WHERE scope_key LIKE 'zhipu_resource:arcana:reading:%'
+            GROUP BY execution_status
+            """
+        ).fetchall()
+        assert dict(claim_states) == {"completed": 5, "in_progress": 1}
 
 
 def test_zhipu_paint_plan_offline_live_multimodal_provenance_and_citations(
@@ -1962,3 +2133,168 @@ def test_zhipu_paint_plan_offline_live_multimodal_provenance_and_citations(
         assert stored_failure is not None
         assert "private generated output must not persist" not in stored_failure[0]
         assert "response_format" not in failure[-1]
+
+
+def test_zhipu_paint_plan_business_claim_concurrency_and_lifecycle_independence(
+    paint_plan_integration_settings: Settings,
+) -> None:
+    settings = paint_plan_integration_settings.model_copy(update={"zhipu_live_enabled": True})
+    owner = _principal(label="zhipu-claim-owner", user_id=uuid.uuid4())
+    _seed_users(settings, owner)
+    synthetic_secret = f"zhipu-synthetic-{uuid.uuid4().hex}"
+    transport = _OfflineZhipuTransport(synthetic_secret.encode())
+    app = create_app(settings)
+    app.state.zhipu_transport = transport
+    app.dependency_overrides[get_current_principal] = lambda: owner
+
+    def ready_project(client: TestClient, title: str) -> tuple[str, dict[str, object]]:
+        project_id = _create_project(client, title)["id"]
+        image_set = _ready_image_set(client, project_id)
+        region_set = _approved_region_set(client, project_id)
+        return project_id, {
+            "image_set_fingerprint": image_set["image_set_fingerprint"],
+            "region_set_id": region_set["id"],
+            "provider_definition_id": ZHIPU_PROVIDER_ID,
+            "model_definition_id": ZHIPU_GLM_5V_TURBO_MODEL_ID,
+            "generation_locale": "en-US",
+            "intent": "Use only the approved synthetic offline source.",
+            "confirm_generation": True,
+            "max_attempts": 1,
+        }
+
+    with TestClient(app) as client:
+        first_project_id, first_selection = ready_project(client, "Zhipu claim independence A")
+        credential_id = _configure_zhipu_ai(client, first_project_id, synthetic_secret)
+        first_selection["credential_id"] = credential_id
+        second_project_id, second_selection = ready_project(client, "Zhipu claim independence B")
+        _grant_existing_zhipu_ai(client, second_project_id, credential_id)
+        second_selection["credential_id"] = credential_id
+
+        transport.mode = "blocked_success"
+        transport.dispatch_entered.clear()
+        transport.dispatch_release.clear()
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first_future = executor.submit(
+                client.post,
+                f"/api/v1/paint-projects/{first_project_id}/paint-plans/generate",
+                headers={"Idempotency-Key": str(uuid.uuid4())},
+                json=first_selection,
+            )
+            second_future = executor.submit(
+                client.post,
+                f"/api/v1/paint-projects/{second_project_id}/paint-plans/generate",
+                headers={"Idempotency-Key": str(uuid.uuid4())},
+                json=second_selection,
+            )
+            deadline = monotonic() + 10
+            while transport.calls < 2 and monotonic() < deadline:
+                sleep(0.01)
+            assert transport.calls == 2
+            transport.dispatch_release.set()
+            first_response = first_future.result(timeout=10)
+            second_response = second_future.result(timeout=10)
+        assert first_response.status_code == 201, first_response.text
+        assert second_response.status_code == 201, second_response.text
+        first_plan = first_response.json()
+        second_plan = second_response.json()
+
+        first_regeneration = {
+            **first_selection,
+            "expected_current_plan_id": first_plan["id"],
+            "expected_current_version": first_plan["version"],
+        }
+        transport.dispatch_entered.clear()
+        transport.dispatch_release.clear()
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            winner_future = executor.submit(
+                client.post,
+                (
+                    f"/api/v1/paint-projects/{first_project_id}/paint-plans/"
+                    f"{first_plan['id']}/regenerate"
+                ),
+                headers={"Idempotency-Key": str(uuid.uuid4())},
+                json=first_regeneration,
+            )
+            assert transport.dispatch_entered.wait(timeout=10)
+            loser_future = executor.submit(
+                client.post,
+                (
+                    f"/api/v1/paint-projects/{first_project_id}/paint-plans/"
+                    f"{first_plan['id']}/regenerate"
+                ),
+                headers={"Idempotency-Key": str(uuid.uuid4())},
+                json=first_regeneration,
+            )
+            loser = loser_future.result(timeout=10)
+            assert loser.status_code == 502, loser.text
+            assert transport.calls == 3
+            transport.dispatch_release.set()
+            winner = winner_future.result(timeout=10)
+        assert winner.status_code == 201, winner.text
+        first_regenerated = winner.json()
+
+        transport.mode = "success"
+        later_lifecycle = client.post(
+            (
+                f"/api/v1/paint-projects/{first_project_id}/paint-plans/"
+                f"{first_regenerated['id']}/regenerate"
+            ),
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={
+                **first_selection,
+                "expected_current_plan_id": first_regenerated["id"],
+                "expected_current_version": first_regenerated["version"],
+            },
+        )
+        assert later_lifecycle.status_code == 201, later_lifecycle.text
+        assert transport.calls == 4
+
+        transport.mode = "outcome_unknown"
+        unknown_payload = {
+            **second_selection,
+            "expected_current_plan_id": second_plan["id"],
+            "expected_current_version": second_plan["version"],
+        }
+        unknown_path = (
+            f"/api/v1/paint-projects/{second_project_id}/paint-plans/{second_plan['id']}/regenerate"
+        )
+        unknown = client.post(
+            unknown_path,
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json=unknown_payload,
+        )
+        assert unknown.status_code == 502, unknown.text
+        assert transport.calls == 5
+        unknown_new_key = client.post(
+            unknown_path,
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json=unknown_payload,
+        )
+        assert unknown_new_key.status_code == 502, unknown_new_key.text
+        assert transport.calls == 5
+
+    database_url = make_url(settings.database_url.get_secret_value())
+    with psycopg.connect(**_connection_kwargs(database_url)) as connection:
+        released_loser = connection.execute(
+            """
+            SELECT count(*)
+            FROM invocation_requests AS invocation
+            JOIN invocation_attempts AS attempt ON attempt.invocation_id = invocation.id
+            JOIN budget_reservations AS reservation ON reservation.attempt_id = attempt.id
+            WHERE invocation.project_id = %s
+              AND invocation.final_error_category = 'business_resource_claim_conflict'
+              AND attempt.dispatched_at IS NULL
+              AND reservation.state = 'released'
+            """,
+            (first_project_id,),
+        ).fetchone()
+        assert released_loser == (1,)
+        claim_states = connection.execute(
+            """
+            SELECT execution_status, count(*)
+            FROM command_idempotency_records
+            WHERE scope_key LIKE 'zhipu_resource:paintpilot:project:%'
+            GROUP BY execution_status
+            """
+        ).fetchall()
+        assert dict(claim_states) == {"completed": 4, "in_progress": 1}

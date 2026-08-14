@@ -70,6 +70,7 @@ from creativedeploy_api.schemas.arcana import (
 from creativedeploy_api.services.paint_projects import PaintProjectApplicationError
 from creativedeploy_api.services.zhipu_invocations import (
     GovernedZhipuInvocationService,
+    ZhipuBusinessResourceClaim,
     ZhipuLiveSelection,
 )
 
@@ -738,6 +739,11 @@ class ArcanaService:
                     ],
                     "schema_version": "tarot-reading.v2",
                 },
+                business_claim=ZhipuBusinessResourceClaim(
+                    scope_key=f"zhipu_resource:arcana:reading:{reading.id}",
+                    principal_id=principal.principal_id,
+                    command_type="arcana_interpretation",
+                ),
             )
         except (ProviderContractError, RuntimeError) as error:
             raise ArcanaLiveUnavailableError from error
@@ -755,6 +761,7 @@ class ArcanaService:
         if reading.status != "drawn":
             raise ArcanaLifecycleConflictError
         now = datetime.now(UTC)
+        revision_id = uuid.uuid4()
         input_hash = hashlib.sha256(
             json.dumps(context, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
                 "utf-8"
@@ -762,6 +769,7 @@ class ArcanaService:
         ).hexdigest()
         self._session.add(
             TarotInterpretationRevision(
+                id=revision_id,
                 reading_id=reading.id,
                 revision=1,
                 source="zhipu_live",
@@ -784,6 +792,16 @@ class ArcanaService:
         reading.status = "interpreted"
         reading.interpreted_at = now
         reading.updated_at = now
+        await self._live_service.complete_business_resource_claim(
+            claim_id=result.business_claim_id,
+            resource_type="tarot_interpretation",
+            resource_id=revision_id,
+            response_snapshot={
+                "phase": "completed",
+                "reading_id": str(reading.id),
+                "interpretation_revision_id": str(revision_id),
+            },
+        )
         await self._session.commit()
         return await self._read(reading)
 

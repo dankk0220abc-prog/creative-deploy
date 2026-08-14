@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from creativedeploy_api.ai.canonicalization import canonicalize_and_hash
@@ -42,6 +43,7 @@ from creativedeploy_api.db.models import (
     AIInvocationEvent,
     AIUsageLedger,
     BudgetReservation,
+    CommandIdempotencyRecord,
     InvocationAttempt,
     InvocationRequest,
 )
@@ -51,8 +53,10 @@ from creativedeploy_api.repositories.identity import SqlAlchemyIdentityRepositor
 from creativedeploy_api.services.ai_foundation import _encrypted_payload
 
 CNY_CURRENCY = "CNY"
-WP2_LIVE_VALIDATION_HARD_CAP_FEN = 150
+WP2_GOVERNED_LEDGER_CAP_FEN = 150
 RESERVATION_EXPIRY = timedelta(seconds=120)
+BUSINESS_CLAIM_RETENTION = timedelta(days=3650)
+BUSINESS_CLAIM_IDEMPOTENCY_KEY = uuid.UUID("87da477f-718f-4df6-a892-637fb40fd0f0")
 OutputValidator = Callable[[Mapping[str, object]], dict[str, object]]
 
 
@@ -161,6 +165,10 @@ class ZhipuLiveAdmissionError(RuntimeError):
     """A safe, pre-dispatch live-admission failure."""
 
 
+class ZhipuBusinessResourceConflictError(ZhipuLiveAdmissionError):
+    """The same durable business resource is already claimed."""
+
+
 @dataclass(frozen=True, slots=True)
 class ZhipuLiveSelection:
     product_space: Literal["arcana", "paintpilot"]
@@ -175,12 +183,20 @@ class ZhipuLiveSelection:
 
 
 @dataclass(frozen=True, slots=True)
+class ZhipuBusinessResourceClaim:
+    scope_key: str
+    principal_id: str
+    command_type: str
+
+
+@dataclass(frozen=True, slots=True)
 class GovernedZhipuResult:
     invocation_id: uuid.UUID
     attempt_id: uuid.UUID
     provider_definition_id: uuid.UUID
     model_definition_id: uuid.UUID
     pricing_snapshot_id: uuid.UUID
+    business_claim_id: uuid.UUID
     output: dict[str, object]
     provider_request_id_status: Literal["provided", "unavailable"]
     provider_request_id: str | None
@@ -425,12 +441,12 @@ class GovernedZhipuInvocationService:
         idempotency_key: uuid.UUID,
         request_id: uuid.UUID,
         safe_input_snapshot: Mapping[str, object],
-    ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, object]:
+    ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
         assert_zhipu_live_execution_authorized(self._live_gate_enabled)
         if principal.user_id is None or selection.estimate_minor_units < 1:
             raise ZhipuLiveAdmissionError("authenticated budgeted user required")
-        if selection.estimate_minor_units > WP2_LIVE_VALIDATION_HARD_CAP_FEN:
-            raise ZhipuLiveAdmissionError("WP2 cumulative live cap would be exceeded")
+        if selection.estimate_minor_units > WP2_GOVERNED_LEDGER_CAP_FEN:
+            raise ZhipuLiveAdmissionError("WP2 governed ledger cap would be exceeded")
         if request.provider_key != ZHIPU_PROVIDER_KEY or request.model_id not in {
             ZHIPU_GLM_52_MODEL,
             ZHIPU_GLM_5V_TURBO_MODEL,
@@ -552,7 +568,7 @@ class GovernedZhipuInvocationService:
                 + selection.estimate_minor_units
                 > min(
                     user_budget.cumulative_limit_minor_units,
-                    WP2_LIVE_VALIDATION_HARD_CAP_FEN,
+                    WP2_GOVERNED_LEDGER_CAP_FEN,
                 )
             ):
                 raise ZhipuLiveAdmissionError("user cumulative budget rejected")
@@ -568,11 +584,8 @@ class GovernedZhipuInvocationService:
                     AICostLedger.amount_minor_units.is_not(None),
                 )
             )
-            if (
-                int(committed or 0) + selection.estimate_minor_units
-                > WP2_LIVE_VALIDATION_HARD_CAP_FEN
-            ):
-                raise ZhipuLiveAdmissionError("WP2 cumulative live cap rejected")
+            if int(committed or 0) + selection.estimate_minor_units > WP2_GOVERNED_LEDGER_CAP_FEN:
+                raise ZhipuLiveAdmissionError("WP2 governed ledger cap rejected")
             project_counter = None
             if selection.project_id is not None:
                 access = await self._identity.resolve_project_access(
@@ -658,7 +671,7 @@ class GovernedZhipuInvocationService:
                     "currency": CNY_CURRENCY,
                     "reserved_minor_units": selection.estimate_minor_units,
                     "pricing_snapshot_id": str(pricing.id),
-                    "wp2_cumulative_hard_cap_minor_units": WP2_LIVE_VALIDATION_HARD_CAP_FEN,
+                    "wp2_governed_ledger_cap_minor_units": WP2_GOVERNED_LEDGER_CAP_FEN,
                 },
                 safe_payload={
                     **dict(safe_input_snapshot),
@@ -672,7 +685,7 @@ class GovernedZhipuInvocationService:
                     "retrieval": retrieval.model_dump(mode="json"),
                     "retrieval_hash": retrieval.canonical_hash(),
                 },
-                status="running",
+                status="admitted",
                 final_attempt_id=None,
                 started_at=now,
                 terminal_at=None,
@@ -699,8 +712,8 @@ class GovernedZhipuInvocationService:
                 retry_of_attempt_id=None,
                 fallback_decision="disabled",
                 currency=CNY_CURRENCY,
-                status="running",
-                dispatched_at=now,
+                status="admitted",
+                dispatched_at=None,
                 terminal_at=None,
                 cancellation_requested_at=None,
                 final_error_category=None,
@@ -724,10 +737,10 @@ class GovernedZhipuInvocationService:
                 project_counter_id=None if project_counter is None else project_counter.id,
                 currency=CNY_CURRENCY,
                 reserved_amount=selection.estimate_minor_units,
-                state="dispatch_committed",
+                state="reserved",
                 created_at=now,
                 admission_expires_at=now + RESERVATION_EXPIRY,
-                dispatch_committed_at=now,
+                dispatch_committed_at=None,
                 settled_at=None,
                 released_at=None,
                 revision=1,
@@ -750,10 +763,192 @@ class GovernedZhipuInvocationService:
                         attempt_id=None,
                         event_type="request_created",
                         from_status=None,
-                        to_status="running",
+                        to_status="admitted",
                         safe_metadata={"fixture": False, "live_gate": True},
                         created_at=now,
                     ),
+                )
+            )
+            return invocation.id, attempt.id, reservation.id
+
+    async def _release_admitted_attempt(
+        self,
+        *,
+        invocation_id: uuid.UUID,
+        attempt_id: uuid.UUID,
+        reservation_id: uuid.UUID,
+        claim_id: uuid.UUID | None,
+        error_category: str,
+    ) -> None:
+        """Release only a claim/admission that never crossed the dispatch marker."""
+
+        async with self._session.begin():
+            invocation = await self._repository.get_invocation(invocation_id, for_update=True)
+            attempt = await self._repository.get_attempt(attempt_id, for_update=True)
+            reservation = await self._repository.get_reservation(attempt_id, for_update=True)
+            if (
+                invocation is None
+                or attempt is None
+                or reservation is None
+                or reservation.id != reservation_id
+                or invocation.status != "admitted"
+                or attempt.status != "admitted"
+                or reservation.state != "reserved"
+            ):
+                raise ZhipuLiveAdmissionError("pre-dispatch admission state changed")
+            user_counter = await self._repository.get_user_counter_by_id(
+                reservation.user_counter_id, for_update=True
+            )
+            project_counter = (
+                None
+                if reservation.project_counter_id is None
+                else await self._repository.get_project_counter_by_id(
+                    reservation.project_counter_id, for_update=True
+                )
+            )
+            if user_counter is None:
+                raise ZhipuLiveAdmissionError("pre-dispatch accounting state changed")
+            now = datetime.now(UTC)
+            user_counter.reserved_minor_units -= reservation.reserved_amount
+            user_counter.revision += 1
+            if project_counter is not None:
+                project_counter.reserved_minor_units -= reservation.reserved_amount
+                project_counter.revision += 1
+            reservation.state = "released"
+            reservation.released_at = now
+            reservation.revision += 1
+            attempt.status = "failed"
+            attempt.final_error_category = error_category
+            attempt.terminal_at = now
+            attempt.revision += 1
+            invocation.status = "failed"
+            invocation.final_error_category = error_category
+            invocation.terminal_at = now
+            invocation.updated_at = now
+            invocation.revision += 1
+            if claim_id is not None:
+                await self._session.execute(
+                    delete(CommandIdempotencyRecord).where(
+                        CommandIdempotencyRecord.id == claim_id,
+                        CommandIdempotencyRecord.execution_status == "in_progress",
+                    )
+                )
+            self._session.add(
+                AIInvocationEvent(
+                    id=uuid.uuid4(),
+                    invocation_id=invocation.id,
+                    attempt_id=attempt.id,
+                    event_type="attempt_failed",
+                    from_status="admitted",
+                    to_status="failed",
+                    safe_metadata={
+                        "error_category": error_category,
+                        "dispatch_certainty": "not_dispatched",
+                    },
+                    created_at=now,
+                )
+            )
+
+    async def _claim_business_resource(
+        self,
+        *,
+        claim: ZhipuBusinessResourceClaim,
+        invocation_id: uuid.UUID,
+    ) -> uuid.UUID:
+        now = datetime.now(UTC)
+        claim_id = uuid.uuid4()
+        _, prefixed_hash = canonicalize_and_hash(
+            {
+                "scope_key": claim.scope_key,
+                "principal_id": claim.principal_id,
+                "command_type": claim.command_type,
+            }
+        )
+        record = CommandIdempotencyRecord(
+            id=claim_id,
+            scope_key=claim.scope_key,
+            principal_id=claim.principal_id,
+            command_type=claim.command_type,
+            idempotency_key=BUSINESS_CLAIM_IDEMPOTENCY_KEY,
+            payload_hash=prefixed_hash.removeprefix("sha256:"),
+            execution_status="in_progress",
+            resource_type=None,
+            resource_id=None,
+            http_status=None,
+            response_snapshot={
+                "phase": "claimed",
+                "invocation_id": str(invocation_id),
+            },
+            created_at=now,
+            expires_at=now + BUSINESS_CLAIM_RETENTION,
+        )
+        try:
+            async with self._session.begin():
+                self._session.add(record)
+                await self._session.flush()
+        except IntegrityError as error:
+            raise ZhipuBusinessResourceConflictError(
+                "business resource is already claimed"
+            ) from error
+        return claim_id
+
+    async def _commit_dispatch(
+        self,
+        *,
+        selection: ZhipuLiveSelection,
+        principal: PrincipalContext,
+        request_id: uuid.UUID,
+        invocation_id: uuid.UUID,
+        attempt_id: uuid.UUID,
+        reservation_id: uuid.UUID,
+        claim_id: uuid.UUID,
+    ) -> object:
+        assert principal.user_id is not None
+        async with self._session.begin():
+            claim = await self._session.get(
+                CommandIdempotencyRecord, claim_id, with_for_update=True
+            )
+            invocation = await self._repository.get_invocation(invocation_id, for_update=True)
+            attempt = await self._repository.get_attempt(attempt_id, for_update=True)
+            reservation = await self._repository.get_reservation(attempt_id, for_update=True)
+            credential = await self._repository.get_owned_credential(
+                credential_id=selection.credential_id,
+                owner_user_id=principal.user_id,
+                for_update=True,
+            )
+            if (
+                claim is None
+                or claim.execution_status != "in_progress"
+                or invocation is None
+                or attempt is None
+                or reservation is None
+                or credential is None
+                or reservation.id != reservation_id
+                or invocation.status != "admitted"
+                or attempt.status != "admitted"
+                or attempt.dispatched_at is not None
+                or reservation.state != "reserved"
+                or reservation.dispatch_committed_at is not None
+            ):
+                raise ZhipuLiveAdmissionError("dispatch boundary state changed")
+            now = datetime.now(UTC)
+            invocation.status = "running"
+            invocation.started_at = now
+            invocation.updated_at = now
+            invocation.revision += 1
+            attempt.status = "running"
+            attempt.dispatched_at = now
+            attempt.revision += 1
+            reservation.state = "dispatch_committed"
+            reservation.dispatch_committed_at = now
+            reservation.revision += 1
+            claim.response_snapshot = {
+                "phase": "dispatch_committed",
+                "invocation_id": str(invocation.id),
+                "attempt_id": str(attempt.id),
+            }
+            self._session.add_all(
+                (
                     AIInvocationEvent(
                         id=uuid.uuid4(),
                         invocation_id=invocation.id,
@@ -763,34 +958,36 @@ class GovernedZhipuInvocationService:
                         to_status="running",
                         safe_metadata={
                             "currency": CNY_CURRENCY,
-                            "reserved_minor_units": selection.estimate_minor_units,
+                            "reserved_minor_units": reservation.reserved_amount,
                             "fallback": False,
+                            "business_resource_claimed": True,
                         },
                         created_at=now,
                     ),
                     AIAuditEvent(
                         id=uuid.uuid4(),
-                        actor_user_id=user_id,
+                        actor_user_id=principal.user_id,
                         product_space=selection.product_space,
                         project_id=selection.project_id,
                         credential_id=credential.id,
                         invocation_id=invocation.id,
                         attempt_id=attempt.id,
-                        provider_definition_id=provider.id,
-                        model_definition_id=model.id,
+                        provider_definition_id=attempt.provider_definition_id,
+                        model_definition_id=attempt.model_definition_id,
                         action="zhipu_live_dispatch",
                         outcome="running",
                         request_id=request_id,
                         safe_metadata={
-                            "model_id": model.model_id,
+                            "model_id": attempt.model_id,
                             "live_gate": True,
                             "credential_plaintext": False,
+                            "business_resource_claimed": True,
                         },
                         created_at=now,
                     ),
                 )
             )
-            secret = self._cipher.decrypt(
+            return self._cipher.decrypt(
                 _encrypted_payload(credential),
                 aad=CredentialAAD(
                     credential_id=credential.id,
@@ -799,7 +996,34 @@ class GovernedZhipuInvocationService:
                     encryption_version=credential.encryption_version or "",
                 ),
             )
-            return invocation.id, attempt.id, reservation.id, secret
+
+    async def complete_business_resource_claim(
+        self,
+        *,
+        claim_id: uuid.UUID,
+        resource_type: str,
+        resource_id: uuid.UUID,
+        response_snapshot: Mapping[str, object],
+    ) -> None:
+        """Complete a dispatch claim inside the caller's business-persistence transaction."""
+
+        claim = await self._session.get(CommandIdempotencyRecord, claim_id, with_for_update=True)
+        if claim is None or claim.execution_status != "in_progress":
+            raise ZhipuLiveAdmissionError("business resource claim state changed")
+        claim.execution_status = "completed"
+        claim.resource_type = resource_type
+        claim.resource_id = resource_id
+        claim.http_status = 200
+        claim.response_snapshot = dict(response_snapshot)
+
+    async def _release_terminal_business_claim(self, claim_id: uuid.UUID) -> None:
+        async with self._session.begin():
+            await self._session.execute(
+                delete(CommandIdempotencyRecord).where(
+                    CommandIdempotencyRecord.id == claim_id,
+                    CommandIdempotencyRecord.execution_status == "in_progress",
+                )
+            )
 
     async def _terminalize(
         self,
@@ -810,6 +1034,7 @@ class GovernedZhipuInvocationService:
         invocation_id: uuid.UUID,
         attempt_id: uuid.UUID,
         reservation_id: uuid.UUID,
+        business_claim_id: uuid.UUID,
         adapter: ZhipuChatAdapter,
         normalized: NormalizedProviderResult | None,
         validated_output: dict[str, object] | None,
@@ -887,7 +1112,10 @@ class GovernedZhipuInvocationService:
                 credential.last_successful_validation_at = None
                 credential.updated_at = now
                 credential.revision += 1
-            if measured_cost is not None:
+            accounting_reconciliation_required = (
+                measured_cost is not None and measured_cost > reservation.reserved_amount
+            )
+            if measured_cost is not None and not accounting_reconciliation_required:
                 actual = measured_cost
                 user_counter.reserved_minor_units -= reservation.reserved_amount
                 user_counter.committed_minor_units += actual
@@ -898,6 +1126,10 @@ class GovernedZhipuInvocationService:
                     project_counter.revision += 1
                 reservation.state = "settled"
                 reservation.settled_at = now
+            elif accounting_reconciliation_required:
+                # Preserve admitted occupancy and measured ledger evidence; a
+                # normal overage commit is deliberately forbidden.
+                reservation.state = "reconciliation_required"
             elif error is not None and error.dispatch_certainty == "not_dispatched":
                 user_counter.reserved_minor_units -= reservation.reserved_amount
                 user_counter.revision += 1
@@ -938,6 +1170,8 @@ class GovernedZhipuInvocationService:
                 if measured_cost is not None
                 else "unavailable",
                 "output_persisted": succeeded,
+                "accounting_state": reservation.state,
+                "measured_cost_over_reservation": accounting_reconciliation_required,
                 **diagnostic_metadata,
             }
             attempt.latency_ms = latency_ms
@@ -999,6 +1233,7 @@ class GovernedZhipuInvocationService:
                             if succeeded
                             else "reconciliation_required"
                             if terminal_status == "outcome_unknown"
+                            or accounting_reconciliation_required
                             else "attempt_failed"
                         ),
                         from_status="running",
@@ -1007,6 +1242,8 @@ class GovernedZhipuInvocationService:
                             "error_category": error_category,
                             "retry": False,
                             "currency": CNY_CURRENCY,
+                            "accounting_state": reservation.state,
+                            "measured_cost_over_reservation": (accounting_reconciliation_required),
                             **diagnostic_metadata,
                         },
                         created_at=now,
@@ -1029,6 +1266,8 @@ class GovernedZhipuInvocationService:
                             "retry": False,
                             "cost_minor_units": measured_cost,
                             "currency": CNY_CURRENCY,
+                            "accounting_state": reservation.state,
+                            "measured_cost_over_reservation": (accounting_reconciliation_required),
                             **diagnostic_metadata,
                         },
                         created_at=now,
@@ -1044,6 +1283,7 @@ class GovernedZhipuInvocationService:
                 provider_definition_id=attempt.provider_definition_id,
                 model_definition_id=attempt.model_definition_id,
                 pricing_snapshot_id=selection.pricing_snapshot_id,
+                business_claim_id=business_claim_id,
                 output=validated_output,
                 provider_request_id_status=request_status,  # type: ignore[arg-type]
                 provider_request_id=provider_request_id,
@@ -1063,9 +1303,10 @@ class GovernedZhipuInvocationService:
         idempotency_key: uuid.UUID,
         request_id: uuid.UUID,
         safe_input_snapshot: Mapping[str, object],
+        business_claim: ZhipuBusinessResourceClaim,
     ) -> GovernedZhipuResult:
         adapter = ZhipuChatAdapter(request.model_id)  # type: ignore[arg-type]
-        invocation_id, attempt_id, reservation_id, secret = await self._admit(
+        invocation_id, attempt_id, reservation_id = await self._admit(
             selection=selection,
             principal=principal,
             request=request,
@@ -1074,6 +1315,39 @@ class GovernedZhipuInvocationService:
             request_id=request_id,
             safe_input_snapshot=safe_input_snapshot,
         )
+        try:
+            business_claim_id = await self._claim_business_resource(
+                claim=business_claim,
+                invocation_id=invocation_id,
+            )
+        except ZhipuBusinessResourceConflictError:
+            await self._release_admitted_attempt(
+                invocation_id=invocation_id,
+                attempt_id=attempt_id,
+                reservation_id=reservation_id,
+                claim_id=None,
+                error_category="business_resource_claim_conflict",
+            )
+            raise
+        try:
+            secret = await self._commit_dispatch(
+                selection=selection,
+                principal=principal,
+                request_id=request_id,
+                invocation_id=invocation_id,
+                attempt_id=attempt_id,
+                reservation_id=reservation_id,
+                claim_id=business_claim_id,
+            )
+        except Exception:
+            await self._release_admitted_attempt(
+                invocation_id=invocation_id,
+                attempt_id=attempt_id,
+                reservation_id=reservation_id,
+                claim_id=business_claim_id,
+                error_category="dispatch_boundary_rejected",
+            )
+            raise
         started = time.monotonic()
         normalized: NormalizedProviderResult | None = None
         validated_output: dict[str, object] | None = None
@@ -1150,6 +1424,7 @@ class GovernedZhipuInvocationService:
             invocation_id=invocation_id,
             attempt_id=attempt_id,
             reservation_id=reservation_id,
+            business_claim_id=business_claim_id,
             adapter=adapter,
             normalized=normalized,
             validated_output=validated_output,
@@ -1157,6 +1432,8 @@ class GovernedZhipuInvocationService:
             latency_ms=latency_ms,
         )
         if error is not None:
+            if error.category != "outcome_unknown":
+                await self._release_terminal_business_claim(business_claim_id)
             raise error
         if result is None:
             raise ProviderContractError("schema_invalid", dispatch_certainty="dispatched")

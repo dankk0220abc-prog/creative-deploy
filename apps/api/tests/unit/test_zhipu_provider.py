@@ -5,6 +5,7 @@ import hashlib
 import json
 import uuid
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -13,6 +14,7 @@ from creativedeploy_api.ai.encryption import SecretBytes
 from creativedeploy_api.ai.provider_transport import (
     MAX_SAFE_PROVIDER_ERROR_MESSAGE_CHARS,
     GovernedMultimodalPrompt,
+    NormalizedProviderResult,
     NormalizedProviderUsage,
     PreparedImageAttachment,
     ProviderContractError,
@@ -32,6 +34,10 @@ from creativedeploy_api.ai.zhipu_provider import (
     ZhipuLiveExecutionBlockedError,
 )
 from creativedeploy_api.services.zhipu_invocations import (
+    GovernedZhipuInvocationService,
+    ZhipuBusinessResourceClaim,
+    ZhipuLiveAdmissionError,
+    ZhipuLiveSelection,
     ZhipuUsageReconciliationService,
     _provider_diagnostic_metadata,
 )
@@ -504,6 +510,298 @@ def test_measured_usage_reconciliation_settles_without_rewriting_terminal_eviden
     assert invocation.status == "failed"
     assert attempt.status == "failed"
     assert len(session.added) == 3
+
+
+@pytest.mark.parametrize("model_id", [ZHIPU_GLM_52_MODEL, ZHIPU_GLM_5V_TURBO_MODEL])
+@pytest.mark.parametrize("overage", [False, True], ids=["equal_reservation", "overage"])
+def test_terminal_accounting_separates_known_provider_outcome_from_overage_reconciliation(
+    model_id: str,
+    overage: bool,
+) -> None:
+    adapter = ZhipuChatAdapter(model_id)  # type: ignore[arg-type]
+    usage = NormalizedProviderUsage(
+        measurement_status="measured",
+        input_units=1_000_000,
+        output_units=1_000_000,
+    )
+    measured_cost = adapter.measured_cost(usage)
+    assert measured_cost is not None and measured_cost > 1
+    reserved_amount = measured_cost - 1 if overage else measured_cost
+    invocation_id = uuid.uuid4()
+    attempt_id = uuid.uuid4()
+    reservation_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    project_id = None if model_id == ZHIPU_GLM_52_MODEL else uuid.uuid4()
+    provider_id = uuid.uuid4()
+    model_definition_id = uuid.uuid4()
+    credential_id = uuid.uuid4()
+    invocation = SimpleNamespace(
+        id=invocation_id,
+        requesting_user_id=user_id,
+        product_space="arcana" if project_id is None else "paintpilot",
+        project_id=project_id,
+        request_id=uuid.uuid4(),
+        status="running",
+        final_attempt_id=None,
+        output_reference=None,
+        final_error_category=None,
+        terminal_at=None,
+        updated_at=None,
+        revision=1,
+    )
+    attempt = SimpleNamespace(
+        id=attempt_id,
+        invocation_id=invocation_id,
+        provider_definition_id=provider_id,
+        model_definition_id=model_definition_id,
+        credential_id=credential_id,
+        model_id=model_id,
+        status="running",
+        output_reference=None,
+        final_error_category=None,
+        provider_request_id_status="absent",
+        provider_request_id=None,
+        safe_provider_metadata={},
+        latency_ms=None,
+        terminal_at=None,
+        revision=1,
+    )
+    reservation = SimpleNamespace(
+        id=reservation_id,
+        user_counter_id=uuid.uuid4(),
+        project_counter_id=None if project_id is None else uuid.uuid4(),
+        reserved_amount=reserved_amount,
+        state="dispatch_committed",
+        settled_at=None,
+        released_at=None,
+        revision=1,
+    )
+    user_counter = SimpleNamespace(
+        committed_minor_units=0,
+        reserved_minor_units=reserved_amount,
+        revision=1,
+    )
+    project_counter = (
+        None
+        if project_id is None
+        else SimpleNamespace(
+            committed_minor_units=0,
+            reserved_minor_units=reserved_amount,
+            revision=1,
+        )
+    )
+    credential = SimpleNamespace(
+        last_validation_status=None,
+        last_successful_validation_at=None,
+        updated_at=None,
+        revision=1,
+    )
+
+    class Transaction:
+        async def __aenter__(self) -> None:
+            return None
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    class Session:
+        def __init__(self) -> None:
+            self.added: list[object] = []
+
+        def begin(self) -> Transaction:
+            return Transaction()
+
+        def add(self, value: object) -> None:
+            self.added.append(value)
+
+        def add_all(self, values: tuple[object, ...]) -> None:
+            self.added.extend(values)
+
+    class Repository:
+        async def get_invocation(self, *_args: object, **_kwargs: object) -> object:
+            return invocation
+
+        async def get_attempt(self, *_args: object, **_kwargs: object) -> object:
+            return attempt
+
+        async def get_reservation(self, *_args: object, **_kwargs: object) -> object:
+            return reservation
+
+        async def get_user_counter_by_id(self, *_args: object, **_kwargs: object) -> object:
+            return user_counter
+
+        async def get_project_counter_by_id(self, *_args: object, **_kwargs: object) -> object:
+            return project_counter
+
+        async def get_owned_credential(self, *_args: object, **_kwargs: object) -> object:
+            return credential
+
+    session = Session()
+    service = GovernedZhipuInvocationService(
+        session,  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
+        live_gate_enabled=False,
+    )
+    service._repository = Repository()  # type: ignore[assignment]
+    selection = ZhipuLiveSelection(
+        product_space="arcana" if project_id is None else "paintpilot",
+        invocation_family=(
+            "arcana_interpretation" if project_id is None else "paint_plan_generation"
+        ),
+        project_id=project_id,
+        provider_definition_id=provider_id,
+        model_definition_id=model_definition_id,
+        credential_id=credential_id,
+        required_capability_keys=("structured_output",),
+        estimate_minor_units=reserved_amount,
+        pricing_snapshot_id=uuid.uuid4(),
+    )
+    normalized = NormalizedProviderResult(
+        output={"schema_version": "synthetic"},
+        usage=usage,
+        provider_request_id_status="unavailable",
+        provider_request_id=None,
+    )
+    business_claim_id = uuid.uuid4()
+    result = asyncio.run(
+        service._terminalize(
+            selection=selection,
+            principal=SimpleNamespace(user_id=user_id),  # type: ignore[arg-type]
+            request_id=uuid.uuid4(),
+            invocation_id=invocation_id,
+            attempt_id=attempt_id,
+            reservation_id=reservation_id,
+            business_claim_id=business_claim_id,
+            adapter=adapter,
+            normalized=normalized,
+            validated_output={"schema_version": "synthetic"},
+            error=None,
+            latency_ms=1,
+        )
+    )
+
+    assert result is not None
+    assert result.business_claim_id == business_claim_id
+    assert result.cost_minor_units == measured_cost
+    assert invocation.status == "succeeded"
+    assert attempt.status == "succeeded"
+    if overage:
+        assert reservation.state == "reconciliation_required"
+        assert user_counter.reserved_minor_units == reserved_amount
+        assert user_counter.committed_minor_units == 0
+        assert attempt.safe_provider_metadata["accounting_state"] == ("reconciliation_required")
+        assert attempt.safe_provider_metadata["measured_cost_over_reservation"] is True
+        if project_counter is not None:
+            assert project_counter.reserved_minor_units == reserved_amount
+            assert project_counter.committed_minor_units == 0
+    else:
+        assert reservation.state == "settled"
+        assert user_counter.reserved_minor_units == 0
+        assert user_counter.committed_minor_units == measured_cost
+        assert attempt.safe_provider_metadata["measured_cost_over_reservation"] is False
+        if project_counter is not None:
+            assert project_counter.reserved_minor_units == 0
+            assert project_counter.committed_minor_units == measured_cost
+    counters_after_first = (
+        user_counter.reserved_minor_units,
+        user_counter.committed_minor_units,
+    )
+    with pytest.raises(ZhipuLiveAdmissionError, match="state changed"):
+        asyncio.run(
+            service._terminalize(
+                selection=selection,
+                principal=SimpleNamespace(user_id=user_id),  # type: ignore[arg-type]
+                request_id=uuid.uuid4(),
+                invocation_id=invocation_id,
+                attempt_id=attempt_id,
+                reservation_id=reservation_id,
+                business_claim_id=business_claim_id,
+                adapter=adapter,
+                normalized=normalized,
+                validated_output={"schema_version": "synthetic"},
+                error=None,
+                latency_ms=1,
+            )
+        )
+    assert (
+        user_counter.reserved_minor_units,
+        user_counter.committed_minor_units,
+    ) == counters_after_first
+
+
+def test_pre_dispatch_failure_releases_the_committed_claim_without_transport() -> None:
+    invocation_id = uuid.uuid4()
+    attempt_id = uuid.uuid4()
+    reservation_id = uuid.uuid4()
+    claim_id = uuid.uuid4()
+    events: list[str] = []
+    transport = SimpleNamespace(execute=AsyncMock())
+    service = GovernedZhipuInvocationService(
+        object(),  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
+        live_gate_enabled=False,
+        transport=transport,  # type: ignore[arg-type]
+    )
+
+    async def admit(**_kwargs: object) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+        events.append("admission_committed")
+        return invocation_id, attempt_id, reservation_id
+
+    async def claim(**_kwargs: object) -> uuid.UUID:
+        events.append("business_claim_committed")
+        return claim_id
+
+    async def dispatch(**_kwargs: object) -> object:
+        events.append("dispatch_marker_rejected")
+        raise ZhipuLiveAdmissionError("synthetic pre-dispatch failure")
+
+    async def release(**kwargs: object) -> None:
+        assert kwargs["claim_id"] == claim_id
+        assert kwargs["reservation_id"] == reservation_id
+        events.append("claim_and_reservation_released")
+
+    service._admit = admit  # type: ignore[method-assign]
+    service._claim_business_resource = claim  # type: ignore[method-assign]
+    service._commit_dispatch = dispatch  # type: ignore[method-assign]
+    service._release_admitted_attempt = release  # type: ignore[method-assign]
+    selection = ZhipuLiveSelection(
+        product_space="arcana",
+        invocation_family="arcana_interpretation",
+        project_id=None,
+        provider_definition_id=uuid.uuid4(),
+        model_definition_id=uuid.uuid4(),
+        credential_id=uuid.uuid4(),
+        required_capability_keys=("structured_output",),
+        estimate_minor_units=1,
+        pricing_snapshot_id=uuid.uuid4(),
+    )
+
+    with pytest.raises(ZhipuLiveAdmissionError, match="pre-dispatch"):
+        asyncio.run(
+            service.execute(
+                selection=selection,
+                principal=SimpleNamespace(user_id=uuid.uuid4()),  # type: ignore[arg-type]
+                request=SimpleNamespace(model_id=ZHIPU_GLM_52_MODEL),  # type: ignore[arg-type]
+                retrieval=object(),  # type: ignore[arg-type]
+                output_validator=lambda value: dict(value),
+                idempotency_key=uuid.uuid4(),
+                request_id=uuid.uuid4(),
+                safe_input_snapshot={},
+                business_claim=ZhipuBusinessResourceClaim(
+                    scope_key=f"zhipu_resource:arcana:reading:{uuid.uuid4()}",
+                    principal_id="synthetic-principal",
+                    command_type="arcana_interpretation",
+                ),
+            )
+        )
+
+    assert events == [
+        "admission_committed",
+        "business_claim_committed",
+        "dispatch_marker_rejected",
+        "claim_and_reservation_released",
+    ]
+    transport.execute.assert_not_awaited()
 
 
 @pytest.mark.parametrize(
