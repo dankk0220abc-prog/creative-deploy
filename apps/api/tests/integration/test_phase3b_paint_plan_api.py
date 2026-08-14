@@ -651,6 +651,64 @@ def _edited_document(document: dict[str, Any]) -> dict[str, Any]:
     return edited
 
 
+def test_paint_plan_edit_rejects_citation_outside_current_retrieval_snapshot(
+    paint_plan_integration_settings: Settings,
+) -> None:
+    settings = paint_plan_integration_settings
+    owner = _principal(label="citation-owner", user_id=uuid.uuid4())
+    _seed_users(settings, owner)
+
+    app = create_app(settings)
+
+    async def principal_override() -> PrincipalContext:
+        return owner
+
+    app.dependency_overrides[get_current_principal] = principal_override
+    with TestClient(app) as client:
+        project = _create_project(client, "Phase 3B citation edit boundary")
+        project_id = project["id"]
+        image_set = _ready_image_set(client, project_id)
+        region_set = _approved_region_set(client, project_id)
+        credential_id = _configure_fixture_ai(client, project_id)
+        selection = _selection(image_set, region_set, credential_id)
+        generated_response = client.post(
+            f"/api/v1/paint-projects/{project_id}/paint-plans/generate",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={**selection, "confirm_generation": True, "max_attempts": 1},
+        )
+        assert generated_response.status_code == 201, generated_response.text
+        generated = generated_response.json()
+        assert generated["document"]["knowledge_citations"] == []
+        history_before = client.get(f"/api/v1/paint-projects/{project_id}/paint-plans")
+        assert history_before.status_code == 200, history_before.text
+        forged_document = _edited_document(generated["document"])
+        forged_document["knowledge_citations"] = [
+            {
+                "source_id": "syntactically-valid-forged-source",
+                "chunk_id": "syntactically-valid-forged-chunk",
+                "target_path": "/safety_notes/0",
+            }
+        ]
+        forged_response = client.post(
+            f"/api/v1/paint-projects/{project_id}/paint-plans/{generated['id']}/edits",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={
+                "expected_current_plan_id": generated["id"],
+                "expected_current_version": generated["version"],
+                "document": forged_document,
+            },
+        )
+        assert forged_response.status_code == 409, forged_response.text
+        assert forged_response.json()["error_code"] == "PAINT_PLAN_CITATION_INVALID"
+        history_after = client.get(f"/api/v1/paint-projects/{project_id}/paint-plans")
+        assert history_after.status_code == 200, history_after.text
+        assert len(history_after.json()["items"]) == len(history_before.json()["items"])
+        current = client.get(f"/api/v1/paint-projects/{project_id}/paint-plans/{generated['id']}")
+        assert current.status_code == 200, current.text
+        assert current.json()["lifecycle"] == "generated"
+        assert current.json()["is_current"] is True
+
+
 def test_phase3b_paint_plan_api_governance_review_budget_and_lineage(
     paint_plan_integration_settings: Settings,
     monkeypatch: pytest.MonkeyPatch,
@@ -877,6 +935,7 @@ def test_phase3b_paint_plan_api_governance_review_budget_and_lineage(
         assert edited["lineage_id"] == generated["lineage_id"]
         assert edited["parent_plan_id"] == generated["id"]
         assert edited["lifecycle"] == "edited"
+        assert edited["document"]["knowledge_citations"] == []
 
         generated_replay = client.post(
             f"/api/v1/paint-projects/{project_id}/paint-plans/generate",
@@ -1760,6 +1819,47 @@ def test_zhipu_paint_plan_offline_live_multimodal_provenance_and_citations(
         }.issubset(retrieved_pairs)
         assert transport.calls == 2
 
+        complete_document = _edited_document(generated["document"])
+        complete_response = client.post(
+            f"/api/v1/paint-projects/{project_id}/paint-plans/{generated['id']}/edits",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={
+                "expected_current_plan_id": generated["id"],
+                "expected_current_version": generated["version"],
+                "document": complete_document,
+            },
+        )
+        assert complete_response.status_code == 201, complete_response.text
+        complete = complete_response.json()
+        assert (
+            complete["document"]["knowledge_citations"]
+            == generated["document"]["knowledge_citations"]
+        )
+        assert complete["retrieved_context"] == generated["retrieved_context"]
+
+        subset_citations = generated["document"]["knowledge_citations"][:1]
+        subset_document = {
+            **complete["document"],
+            "title": "Human-reviewed Paint Plan with a citation subset",
+            "instructions": [dict(item) for item in complete["document"]["instructions"]],
+            "safety_notes": list(complete["document"]["safety_notes"]),
+            "knowledge_citations": [dict(item) for item in subset_citations],
+        }
+        subset_response = client.post(
+            f"/api/v1/paint-projects/{project_id}/paint-plans/{complete['id']}/edits",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={
+                "expected_current_plan_id": complete["id"],
+                "expected_current_version": complete["version"],
+                "document": subset_document,
+            },
+        )
+        assert subset_response.status_code == 201, subset_response.text
+        subset = subset_response.json()
+        assert subset["document"]["knowledge_citations"] == subset_citations
+        assert subset["retrieved_context"] == generated["retrieved_context"]
+        assert transport.calls == 2
+
     database_url = make_url(settings.database_url.get_secret_value())
     with psycopg.connect(**_connection_kwargs(database_url)) as connection:
         provenance = connection.execute(
@@ -1775,9 +1875,9 @@ def test_zhipu_paint_plan_offline_live_multimodal_provenance_and_citations(
             JOIN budget_reservations AS r ON r.attempt_id = a.id
             JOIN ai_cost_ledger AS c ON c.attempt_id = a.id
             JOIN ai_usage_ledger AS u ON u.attempt_id = a.id
-            WHERE p.paint_project_id = %s
+            WHERE p.id = %s
             """,
-            (project_id,),
+            (generated["id"],),
         ).fetchone()
         assert provenance == (
             "zhipu",
@@ -1849,7 +1949,7 @@ def test_zhipu_paint_plan_offline_live_multimodal_provenance_and_citations(
         assert connection.execute(
             "SELECT count(*) FROM paint_plans WHERE paint_project_id = %s",
             (project_id,),
-        ).fetchone() == (1,)
+        ).fetchone() == (3,)
         stored_failure = connection.execute(
             """
             SELECT concat_ws(' ', i.safe_payload::text, a.safe_provider_metadata::text)

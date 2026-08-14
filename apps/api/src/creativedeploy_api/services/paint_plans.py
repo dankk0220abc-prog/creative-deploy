@@ -152,6 +152,14 @@ class PaintPlanIdempotencyConflictError(PaintProjectApplicationError):
     allowed_actions = ("retry_with_original_payload", "use_new_idempotency_key")
 
 
+class PaintPlanCitationInvalidError(PaintProjectApplicationError):
+    status_code = 409
+    error_code = "PAINT_PLAN_CITATION_INVALID"
+    category: ErrorCategory = "CONFLICT"
+    message = "The edited Paint Plan citations are not supported by its retrieval snapshot."
+    allowed_actions = ("use_retrieved_citations", "remove_unsupported_citations")
+
+
 class PaintPlanOutputInvalidError(PaintProjectApplicationError):
     status_code = 502
     error_code = "PAINT_PLAN_OUTPUT_INVALID"
@@ -250,6 +258,28 @@ def _validate_document_regions(
             or instruction.region_label != source.label
         ):
             raise PaintPlanOutputInvalidError
+
+
+def _validate_edit_citations(
+    document: PaintPlanDocument,
+    retrieved_context_snapshot: list[dict[str, object]],
+) -> None:
+    if not document.knowledge_citations:
+        return
+    try:
+        retrieval = RetrievedContextBundle(
+            product_space="paintpilot",
+            units=[
+                RetrievedContextUnit.model_validate(item) for item in retrieved_context_snapshot
+            ],
+        )
+        validate_retrieved_citations(
+            document.knowledge_citations,
+            retrieval,
+            require_at_least_one=True,
+        )
+    except (RetrievalContractError, ValidationError):
+        raise PaintPlanCitationInvalidError from None
 
 
 _MISSING_PAINT_PLAN_VALUE = object()
@@ -2118,6 +2148,7 @@ class PaintPlanService:
             ):
                 raise PaintPlanLifecycleConflictError
             _validate_document_regions(payload.document, source.regions)
+            _validate_edit_citations(payload.document, current.retrieved_context_snapshot)
             current.lifecycle = "superseded"
             await self._repository.flush()
             now = datetime.now(UTC)
