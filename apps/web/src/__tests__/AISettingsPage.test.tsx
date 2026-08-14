@@ -7,6 +7,11 @@ import { i18n } from "../i18n";
 import { AISettingsPage } from "../pages/AISettingsPage";
 import { jsonResponse } from "../test/paintProjectFixtures";
 
+vi.mock("../api/aiFoundation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/aiFoundation")>()),
+  phase3aFixtureEnabled: true,
+}));
+
 const PROVIDER_ID = "5a000000-0000-4000-8000-000000000001";
 const MODEL_ID = "5a000000-0000-4000-8000-000000000101";
 const OLD_CREDENTIAL_ID = "62426099-53af-41f4-a865-b6de4bee864d";
