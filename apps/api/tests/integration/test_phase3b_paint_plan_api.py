@@ -182,7 +182,7 @@ class _OfflineZhipuTransport(ZhipuHTTPTransport):
         reading = context["reading"]
         cards = reading["cards"]
         units = context["retrieved_context"]["units"]
-        unit_by_card = {unit["chunk_id"].split(":")[1]: unit for unit in units}
+        unit_by_chunk_id = {unit["chunk_id"]: unit for unit in units}
         document = {
             "schema_version": "tarot-reading.v2",
             "generation_locale": reading["generation_locale"],
@@ -229,9 +229,9 @@ class _OfflineZhipuTransport(ZhipuHTTPTransport):
             "knowledge_basis": [
                 {
                     "card_id": card["card_id"],
-                    "knowledge_id": unit_by_card[card["card_id"]]["chunk_id"],
-                    "source_id": unit_by_card[card["card_id"]]["source_id"],
-                    "source_title": unit_by_card[card["card_id"]]["source_title"],
+                    "knowledge_id": unit_by_chunk_id[card["primary_knowledge_id"]]["chunk_id"],
+                    "source_id": unit_by_chunk_id[card["primary_knowledge_id"]]["source_id"],
+                    "source_title": unit_by_chunk_id[card["primary_knowledge_id"]]["source_title"],
                     "retrieval_mode": "repository_local_only",
                 }
                 for card in cards
@@ -1442,12 +1442,16 @@ def test_zhipu_arcana_offline_live_coordinator_budget_isolation_and_unknown_outc
         live_interpretation = succeeded.json()["interpretation"]
         assert live_interpretation["source"] == "zhipu_live"
         assert live_interpretation["model_id"] == "glm-5.2"
-        assert len(live_interpretation["retrieved_context"]) == 3
+        retrieved_context = live_interpretation["retrieved_context"]
+        assert 12 <= len(retrieved_context) <= 15
+        assert sum(item["section"].startswith("card/") for item in retrieved_context) == 3
+        assert sum(item["section"].startswith("position/") for item in retrieved_context) == 3
+        assert sum(item["section"].startswith("question/") for item in retrieved_context) == 3
+        assert (
+            3 <= sum(item["section"].startswith("relationship/") for item in retrieved_context) <= 6
+        )
         assert len(live_interpretation["citations"]) == 3
-        retrieved_pairs = {
-            (item["source_id"], item["chunk_id"])
-            for item in live_interpretation["retrieved_context"]
-        }
+        retrieved_pairs = {(item["source_id"], item["chunk_id"]) for item in retrieved_context}
         assert {
             (item["source_id"], item["chunk_id"]) for item in live_interpretation["citations"]
         }.issubset(retrieved_pairs)
