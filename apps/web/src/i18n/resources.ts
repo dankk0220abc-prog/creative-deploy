@@ -51,6 +51,8 @@ const entries: readonly TranslationEntry[] = [
   ["shell.signIn", "Sign in", "登录"],
   ["shell.demoLabel", "Public Demo", "公开演示"],
   ["shell.demoCopy", "Synthetic data · read-only · not production-ready", "合成数据 · 只读 · 未达到生产就绪标准"],
+  ["arcana.demo.readOnly", "This public demo is read-only. Open the preloaded Fixture reading to inspect the question-aware flow.", "此公开演示为只读模式；打开预置 Fixture 解读即可查看问题感知流程。"],
+  ["arcana.demo.openReading", "Open Fixture reading", "打开 Fixture 解读"],
   ["shell.footerLabel", "Planning-only workspace", "仅用于规划的工作区"],
   ["shell.footerCopy", "Guidance is not a verified repaint outcome. Access is enforced by a server-side OIDC session and project membership.", "这里的指导不代表经过验证的重涂结果。访问权限由服务端 OIDC 会话和项目成员关系控制。"],
   ["shell.accountActions", "Account actions", "账户操作"],

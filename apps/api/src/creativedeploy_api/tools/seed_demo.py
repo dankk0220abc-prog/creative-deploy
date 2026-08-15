@@ -1,4 +1,4 @@
-"""Create or confirm the deterministic, synthetic Phase 2E PaintPilot demo dataset."""
+"""Create or confirm the deterministic, synthetic Portfolio demo dataset."""
 
 import asyncio
 import io
@@ -21,6 +21,7 @@ from creativedeploy_api.core.principal import (
 from creativedeploy_api.db.engine import create_database_engine
 from creativedeploy_api.db.session import create_database_session_factory
 from creativedeploy_api.repositories.identity import SqlAlchemyIdentityRepository
+from creativedeploy_api.schemas.arcana import TarotReadingCreate
 from creativedeploy_api.schemas.image_assets import (
     CreateImageAssetRequest,
     CreateReadinessReviewRequest,
@@ -34,6 +35,7 @@ from creativedeploy_api.schemas.region_sets import (
     RegionVertexInput,
     SaveRegionSetRequest,
 )
+from creativedeploy_api.services.arcana import ArcanaService
 from creativedeploy_api.services.image_assets import ImageAssetService
 from creativedeploy_api.services.paint_projects import PaintProjectService
 from creativedeploy_api.services.region_sets import RegionSetService
@@ -49,6 +51,7 @@ PROJECT_DESCRIPTION = (
     "Program-generated color-study images and human-authored polygons only. "
     "No customer or personal imagery."
 )
+ARCANA_QUESTION = "我九月份会有正缘吗"
 IMAGE_SPECS: tuple[tuple[ImageRole, str, tuple[int, int, int]], ...] = (
     ("primary_front", "synthetic-primary-front.png", (209, 91, 67)),
     ("reference_back", "synthetic-reference-back.png", (59, 110, 180)),
@@ -61,6 +64,8 @@ IMAGE_SPECS: tuple[tuple[ImageRole, str, tuple[int, int, int]], ...] = (
 class DemoSeedResult:
     project_id: uuid.UUID
     action: str
+    arcana_reading_id: uuid.UUID
+    arcana_action: str
 
 
 def _command_id(name: str) -> uuid.UUID:
@@ -152,6 +157,31 @@ async def _ensure_demo_principal(
     )
 
 
+async def _ensure_arcana_reading(
+    session_factory: async_sessionmaker[AsyncSession], principal: PrincipalContext
+) -> tuple[uuid.UUID, str]:
+    """Persist one inspectable Fixture reading before the public Demo becomes read-only."""
+    async with session_factory() as session:
+        arcana = ArcanaService(session)
+        history = await arcana.history(principal)
+        matches = [item for item in history.items if item.question == ARCANA_QUESTION]
+        if len(matches) > 1:
+            raise RuntimeError("Multiple synthetic Arcana readings exist; run make demo-reset.")
+        if matches:
+            reading = matches[0]
+            if reading.status not in {"interpreted", "saved"} or reading.interpretation is None:
+                raise RuntimeError("Synthetic Arcana reading is incomplete; run make demo-reset.")
+            return reading.id, "confirmed"
+        created = await arcana.start(
+            TarotReadingCreate(question=ARCANA_QUESTION, generation_locale="zh-CN"), principal
+        )
+        await arcana.draw(created.id, principal, test_seed=20260815)
+        interpreted = await arcana.interpret(created.id, principal)
+        if interpreted.interpretation is None:
+            raise RuntimeError("Synthetic Arcana interpretation was not persisted.")
+        return interpreted.id, "created"
+
+
 async def seed_demo(settings: Settings) -> DemoSeedResult:
     """Use formal application services so every image and RegionSet invariant is exercised."""
     settings.require_demo_seed_identity()
@@ -160,6 +190,7 @@ async def seed_demo(settings: Settings) -> DemoSeedResult:
     storage = _image_storage(settings)
     try:
         principal = await _ensure_demo_principal(session_factory, settings)
+        arcana_reading_id, arcana_action = await _ensure_arcana_reading(session_factory, principal)
         async with session_factory() as session:
             projects = PaintProjectService(
                 session,
@@ -185,7 +216,12 @@ async def seed_demo(settings: Settings) -> DemoSeedResult:
                 )
                 if image_set.status != "ready" or not has_approved_snapshot:
                     raise RuntimeError("Synthetic demo data is incomplete; run make demo-reset.")
-                return DemoSeedResult(project_id=project.id, action="confirmed")
+                return DemoSeedResult(
+                    project_id=project.id,
+                    action="confirmed",
+                    arcana_reading_id=arcana_reading_id,
+                    arcana_action=arcana_action,
+                )
 
             created = await projects.create_project(
                 payload=CreatePaintProjectRequest(
@@ -255,7 +291,12 @@ async def seed_demo(settings: Settings) -> DemoSeedResult:
                 principal=principal,
                 idempotency_key=_command_id("region-approved"),
             )
-            return DemoSeedResult(project_id=project.id, action="created")
+            return DemoSeedResult(
+                project_id=project.id,
+                action="created",
+                arcana_reading_id=arcana_reading_id,
+                arcana_action=arcana_action,
+            )
     finally:
         await engine.dispose()
 
@@ -266,7 +307,11 @@ def main() -> int:
     except Exception as error:
         print(f"DEMO_SEED_FAILED: {type(error).__name__}: {error}", file=sys.stderr)
         return 1
-    print(f"DEMO_SEED_{result.action.upper()} project_id={result.project_id}")
+    print(
+        "DEMO_SEED_"
+        f"{result.action.upper()} project_id={result.project_id} "
+        f"arcana_{result.arcana_action}_id={result.arcana_reading_id}"
+    )
     return 0
 
 
