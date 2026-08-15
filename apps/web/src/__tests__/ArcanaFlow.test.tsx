@@ -100,6 +100,29 @@ function reading(status: TarotReading["status"]): TarotReading {
             })),
             uncertainty: "Fixture only.",
           },
+          retrieved_context: [
+            {
+              source_id: "local-reference",
+              source_title: "Local Tarot reference",
+              source_type: "repository_local_corpus",
+              repository_reference: "repo://arcana/knowledge/local-reference",
+              chunk_id: "arcana:card-1:upright",
+              section: "card meaning",
+              content: "Bounded local context.",
+              retrieval_rationale: "Exact drawn card and orientation.",
+              retrieval_score_ppm: 1_000_000,
+              locale: "en-US",
+              corpus_id: "arcana-tarot-reference",
+              corpus_version: "1",
+            },
+          ],
+          citations: [
+            {
+              source_id: "local-reference",
+              chunk_id: "arcana:card-1:upright",
+              target_path: "/positions/0",
+            },
+          ],
           created_at: now,
         }
       : null,
@@ -150,6 +173,8 @@ describe("Arcana core browser flow", () => {
     expect(screen.getByText("A turning point insight.")).toBeInTheDocument();
     expect(screen.getByText("Test one small action.")).toBeInTheDocument();
     expect(screen.getByText("repository_local_only")).toBeInTheDocument();
+    expect(screen.getByText("Knowledge citations")).toBeInTheDocument();
+    expect(screen.getByText("card meaning · /positions/0")).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Your interpretation"), "My view");
     await user.type(screen.getByLabelText("Private notes"), "My note");

@@ -456,10 +456,14 @@ compose_source exec -T api python - seed "${owner_id}" "${project_id}" \
   < "${REPOSITORY_ROOT}/scripts/verify_phase3a_backup_rows.py"
 compose_source exec -T api python - seed "${owner_id}" "${project_id}" \
   < "${REPOSITORY_ROOT}/scripts/verify_phase3b_backup_rows.py"
+compose_source exec -T api python - seed "${owner_id}" "${project_id}" \
+  < "${REPOSITORY_ROOT}/scripts/verify_arcana_backup_rows.py"
 compose_source exec -T api python - verify "${owner_id}" "${project_id}" \
   < "${REPOSITORY_ROOT}/scripts/verify_phase3a_backup_rows.py"
 compose_source exec -T api python - verify "${owner_id}" "${project_id}" \
   < "${REPOSITORY_ROOT}/scripts/verify_phase3b_backup_rows.py"
+compose_source exec -T api python - verify "${owner_id}" "${project_id}" \
+  < "${REPOSITORY_ROOT}/scripts/verify_arcana_backup_rows.py"
 https_curl --fail --silent --show-error --cookie "${REVIEWER_JAR}" \
   --output "${TEMP_ROOT}/source-object.jpg" \
   "${BASE_URL}/api/v1/paint-projects/${project_id}/images/${image_id}/content"
@@ -510,7 +514,7 @@ root=Path(sys.argv[1])
 manifest=json.loads((root/"manifest.json").read_text(encoding="utf-8"))
 assert manifest["format"] == "creativedeploy-staging-backup-v1"
 assert manifest["manifest_version"] == 1
-assert manifest["alembic_revision"] == "4c01a2b3c4d5"
+assert manifest["alembic_revision"] == "6a01b2c3d4e6"
 assert manifest["backup_id"] == sys.argv[2]
 assert manifest["object_count"] == 3
 assert len(manifest["objects"]) == 3
@@ -552,31 +556,40 @@ phase3a_counts={table:1 for table in (
     "ai_command_idempotency_records",
 )}
 phase3a_counts.update({
-    "provider_definitions":2,
+    "provider_definitions":3,
     "capability_definitions":3,
-    "model_definitions":3,
-    "provider_capabilities":6,
-    "model_capabilities":8,
+    "model_definitions":5,
+    "provider_capabilities":9,
+    "model_capabilities":13,
     "credential_records":2,
     "invocation_attempts":2,
 })
 phase3b_counts={
-    "provider_pricing_snapshots":1,
+    "provider_pricing_snapshots":3,
     "prompt_template_definitions":1,
     "paint_plans":2,
     "paint_plan_region_instructions":4,
     "paint_plan_review_events":2,
+}
+arcana_counts={
+    "tarot_card_definitions":78,
+    "tarot_spread_definitions":1,
+    "tarot_readings":1,
+    "tarot_reading_cards":3,
+    "tarot_interpretation_revisions":1,
+    "tarot_journal_entries":1,
 }
 assert set(manifest["table_counts"]) == {
     "user_accounts", "external_identities", "paint_projects", "project_memberships",
     "oidc_login_flows", "auth_sessions", "state_transition_events",
     "command_idempotency_records", "image_assets", "image_set_readiness_reviews",
     "region_sets", "regions", "region_vertices", "region_set_reviews",
-    *phase3a_counts, *phase3b_counts,
+    *phase3a_counts, *phase3b_counts, *arcana_counts,
 }
-assert len(manifest["table_counts"]) == 44
+assert len(manifest["table_counts"]) == 50
 assert {table:manifest["table_counts"][table] for table in phase3a_counts} == phase3a_counts
 assert {table:manifest["table_counts"][table] for table in phase3b_counts} == phase3b_counts
+assert {table:manifest["table_counts"][table] for table in arcana_counts} == arcana_counts
 assert manifest["table_counts"]["image_set_readiness_reviews"] == 1
 assert manifest["table_counts"]["region_sets"] == 1
 assert manifest["table_counts"]["regions"] == 2
@@ -611,6 +624,8 @@ compose_restore exec -T api python - verify "${owner_id}" "${project_id}" \
   < "${REPOSITORY_ROOT}/scripts/verify_phase3a_backup_rows.py"
 compose_restore exec -T api python - verify "${owner_id}" "${project_id}" \
   < "${REPOSITORY_ROOT}/scripts/verify_phase3b_backup_rows.py"
+compose_restore exec -T api python - verify "${owner_id}" "${project_id}" \
+  < "${REPOSITORY_ROOT}/scripts/verify_arcana_backup_rows.py"
 
 # Deliberately alter only the isolated restore target object while retaining the
 # signed size, content type, and metadata checksum. Run this before restored
@@ -790,5 +805,5 @@ restore_down=1
 echo "STAGING_DRILL_PASS backup_format=creativedeploy-staging-backup-v1"
 echo "STAGING_DRILL_METRICS backup_seconds=${backup_seconds} restore_seconds=${restore_seconds} synthetic_rpo_seconds=0"
 echo "STAGING_DRILL_PROOFS https=pass tls_policy=pass exact_host_origin=pass file_secrets=pass structured_logs=pass"
-echo "STAGING_DRILL_PROOFS backup=pass detached_authenticity=pass restore=pass exact_retry=pass checksum_refusal=pass manifest_tamper_refusal=pass byte_mismatch_refusal=pass private_object=pass permissions=pass phase3a_data=pass phase3b_data=pass phase3b_relationships=pass"
+echo "STAGING_DRILL_PROOFS backup=pass detached_authenticity=pass restore=pass exact_retry=pass checksum_refusal=pass manifest_tamper_refusal=pass byte_mismatch_refusal=pass private_object=pass permissions=pass phase3a_data=pass phase3b_data=pass phase3b_relationships=pass arcana_data=pass arcana_relationships=pass arcana_citations=pass arcana_journal=pass"
 echo "STAGING_DRILL_CLEANUP source=removed restore=removed temporary_evidence=scheduled"

@@ -106,7 +106,7 @@ class ModelDefinition(Base):
             name=conv("ck_model_definitions_status_allowed"),
         ),
         CheckConstraint(
-            "pricing_currency IS NULL OR pricing_currency IN ('FIXTURE_CREDITS','USD')",
+            "pricing_currency IS NULL OR pricing_currency IN ('FIXTURE_CREDITS','USD','CNY')",
             name=conv("ck_model_definitions_fixture_currency_only"),
         ),
         ForeignKeyConstraint(
@@ -281,7 +281,6 @@ class CredentialRecord(Base):
     )
     provider_key: Mapped[str] = mapped_column(String(64), nullable=False)
     key_fingerprint: Mapped[str] = mapped_column(String(96), nullable=False)
-    last_four: Mapped[str | None] = mapped_column(String(4))
     alias: Mapped[str] = mapped_column(String(120), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     encryption_version: Mapped[str | None] = mapped_column(String(64))
@@ -400,7 +399,7 @@ class ProjectModelPolicy(Base):
     __tablename__ = "project_model_policies"
     __table_args__ = (
         CheckConstraint(
-            "currency IN ('FIXTURE_CREDITS','USD')",
+            "currency IN ('FIXTURE_CREDITS','USD','CNY')",
             name=conv("ck_project_model_policies_fixture_currency_only"),
         ),
         CheckConstraint(
@@ -600,7 +599,7 @@ class UserBudgetPolicy(Base):
     __tablename__ = "user_budget_policies"
     __table_args__ = (
         CheckConstraint(
-            "currency IN ('FIXTURE_CREDITS','USD')",
+            "currency IN ('FIXTURE_CREDITS','USD','CNY')",
             name=conv("ck_user_budget_policies_fixture_currency_only"),
         ),
         ForeignKeyConstraint(
@@ -635,7 +634,7 @@ class ProjectBudgetPolicy(Base):
     __tablename__ = "project_budget_policies"
     __table_args__ = (
         CheckConstraint(
-            "currency IN ('FIXTURE_CREDITS','USD')",
+            "currency IN ('FIXTURE_CREDITS','USD','CNY')",
             name=conv("ck_project_budget_policies_fixture_currency_only"),
         ),
         ForeignKeyConstraint(
@@ -670,7 +669,7 @@ class UserBudgetCounter(Base):
     __tablename__ = "user_budget_counters"
     __table_args__ = (
         CheckConstraint(
-            "currency IN ('FIXTURE_CREDITS','USD')",
+            "currency IN ('FIXTURE_CREDITS','USD','CNY')",
             name=conv("ck_user_budget_counters_fixture_currency_only"),
         ),
         CheckConstraint(
@@ -712,7 +711,7 @@ class ProjectBudgetCounter(Base):
     __tablename__ = "project_budget_counters"
     __table_args__ = (
         CheckConstraint(
-            "currency IN ('FIXTURE_CREDITS','USD')",
+            "currency IN ('FIXTURE_CREDITS','USD','CNY')",
             name=conv("ck_project_budget_counters_fixture_currency_only"),
         ),
         CheckConstraint(
@@ -754,7 +753,7 @@ class InvocationRequest(Base):
     __tablename__ = "invocation_requests"
     __table_args__ = (
         CheckConstraint(
-            "invocation_family IN ('fixture_credential_validation','fixture_model_catalog','fixture_invocation','paint_plan_generation')",
+            "invocation_family IN ('fixture_credential_validation','fixture_model_catalog','fixture_invocation','paint_plan_generation','arcana_interpretation')",
             name=conv("ck_invocation_requests_family_allowed"),
         ),
         CheckConstraint(
@@ -872,7 +871,7 @@ class InvocationAttempt(Base):
             name=conv("ck_invocation_attempts_status_allowed"),
         ),
         CheckConstraint(
-            "currency IN ('FIXTURE_CREDITS','USD')",
+            "currency IN ('FIXTURE_CREDITS','USD','CNY')",
             name=conv("ck_invocation_attempts_fixture_currency_only"),
         ),
         CheckConstraint(
@@ -971,7 +970,7 @@ class BudgetReservation(Base):
             name=conv("ck_budget_reservations_state_allowed"),
         ),
         CheckConstraint(
-            "currency IN ('FIXTURE_CREDITS','USD')",
+            "currency IN ('FIXTURE_CREDITS','USD','CNY')",
             name=conv("ck_budget_reservations_fixture_currency_only"),
         ),
         ForeignKeyConstraint(
@@ -1110,7 +1109,7 @@ class AICostLedger(Base):
     __tablename__ = "ai_cost_ledger"
     __table_args__ = (
         CheckConstraint(
-            "currency IN ('FIXTURE_CREDITS','USD')",
+            "currency IN ('FIXTURE_CREDITS','USD','CNY')",
             name=conv("ck_ai_cost_ledger_fixture_currency_only"),
         ),
         CheckConstraint(

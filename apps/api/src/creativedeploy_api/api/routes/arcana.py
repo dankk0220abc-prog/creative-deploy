@@ -3,12 +3,17 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Path, status
+from fastapi import APIRouter, Header, Path, status
 
-from creativedeploy_api.api.dependencies import ArcanaServiceDependency, PrincipalDependency
+from creativedeploy_api.api.dependencies import (
+    ArcanaServiceDependency,
+    PrincipalDependency,
+    RequestIdDependency,
+)
 from creativedeploy_api.schemas.arcana import (
     TarotCatalogRead,
     TarotJournalUpdate,
+    TarotLiveInterpretRequest,
     TarotReadingCreate,
     TarotReadingHistoryRead,
     TarotReadingRead,
@@ -62,6 +67,24 @@ async def interpret_reading(
     principal: PrincipalDependency,
 ) -> TarotReadingRead:
     return await service.interpret(reading_id, principal)
+
+
+@router.post("/readings/{reading_id}/interpret-live", response_model=TarotReadingRead)
+async def interpret_reading_live(
+    reading_id: Annotated[UUID, Path()],
+    payload: TarotLiveInterpretRequest,
+    service: ArcanaServiceDependency,
+    principal: PrincipalDependency,
+    request_id: RequestIdDependency,
+    idempotency_key: Annotated[UUID, Header(alias="Idempotency-Key")],
+) -> TarotReadingRead:
+    return await service.interpret_live(
+        reading_id,
+        payload,
+        principal,
+        request_id=request_id,
+        idempotency_key=idempotency_key,
+    )
 
 
 @router.put("/readings/{reading_id}/journal", response_model=TarotReadingRead)

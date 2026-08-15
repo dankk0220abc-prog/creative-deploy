@@ -6,6 +6,7 @@ import {
   createCredential,
   getUserPreference,
   grantCredential,
+  isZhipuCredentialInputWellFormed,
   listAudit,
   listCapabilities,
   listCredentials,
@@ -21,6 +22,7 @@ import {
   type CapabilityDefinition,
   type CredentialRecord,
   type ModelDefinition,
+  type ProviderKey,
   type ProviderDefinition,
   type UserPreference,
 } from "../api/aiFoundation";
@@ -67,22 +69,22 @@ function SettingsTabs({ active }: { active: SettingsTab }) {
   );
 }
 
-function FixtureBoundary() {
+function ProviderBoundary() {
   const { t } = useAppTranslation();
   return (
     <details className="ai-boundary" role="note">
       <summary>
         <span className="ai-boundary__signal" aria-hidden="true" />
-        <strong>{t("ai.testMode")}</strong>
+        <strong>{t("ai.providerBoundary")}</strong>
         <span className="ai-boundary__learn">{t("ai.learnDetails")}</span>
       </summary>
       <div className="ai-boundary__details">
-        <p>{t("ai.boundaryCopy")}</p>
+        <p>{t("ai.providerBoundaryCopy")}</p>
         <dl>
-          <div><dt>Provider</dt><dd>Fixture Provider</dd></div>
-          <div><dt>Scope</dt><dd>Local only</dd></div>
-          <div><dt>Credits</dt><dd>FIXTURE_CREDITS</dd></div>
-          <div><dt>Network</dt><dd>No provider calls</dd></div>
+          <div><dt>Fixture</dt><dd>{t("ai.fixtureDefault")}</dd></div>
+          <div><dt>Zhipu</dt><dd>{t("ai.liveGateOff")}</dd></div>
+          <div><dt>BYOK</dt><dd>{t("ai.encryptedAtRest")}</dd></div>
+          <div><dt>Live cap</dt><dd>1.00 CNY</dd></div>
         </dl>
       </div>
     </details>
@@ -143,16 +145,43 @@ function valueFromMetadata(metadata: Record<string, unknown>, key: string): stri
 
 function ModelsPanel({ data, onReload }: { data: FoundationData; onReload: () => void }) {
   const { t } = useAppTranslation();
-  const provider = data.providers[0];
-  const activeCredentials = data.credentials.filter((item) => item.status === "active");
+  const initialProviderId = data.preference.default_provider_definition_id
+    ?? data.providers.find((item) => item.provider_key === "fixture_local")?.id
+    ?? data.providers[0]?.id
+    ?? "";
+  const [providerId, setProviderId] = useState(initialProviderId);
+  const provider = data.providers.find((item) => item.id === providerId);
+  const providerModels = data.models.filter((item) => item.provider_key === provider?.provider_key);
+  const activeCredentials = data.credentials.filter(
+    (item) => item.status === "active" && item.provider_key === provider?.provider_key,
+  );
   const [modelId, setModelId] = useState(
-    data.preference.default_model_definition_id ?? data.models[0]?.id ?? "",
+    data.preference.default_model_definition_id
+      ?? data.models.find((item) => item.provider_key === "fixture_local")?.id
+      ?? "",
+  );
+  const preferredCredentialIsActive = activeCredentials.some(
+    (item) => item.id === data.preference.default_credential_id,
   );
   const [credentialId, setCredentialId] = useState(
-    data.preference.default_credential_id ?? activeCredentials[0]?.id ?? "",
+    preferredCredentialIsActive
+      ? (data.preference.default_credential_id ?? "")
+      : (activeCredentials[0]?.id ?? ""),
   );
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState<"error" | "saved" | null>(null);
+  const [notice, setNotice] = useState<"conflict" | "error" | "saved" | null>(null);
+
+  const chooseProvider = (nextProviderId: string) => {
+    const nextProvider = data.providers.find((item) => item.id === nextProviderId);
+    setProviderId(nextProviderId);
+    setModelId(data.models.find((item) => item.provider_key === nextProvider?.provider_key)?.id ?? "");
+    setCredentialId(
+      data.credentials.find(
+        (item) => item.status === "active" && item.provider_key === nextProvider?.provider_key,
+      )?.id ?? "",
+    );
+    setNotice(null);
+  };
 
   const savePreference = async (event: FormEvent) => {
     event.preventDefault();
@@ -163,11 +192,16 @@ function ModelsPanel({ data, onReload }: { data: FoundationData; onReload: () =>
     setSaving(true);
     setNotice(null);
     try {
-      await updateUserPreference({ enabled: true, providerId: provider.id, modelId, credentialId, expectedRevision: data.preference.revision });
+      const model = providerModels.find((item) => item.id === modelId);
+      if (model?.pricing_currency === null || model?.pricing_currency === undefined) {
+        setNotice("error");
+        return;
+      }
+      await updateUserPreference({ enabled: true, providerId: provider.id, modelId, credentialId, currency: model.pricing_currency, expectedRevision: data.preference.revision });
       setNotice("saved");
       onReload();
-    } catch {
-      setNotice("error");
+    } catch (error: unknown) {
+      setNotice(asSettingsError(error).status === 409 ? "conflict" : "error");
     } finally {
       setSaving(false);
     }
@@ -180,8 +214,8 @@ function ModelsPanel({ data, onReload }: { data: FoundationData; onReload: () =>
         <div className="ai-model-list">
           {data.models.map((model) => (
             <article className="ai-model-row" key={model.id}>
-              <div><h3>{model.display_name}</h3><p>{model.model_id.includes("vision") ? t("ai.modelVisionCopy") : t("ai.modelTextCopy")}</p></div>
-              <span className="ai-status ai-status--ready">{t("ai.simulated")}</span>
+              <div><h3>{model.display_name}</h3><p>{model.capabilities.some((item) => item.capability_key === "vision_understanding") ? t("ai.modelVisionCopy") : t("ai.modelTextCopy")}</p></div>
+              <span className={model.local_only ? "ai-status ai-status--ready" : "ai-status"}>{model.local_only ? t("ai.simulated") : t("ai.liveGated")}</span>
               <details className="ai-disclosure"><summary>{t("ai.technicalDetails")}</summary><dl><div><dt>Provider</dt><dd>{model.provider_key}</dd></div><div><dt>Model ID</dt><dd>{model.model_id}</dd></div><div><dt>Capabilities</dt><dd>{model.capabilities.map((item) => item.capability_key).join(", ")}</dd></div></dl></details>
             </article>
           ))}
@@ -192,28 +226,32 @@ function ModelsPanel({ data, onReload }: { data: FoundationData; onReload: () =>
         <section aria-labelledby="default-routing-heading" className="ai-panel ai-panel--control">
           <div className="ai-panel__heading"><h2 id="default-routing-heading">{t("ai.defaultSettings")}</h2><span className={data.preference.enabled ? "ai-status ai-status--ready" : "ai-status"}>{data.preference.enabled ? t("ai.enabled") : t("ai.status.notConfigured")}</span></div>
           <p className="ai-panel__copy">{t("ai.defaultSettingsCopy")}</p>
-          {activeCredentials.length === 0 ? <div className="ai-empty-action"><p>{t("ai.noAvailableCredential")}</p><Link className="button button--primary" to={tabPaths.credentials}>{t("ai.addCredential")}</Link></div> : (
-            <form className="ai-form" onSubmit={(event) => void savePreference(event)}>
-              <label><span>{t("ai.defaultProvider")}</span><select disabled value={provider?.id ?? ""}><option value={provider?.id ?? ""}>{provider?.display_name ?? t("common.none")}</option></select></label>
-              <label><span>{t("ai.defaultModel")}</span><select onChange={(event) => setModelId(event.target.value)} value={modelId}>{data.models.map((model) => <option key={model.id} value={model.id}>{model.display_name}</option>)}</select></label>
-              <label><span>{t("ai.defaultCredential")}</span><select onChange={(event) => setCredentialId(event.target.value)} value={credentialId}>{activeCredentials.map((credential) => <option key={credential.id} value={credential.id}>{credential.alias} · ••••{credential.last_four}</option>)}</select></label>
+          <form className="ai-form" onSubmit={(event) => void savePreference(event)}>
+              <label><span>{t("ai.defaultProvider")}</span><select onChange={(event) => chooseProvider(event.target.value)} value={providerId}>{data.providers.map((item) => <option disabled={!item.enabled || !data.models.some((model) => model.provider_key === item.provider_key && model.status === "active")} key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>
+              <label><span>{t("ai.defaultModel")}</span><select disabled={providerModels.length === 0} onChange={(event) => setModelId(event.target.value)} value={modelId}>{providerModels.map((model) => <option key={model.id} value={model.id}>{model.display_name}</option>)}</select></label>
+          {activeCredentials.length === 0 ? <div className="ai-empty-action ai-empty-action--embedded"><p>{t("ai.noProviderCredential")}</p><Link className="button button--primary" to={tabPaths.credentials}>{t("ai.addCredential")}</Link></div> : (
+              <>
+              <label><span>{t("ai.defaultCredential")}</span><select onChange={(event) => setCredentialId(event.target.value)} value={credentialId}>{activeCredentials.map((credential) => <option key={credential.id} value={credential.id}>{credential.alias}</option>)}</select></label>
               {notice === "saved" ? <p className="ai-form__notice ai-form__notice--success" role="status">{t("ai.preferenceSaved")}</p> : null}
               {notice === "error" ? <p className="ai-form__notice" role="alert">{t("ai.saveFailed")}</p> : null}
+              {notice === "conflict" ? <p className="ai-form__notice" role="alert">{t("ai.saveConflict")}</p> : null}
               <button className="button button--primary" disabled={saving} type="submit">{saving ? t("ai.saving") : t("ai.savePreference")}</button>
-            </form>
+              </>
           )}
+            </form>
         </section>
-        <section aria-labelledby="test-credits-heading" className="ai-panel ai-panel--quiet"><div className="ai-panel__heading"><h2 id="test-credits-heading">{t("ai.testCredits")}</h2></div><div className="ai-limit-list"><strong>{t("ai.perCallLimit")}</strong><strong>{t("ai.dailyLimit")}</strong><p>{t("ai.localCreditCopy")}</p></div></section>
+        <section aria-labelledby="test-credits-heading" className="ai-panel ai-panel--quiet"><div className="ai-panel__heading"><h2 id="test-credits-heading">{provider?.provider_key === "zhipu" ? t("ai.liveBudget") : t("ai.testCredits")}</h2></div><div className="ai-limit-list">{provider?.provider_key === "zhipu" ? <><strong>{t("ai.liveHardCap")}</strong><strong>{t("ai.noAutomaticRetry")}</strong><p>{t("ai.liveBudgetCopy")}</p></> : <><strong>{t("ai.perCallLimit")}</strong><strong>{t("ai.dailyLimit")}</strong><p>{t("ai.localCreditCopy")}</p></>}</div></section>
       </div>
     </div>
   );
 }
 
-function CredentialsPanel({ credentials, onReload }: { credentials: CredentialRecord[]; onReload: () => void }) {
+function CredentialsPanel({ credentials, providers, onReload }: { credentials: CredentialRecord[]; providers: ProviderDefinition[]; onReload: () => void }) {
   const { t } = useAppTranslation();
   const [searchParams] = useSearchParams();
   const scopedProjectId = searchParams.get("project")?.match(/^[0-9a-f-]{36}$/i)?.[0] ?? "";
   const [alias, setAlias] = useState("");
+  const [providerKey, setProviderKey] = useState<ProviderKey>("fixture_local");
   const [secret, setSecret] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [validated, setValidated] = useState(false);
@@ -226,12 +264,17 @@ function CredentialsPanel({ credentials, onReload }: { credentials: CredentialRe
   const [replacementConfirmed, setReplacementConfirmed] = useState(false);
 
   const validate = async () => {
+    if (!isZhipuCredentialInputWellFormed(providerKey, secret)) {
+      setValidated(false);
+      setNotice("zhipuFormat");
+      return;
+    }
     setBusy("validate");
     setNotice(null);
     try {
-      const result = await validateTemporaryCredential(secret);
+      const result = await validateTemporaryCredential(providerKey, secret);
       setValidated(result.valid);
-      setNotice(result.valid ? "valid" : "invalid");
+      setNotice(result.valid ? (result.validation_status === "live_validation_not_authorized" ? "acceptedPending" : "valid") : "invalid");
     } catch {
       setValidated(false);
       setSecret("");
@@ -243,13 +286,18 @@ function CredentialsPanel({ credentials, onReload }: { credentials: CredentialRe
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
+    if (!isZhipuCredentialInputWellFormed(providerKey, secret)) {
+      setValidated(false);
+      setNotice("zhipuFormat");
+      return;
+    }
     if (!validated || !confirmed || alias.trim() === "" || secret === "") {
       setNotice("confirm");
       return;
     }
     setBusy("save");
     try {
-      await createCredential(alias.trim(), secret);
+      await createCredential(providerKey, alias.trim(), secret);
       setAlias("");
       setSecret("");
       setConfirmed(false);
@@ -286,13 +334,14 @@ function CredentialsPanel({ credentials, onReload }: { credentials: CredentialRe
         <div className="ai-panel__heading"><h2 id="credential-vault-heading">{t("ai.addCredential")}</h2></div>
         <p className="ai-panel__copy">{t("ai.credentialSaveCopy")}</p>
         <form className="ai-form" onSubmit={(event) => void save(event)}>
+          <label><span>{t("ai.provider")}</span><select onChange={(event) => { setProviderKey(event.target.value as ProviderKey); setSecret(""); setValidated(false); setNotice(null); }} value={providerKey}>{providers.filter((item) => item.provider_key === "fixture_local" || item.provider_key === "zhipu").map((item) => <option key={item.id} value={item.provider_key}>{item.display_name}</option>)}</select></label>
           <label><span>{t("ai.credentialName")}</span><input autoComplete="off" maxLength={120} onChange={(event) => setAlias(event.target.value)} value={alias} /></label>
-          <label><span>{t("ai.accessKey")}</span><input autoComplete="new-password" onChange={(event) => { setSecret(event.target.value); setValidated(false); }} placeholder="fixture-sk-…" type="password" value={secret} /></label>
+          <label><span>{t("ai.accessKey")}</span><input autoComplete="new-password" onChange={(event) => { setSecret(event.target.value); setValidated(false); }} placeholder={providerKey === "zhipu" ? "Zhipu API key" : "fixture-sk-…"} type="password" value={secret} /></label>
           <div className="ai-form__actions">
             <button className="button button--secondary" disabled={busy !== null || secret.length < 20} onClick={() => void validate()} type="button">{busy === "validate" ? t("ai.validating") : t("ai.validateCredential")}</button>
             <label className="ai-confirm"><input checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} type="checkbox" /><span>{t("ai.confirmEncryptedSave")}</span></label>
           </div>
-          {notice !== null ? <p className={notice === "valid" || notice === "saved" || notice === "actionSaved" ? "ai-form__notice ai-form__notice--success" : "ai-form__notice"} role={notice === "valid" || notice === "saved" || notice === "actionSaved" ? "status" : "alert"}>{t(`ai.notice.${notice}`)}</p> : null}
+          {notice !== null ? <p className={notice === "valid" || notice === "acceptedPending" || notice === "saved" || notice === "actionSaved" ? "ai-form__notice ai-form__notice--success" : "ai-form__notice"} role={notice === "valid" || notice === "acceptedPending" || notice === "saved" || notice === "actionSaved" ? "status" : "alert"}>{t(`ai.notice.${notice}`)}</p> : null}
           <button className="button button--primary" disabled={busy !== null || !validated || !confirmed || secret === ""} type="submit">{busy === "save" ? t("ai.saving") : t("ai.saveSecurely")}</button>
           <details className="ai-disclosure ai-disclosure--form"><summary>{t("ai.securityMechanism")}</summary><p>{t("ai.credentialCopy")}</p></details>
         </form>
@@ -305,7 +354,7 @@ function CredentialsPanel({ credentials, onReload }: { credentials: CredentialRe
             {credentials.map((credential) => (
               <article className="ai-credential-row" key={credential.id}>
                 <div className="ai-credential-row__top">
-                  <div><h3>{credential.alias}</h3><code>•••• {credential.last_four ?? "—"}</code></div>
+                  <div><h3>{credential.alias}</h3></div>
                   <span className={credential.status === "active" ? "ai-status ai-status--ready" : "ai-status"}>{displayStatus(t, credential.status)}</span>
                 </div>
                 <p className="ai-credential-row__summary">{t("ai.savedCredentialsCopy")}</p>
@@ -319,10 +368,10 @@ function CredentialsPanel({ credentials, onReload }: { credentials: CredentialRe
                 ) : null}
                 <details className="ai-disclosure ai-disclosure--row"><summary>{t("ai.technicalDetails")}</summary><dl><div><dt>Provider</dt><dd>{credential.provider_key}</dd></div><div><dt>Validation</dt><dd>{credential.last_validation_status ?? t("common.unknown")}</dd></div><div><dt>Revision</dt><dd>r{credential.revision}</dd></div></dl></details>
                 {replacementFor === credential.id ? (
-                  <form className="ai-replacement-form" onSubmit={(event) => { event.preventDefault(); void runCredentialAction(`replace-${credential.id}`, async () => { const result = await replaceCredential(credential, replacementAlias.trim(), replacementSecret); setReplacementFor(null); setReplacementAlias(""); setReplacementSecret(""); setReplacementConfirmed(false); return result; }); }}>
+                  <form className="ai-replacement-form" onSubmit={(event) => { event.preventDefault(); if (!isZhipuCredentialInputWellFormed(credential.provider_key, replacementSecret)) { setNotice("zhipuFormat"); return; } void runCredentialAction(`replace-${credential.id}`, async () => { const result = await replaceCredential(credential, replacementAlias.trim(), replacementSecret); setReplacementFor(null); setReplacementAlias(""); setReplacementSecret(""); setReplacementConfirmed(false); return result; }); }}>
                     <strong>{t("ai.replaceHeading")}</strong>
                     <label><span>{t("ai.credentialAlias")}</span><input maxLength={120} onChange={(event) => setReplacementAlias(event.target.value)} value={replacementAlias} /></label>
-                    <label><span>{t("ai.replacementCredential")}</span><input autoComplete="new-password" onChange={(event) => setReplacementSecret(event.target.value)} placeholder="fixture-sk-…" type="password" value={replacementSecret} /></label>
+                    <label><span>{t("ai.replacementCredential")}</span><input autoComplete="new-password" onChange={(event) => setReplacementSecret(event.target.value)} placeholder={credential.provider_key === "zhipu" ? "Zhipu API key" : "fixture-sk-…"} type="password" value={replacementSecret} /></label>
                     <label className="ai-confirm"><input checked={replacementConfirmed} onChange={(event) => setReplacementConfirmed(event.target.checked)} type="checkbox" /><span>{t("ai.confirmReplace")}</span></label>
                     <div><button className="button button--secondary" onClick={() => { setReplacementFor(null); setReplacementSecret(""); }} type="button">{t("common.cancel")}</button><button className="button button--primary" disabled={!replacementConfirmed || replacementSecret.length < 20 || replacementAlias.trim() === ""} type="submit">{t("ai.replaceAndErase")}</button></div>
                   </form>
@@ -349,14 +398,15 @@ function UsagePanel() {
   if (failed) return <FeedbackPanel action={{ label: t("ai.refresh"), onClick: () => { setItems(null); setFailed(false); setReloadToken((value) => value + 1); } }} eyebrow={t("ai.page.usage.title")} heading={t("ai.activityUnavailable")} kind="error"><p>{t("ai.activityUnavailableCopy")}</p><details className="ai-disclosure"><summary>{t("ai.technicalDetails")}</summary><p>{t("ai.loadFailedCopy")}</p></details></FeedbackPanel>;
   return (
     <section aria-labelledby="usage-audit-heading" className="ai-panel ai-panel--registry">
-      <div className="ai-panel__heading"><h2 id="usage-audit-heading">{t("ai.page.usage.title")}</h2><span className="ai-status">{t("ai.simulated")}</span></div>
+      <div className="ai-panel__heading"><h2 id="usage-audit-heading">{t("ai.page.usage.title")}</h2><span className="ai-status">{t("ai.governedActivity")}</span></div>
       {items === null ? <p className="loading-copy" role="status">{t("common.loading")}</p> : items.length === 0 ? <div className="ai-empty-action"><p>{t("ai.noActivity")}</p><p>{t("ai.noActivityCopy")}</p><Link className="button button--primary" to={tabPaths.models}>{t("ai.goToModels")}</Link></div> : (
         <div className="ai-audit-list" aria-label={t("ai.page.usage.title")}>
           {items.map((item) => {
             const model = valueFromMetadata(item.safe_metadata, "model") ?? valueFromMetadata(item.safe_metadata, "model_id") ?? t("ai.unknown");
             const attempt = valueFromMetadata(item.safe_metadata, "attempt") ?? "1";
             const cost = valueFromMetadata(item.safe_metadata, "cost_minor_units") ?? "-";
-            return <article className="ai-audit-row" key={item.id}><div className="ai-audit-row__main"><div><strong>{activityLabel(t, item.action)}</strong><span>{t("ai.activity.model")}: {model}</span></div><span className="ai-status">{displayStatus(t, item.outcome)}</span></div><dl><div><dt>{t("ai.activity.attempt")}</dt><dd>{attempt}</dd></div><div><dt>{t("ai.activity.cost")}</dt><dd>{cost} FIXTURE_CREDITS</dd></div><div><dt>{t("ai.activity.time")}</dt><dd><time dateTime={item.created_at}>{new Intl.DateTimeFormat(i18n.resolvedLanguage, { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.created_at))}</time></dd></div></dl><details className="ai-disclosure ai-disclosure--row"><summary>{t("ai.viewDetails")}</summary><dl><div><dt>Internal ID</dt><dd>{item.id}</dd></div><div><dt>Invocation ID</dt><dd>{item.invocation_id ?? t("ai.unknown")}</dd></div><div><dt>Metadata</dt><dd>{JSON.stringify(item.safe_metadata)}</dd></div></dl></details></article>;
+            const currency = valueFromMetadata(item.safe_metadata, "currency") ?? t("ai.unknown");
+            return <article className="ai-audit-row" key={item.id}><div className="ai-audit-row__main"><div><strong>{activityLabel(t, item.action)}</strong><span>{t("ai.activity.model")}: {model}</span></div><span className="ai-status">{displayStatus(t, item.outcome)}</span></div><dl><div><dt>{t("ai.activity.attempt")}</dt><dd>{attempt}</dd></div><div><dt>{t("ai.activity.cost")}</dt><dd>{cost} {currency}</dd></div><div><dt>{t("ai.activity.time")}</dt><dd><time dateTime={item.created_at}>{new Intl.DateTimeFormat(i18n.resolvedLanguage, { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.created_at))}</time></dd></div></dl><details className="ai-disclosure ai-disclosure--row"><summary>{t("ai.viewDetails")}</summary><dl><div><dt>Internal ID</dt><dd>{item.id}</dd></div><div><dt>Invocation ID</dt><dd>{item.invocation_id ?? t("ai.unknown")}</dd></div><div><dt>Metadata</dt><dd>{JSON.stringify(item.safe_metadata)}</dd></div></dl></details></article>;
           })}
         </div>
       )}
@@ -378,11 +428,14 @@ export function AISettingsPage() {
     const controller = new AbortController();
     void Promise.all([
       listProviders(controller.signal),
-      listModels("fixture_local", controller.signal),
       listCapabilities(controller.signal),
       listCredentials(controller.signal),
       getUserPreference(controller.signal),
-    ]).then(([providers, models, capabilities, credentials, preference]) => { setError(null); setData({ providers, models, capabilities, credentials, preference }); }).catch((caught: unknown) => { if (!controller.signal.aborted) setError(asSettingsError(caught)); });
+    ]).then(async ([providers, capabilities, credentials, preference]) => {
+      const models = (await Promise.all(providers.map((provider) => listModels(provider.provider_key, controller.signal)))).flat();
+      setError(null);
+      setData({ providers, models, capabilities, credentials, preference });
+    }).catch((caught: unknown) => { if (!controller.signal.aborted) setError(asSettingsError(caught)); });
     return () => controller.abort();
   }, [abortable, reloadToken]);
 
@@ -391,14 +444,14 @@ export function AISettingsPage() {
   return (
     <div className="page page--ai-settings">
       <header className="ai-settings-header"><div><h1>{t(pageCopy[0])}</h1><p>{t(pageCopy[1])}</p></div></header>
-      <FixtureBoundary />
+      <ProviderBoundary />
       <SetupPath active={active} />
       <SettingsTabs active={active} />
       <div className="page__content ai-settings-content">
         {active !== "usage" && data === null && error === null ? <section className="ai-loading" aria-busy="true"><p className="context-label">{t("ai.loadingEyebrow")}</p><h2>{t("ai.loadingHeading")}</h2><div aria-hidden="true" /></section> : null}
         {error !== null ? <FeedbackPanel action={{ label: t("common.retry"), onClick: () => { setError(null); setData(null); setReloadToken((value) => value + 1); } }} eyebrow={t("ai.unavailableEyebrow")} heading={t("ai.loadFailed")} kind="error"><p>{error.status === 404 ? t("ai.disabledCopy") : t("ai.loadFailedCopy")}</p></FeedbackPanel> : null}
         {data !== null && active === "models" ? <ModelsPanel data={data} onReload={() => setReloadToken((value) => value + 1)} /> : null}
-        {data !== null && active === "credentials" ? <CredentialsPanel credentials={data.credentials} onReload={() => setReloadToken((value) => value + 1)} /> : null}
+        {data !== null && active === "credentials" ? <CredentialsPanel credentials={data.credentials} providers={data.providers} onReload={() => setReloadToken((value) => value + 1)} /> : null}
         {active === "usage" ? <UsagePanel /> : null}
       </div>
     </div>

@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import select, text
@@ -95,7 +95,9 @@ RESERVATION_EXPIRY = timedelta(seconds=120)
 VALIDATION_WINDOW = timedelta(minutes=1)
 VALIDATION_LIMIT = 5
 OPENAI_PROVIDER_KEY: ProviderKey = "openai"
+ZHIPU_PROVIDER_KEY: ProviderKey = "zhipu"
 USD_CURRENCY: Currency = "USD"
+CNY_CURRENCY: Currency = "CNY"
 LIVE_VALIDATION_NOT_AUTHORIZED: CredentialValidationStatus = "live_validation_not_authorized"
 TERMINAL_INVOCATION_STATES = {
     "succeeded",
@@ -133,6 +135,14 @@ def _configuration_currency(provider: ProviderDefinition) -> Currency | None:
         and provider.status == "disabled"
     ):
         return USD_CURRENCY
+    if (
+        provider.provider_key == ZHIPU_PROVIDER_KEY
+        and provider.adapter_type == "zhipu_chat_completions"
+        and provider.base_url_policy == "provider_managed"
+        and provider.enabled
+        and provider.status == "active"
+    ):
+        return CNY_CURRENCY
     return None
 
 
@@ -141,15 +151,23 @@ def _model_matches_provider(model: ModelDefinition, provider: ProviderDefinition
         return False
     if provider.provider_key == FIXTURE_PROVIDER_KEY:
         return model.status == "active"
+    if provider.provider_key == ZHIPU_PROVIDER_KEY:
+        return model.status == "active"
     return provider.provider_key == OPENAI_PROVIDER_KEY and model.status == "disabled"
 
 
-def _live_validation_blocked_response(*, persisted: bool) -> CredentialValidationResponse:
+def _live_validation_blocked_response(
+    *, provider_key: Literal["openai", "zhipu"], persisted: bool, input_accepted: bool = False
+) -> CredentialValidationResponse:
     return CredentialValidationResponse(
-        provider_key=OPENAI_PROVIDER_KEY,
-        valid=False,
+        provider_key=provider_key,
+        valid=input_accepted,
         validation_status=LIVE_VALIDATION_NOT_AUTHORIZED,
-        message_code="LIVE_VALIDATION_NOT_AUTHORIZED",
+        message_code=(
+            "SECURE_INPUT_ACCEPTED_LIVE_VALIDATION_PENDING"
+            if input_accepted
+            else "LIVE_VALIDATION_NOT_AUTHORIZED"
+        ),
         fixture=False,
         local_only=False,
         persisted=persisted,
@@ -272,6 +290,16 @@ class CredentialRejectedError(AIFoundationError):
     message = "The local fixture credential format was rejected."
 
 
+class ZhipuCredentialFormatRejectedError(AIFoundationError):
+    status_code = 422
+    error_code = "ZHIPU_CREDENTIAL_FORMAT_REJECTED"
+    category: ErrorCategory = "VALIDATION_ERROR"
+    message = (
+        "The Zhipu API key must be supplied without ASCII whitespace or an authentication scheme."
+    )
+    allowed_actions = ("edit_credential_input",)
+
+
 class ValidationRateLimitedError(AIFoundationError):
     status_code = 429
     error_code = "CREDENTIAL_VALIDATION_RATE_LIMITED"
@@ -295,13 +323,21 @@ def _user_id(principal: PrincipalContext) -> uuid.UUID:
     return principal.user_id
 
 
+def _assert_provider_credential_structure(provider_key: str, plaintext: bytes) -> None:
+    """Reject malformed Zhipu token bytes without normalizing or exposing them."""
+
+    if provider_key != ZHIPU_PROVIDER_KEY:
+        return
+    if not plaintext or any(value < 0x21 or value > 0x7E for value in plaintext):
+        raise ZhipuCredentialFormatRejectedError
+
+
 def _credential_read(record: CredentialRecord) -> CredentialRead:
     return CredentialRead(
         id=record.id,
         alias=record.alias,
         provider_key=record.provider_key,
         fingerprint=record.key_fingerprint,
-        last_four=record.last_four,
         status=record.status,  # type: ignore[arg-type]
         created_at=record.created_at,
         updated_at=record.updated_at,
@@ -480,8 +516,8 @@ class AIFoundationService:
                         catalog_status=provider.catalog_status,
                         catalog_fresh_at=provider.catalog_fresh_at,
                         local_only=provider.provider_key == FIXTURE_PROVIDER_KEY,
-                        real_model_calls=False,
-                        real_cost=False,
+                        real_model_calls=provider.provider_key == ZHIPU_PROVIDER_KEY,
+                        real_cost=provider.provider_key == ZHIPU_PROVIDER_KEY,
                         capabilities=[capability_read],
                     )
                 else:
@@ -554,9 +590,13 @@ class AIFoundationService:
         request_id: uuid.UUID,
     ) -> CredentialValidationResponse:
         user_id = _user_id(principal)
-        if payload.provider_key == OPENAI_PROVIDER_KEY:
+        if payload.provider_key == ZHIPU_PROVIDER_KEY:
+            zhipu_plaintext = payload.credential.get_secret_value().encode("utf-8")
+            _assert_provider_credential_structure(payload.provider_key, zhipu_plaintext)
+            del zhipu_plaintext
+        if payload.provider_key in {OPENAI_PROVIDER_KEY, ZHIPU_PROVIDER_KEY}:
             identity: dict[str, object] = {
-                "provider_key": OPENAI_PROVIDER_KEY,
+                "provider_key": payload.provider_key,
                 "credential_present": True,
             }
             async with self._session.begin():
@@ -571,10 +611,20 @@ class AIFoundationService:
                     return replay
                 if await self._repository.lock_active_user(user_id) is None:
                     raise AIAuthorizationError
-                provider = await self._repository.get_provider(OPENAI_PROVIDER_KEY)
-                if provider is None or _configuration_currency(provider) != USD_CURRENCY:
+                provider = await self._repository.get_provider(payload.provider_key)
+                expected_currency = (
+                    USD_CURRENCY if payload.provider_key == OPENAI_PROVIDER_KEY else CNY_CURRENCY
+                )
+                if provider is None or _configuration_currency(provider) != expected_currency:
                     raise AIResourceNotFoundError
-                response = _live_validation_blocked_response(persisted=False)
+                live_provider_key: Literal["openai", "zhipu"] = (
+                    "openai" if payload.provider_key == OPENAI_PROVIDER_KEY else "zhipu"
+                )
+                response = _live_validation_blocked_response(
+                    provider_key=live_provider_key,
+                    persisted=False,
+                    input_accepted=payload.provider_key == ZHIPU_PROVIDER_KEY,
+                )
                 self._audit(
                     user_id=user_id,
                     request_id=request_id,
@@ -653,6 +703,7 @@ class AIFoundationService:
     ) -> CredentialRead:
         user_id = _user_id(principal)
         plaintext = payload.credential.get_secret_value().encode("utf-8")
+        _assert_provider_credential_structure(payload.provider_key, plaintext)
         fingerprint = self._cipher.fingerprint(plaintext)
         identity = {
             "provider_key": payload.provider_key,
@@ -674,7 +725,11 @@ class AIFoundationService:
                 raise AIAuthorizationError
             provider = await self._repository.get_provider(payload.provider_key)
             expected_currency: Currency = (
-                FIXTURE_CURRENCY if payload.provider_key == FIXTURE_PROVIDER_KEY else USD_CURRENCY
+                FIXTURE_CURRENCY
+                if payload.provider_key == FIXTURE_PROVIDER_KEY
+                else CNY_CURRENCY
+                if payload.provider_key == ZHIPU_PROVIDER_KEY
+                else USD_CURRENCY
             )
             if provider is None or _configuration_currency(provider) != expected_currency:
                 raise AIResourceNotFoundError
@@ -702,7 +757,6 @@ class AIFoundationService:
                 provider_definition_id=provider.id,
                 provider_key=provider.provider_key,
                 key_fingerprint=fingerprint,
-                last_four=plaintext[-4:].decode("utf-8", errors="replace"),
                 alias=payload.alias,
                 status="active",
                 encryption_version=encrypted.encryption_version,
@@ -780,12 +834,15 @@ class AIFoundationService:
             )
             if record is None or record.status != "active":
                 raise AIResourceNotFoundError
-            if record.provider_key == OPENAI_PROVIDER_KEY:
-                provider = await self._repository.get_provider(OPENAI_PROVIDER_KEY)
+            if record.provider_key in {OPENAI_PROVIDER_KEY, ZHIPU_PROVIDER_KEY}:
+                provider = await self._repository.get_provider(record.provider_key)
+                expected_currency = (
+                    USD_CURRENCY if record.provider_key == OPENAI_PROVIDER_KEY else CNY_CURRENCY
+                )
                 if (
                     provider is None
                     or provider.id != record.provider_definition_id
-                    or _configuration_currency(provider) != USD_CURRENCY
+                    or _configuration_currency(provider) != expected_currency
                 ):
                     raise AIResourceNotFoundError
                 now = datetime.now(UTC)
@@ -793,7 +850,13 @@ class AIFoundationService:
                 record.last_successful_validation_at = None
                 record.updated_at = now
                 record.revision += 1
-                response = _live_validation_blocked_response(persisted=True)
+                saved_live_provider_key: Literal["openai", "zhipu"] = (
+                    "openai" if record.provider_key == OPENAI_PROVIDER_KEY else "zhipu"
+                )
+                response = _live_validation_blocked_response(
+                    provider_key=saved_live_provider_key,
+                    persisted=True,
+                )
                 self._audit(
                     user_id=user_id,
                     request_id=request_id,
@@ -963,6 +1026,7 @@ class AIFoundationService:
                 or _configuration_currency(provider) is None
             ):
                 raise AIResourceNotFoundError
+            _assert_provider_credential_structure(provider.provider_key, plaintext)
             now = datetime.now(UTC)
             validation_status: CredentialValidationStatus
             if old.provider_key == FIXTURE_PROVIDER_KEY:
@@ -971,7 +1035,7 @@ class AIFoundationService:
                     raise CredentialRejectedError
                 validation_status = validation.status
                 successful_validation_at: datetime | None = now
-            elif old.provider_key == OPENAI_PROVIDER_KEY:
+            elif old.provider_key in {OPENAI_PROVIDER_KEY, ZHIPU_PROVIDER_KEY}:
                 validation_status = LIVE_VALIDATION_NOT_AUTHORIZED
                 successful_validation_at = None
             else:
@@ -992,7 +1056,6 @@ class AIFoundationService:
                 provider_definition_id=old.provider_definition_id,
                 provider_key=old.provider_key,
                 key_fingerprint=fingerprint,
-                last_four=plaintext[-4:].decode("utf-8", errors="replace"),
                 alias=payload.alias.strip(),
                 status="active",
                 encryption_version=encrypted.encryption_version,
@@ -1187,7 +1250,11 @@ class AIFoundationService:
             return response
 
     async def _preference_currency(self, preference: UserProviderPreference) -> Currency:
-        if preference.cost_warning_currency in {FIXTURE_CURRENCY, USD_CURRENCY}:
+        if preference.cost_warning_currency in {
+            FIXTURE_CURRENCY,
+            USD_CURRENCY,
+            CNY_CURRENCY,
+        }:
             return preference.cost_warning_currency  # type: ignore[return-value]
         if preference.default_provider_definition_id is not None:
             provider = await self._repository.get_provider_by_id(
@@ -1510,7 +1577,8 @@ class AIFoundationService:
         }
         required_live_capability_ids = (
             set()
-            if provider is None or provider.provider_key != OPENAI_PROVIDER_KEY
+            if provider is None
+            or provider.provider_key not in {OPENAI_PROVIDER_KEY, ZHIPU_PROVIDER_KEY}
             else set(
                 await self._repository.capability_ids_for_keys(
                     sorted(required_live_capability_keys)
@@ -1522,7 +1590,7 @@ class AIFoundationService:
         )
         live_capabilities_ready = (
             provider is None
-            or provider.provider_key != OPENAI_PROVIDER_KEY
+            or provider.provider_key not in {OPENAI_PROVIDER_KEY, ZHIPU_PROVIDER_KEY}
             or (
                 len(required_live_capability_ids) == len(required_live_capability_keys)
                 and required_live_capability_ids.issubset(set(capabilities))
@@ -1551,7 +1619,7 @@ class AIFoundationService:
         if configuration_ready and provider is not None:
             resolved_status = (
                 "live_authorization_required"
-                if provider.provider_key == OPENAI_PROVIDER_KEY
+                if provider.provider_key in {OPENAI_PROVIDER_KEY, ZHIPU_PROVIDER_KEY}
                 else "ready"
             )
         return ProjectPolicyRead(
@@ -2123,9 +2191,9 @@ class AIFoundationService:
     ) -> list[str]:
         """Evaluate a saved live selection without reading a credential or dispatching.
 
-        Phase 3B keeps live execution source-disabled.  This read-only admission mirror
+        Live execution remains runtime-gated. This read-only admission mirror
         makes every other prerequisite explicit so the UI cannot imply that a missing
-        Grant, allowlist, or USD budget would become executable by flipping that gate.
+        Grant, allowlist, or monetary budget would become executable by flipping that gate.
         """
 
         blockers: list[str] = []
@@ -2134,6 +2202,11 @@ class AIFoundationService:
         async with self._session.begin():
             active_user = await self._repository.lock_active_user(user_id)
             provider = await self._repository.get_provider_by_id(provider_definition_id)
+            live_currency: Currency = (
+                CNY_CURRENCY
+                if provider is not None and provider.provider_key == ZHIPU_PROVIDER_KEY
+                else USD_CURRENCY
+            )
             model = await self._repository.get_model(model_definition_id)
             credential = await self._repository.get_owned_credential(
                 credential_id=credential_id,
@@ -2147,21 +2220,21 @@ class AIFoundationService:
             policy = await self._repository.get_project_policy(project_id)
             user_budget = await self._repository.get_user_budget_policy(
                 user_id,
-                currency=USD_CURRENCY,
+                currency=live_currency,
             )
             project_budget = await self._repository.get_project_budget_policy(
                 project_id,
-                currency=USD_CURRENCY,
+                currency=live_currency,
             )
             user_counter = await self._repository.get_user_counter(
                 user_id,
                 now,
-                currency=USD_CURRENCY,
+                currency=live_currency,
             )
             project_counter = await self._repository.get_project_counter(
                 project_id,
                 now,
-                currency=USD_CURRENCY,
+                currency=live_currency,
             )
             capability_ids = set(await self._repository.capability_ids_for_keys(capability_keys))
             model_capabilities = (
@@ -2185,17 +2258,17 @@ class AIFoundationService:
             blockers.append("user_inactive")
         if (
             provider is None
-            or provider.provider_key != OPENAI_PROVIDER_KEY
-            or _configuration_currency(provider) != USD_CURRENCY
+            or provider.provider_key not in {OPENAI_PROVIDER_KEY, ZHIPU_PROVIDER_KEY}
+            or _configuration_currency(provider) != live_currency
         ):
-            blockers.append("openai_provider_contract_invalid")
+            blockers.append("live_provider_contract_invalid")
         if (
             provider is None
             or model is None
             or model.id != model_definition_id
             or not _model_matches_provider(model, provider)
         ):
-            blockers.append("openai_model_contract_invalid")
+            blockers.append("live_model_contract_invalid")
         if (
             not capability_keys
             or len(capability_ids) != len(capability_keys)
@@ -2210,9 +2283,16 @@ class AIFoundationService:
             or credential.provider_key != provider.provider_key
         ):
             blockers.append("credential_provider_mismatch")
-        elif (
-            credential.last_validation_status != "provider_valid"
-            or credential.last_successful_validation_at is None
+        elif not (
+            (
+                credential.last_validation_status == "provider_valid"
+                and credential.last_successful_validation_at is not None
+            )
+            or (
+                provider is not None
+                and provider.provider_key == ZHIPU_PROVIDER_KEY
+                and credential.last_validation_status == LIVE_VALIDATION_NOT_AUTHORIZED
+            )
         ):
             blockers.append("credential_live_validation_required")
         if grant is None:
@@ -2222,7 +2302,7 @@ class AIFoundationService:
         if policy is None or not policy.enabled:
             blockers.append("project_policy_not_configured")
         else:
-            if policy.currency != USD_CURRENCY:
+            if policy.currency != live_currency:
                 blockers.append("project_policy_currency_mismatch")
             if (
                 policy.allow_unknown_cost
@@ -2242,14 +2322,14 @@ class AIFoundationService:
         if (
             user_budget is None
             or not user_budget.enabled
-            or user_budget.currency != USD_CURRENCY
+            or user_budget.currency != live_currency
             or user_budget.allow_unknown_cost
         ):
             blockers.append("user_budget_not_configured")
         if (
             project_budget is None
             or not project_budget.enabled
-            or project_budget.currency != USD_CURRENCY
+            or project_budget.currency != live_currency
             or project_budget.allow_unknown_cost
         ):
             blockers.append("project_budget_not_configured")
@@ -3604,4 +3684,5 @@ __all__ = [
     "CredentialRejectedError",
     "Phase3UnavailableError",
     "ValidationRateLimitedError",
+    "ZhipuCredentialFormatRejectedError",
 ]

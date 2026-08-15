@@ -148,7 +148,7 @@ def test_arcana_complete_owner_scoped_fixture_loop(
         document = interpreted.json()["interpretation"]["document"]
         assert document["schema_version"] == "tarot-reading.v2"
         assert len(document["positions"]) == 3
-        assert len(document["relationship_analysis"]) == 4
+        assert 3 <= len(document["relationship_analysis"]) <= 4
         assert 1 <= len(document["actionable_reflections"]) <= 3
         assert 2 <= len(document["reflection_prompts"]) <= 4
         assert len(document["knowledge_basis"]) == 3

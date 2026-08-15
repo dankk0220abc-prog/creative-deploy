@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import unicodedata
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
+from creativedeploy_api.ai.retrieval import RetrievedCitation, RetrievedContextUnit
+
 PAINT_PLAN_SCHEMA_VERSION = "paint-plan.v1"
 PAINT_PLAN_PROMPT_KEY = "paint-plan"
 PAINT_PLAN_PROMPT_VERSION = 1
+PAINT_PLAN_LIVE_PROMPT_VERSION: Final = 2
 MAX_PLAN_INSTRUCTIONS = 128
 MAX_PLAN_WARNINGS = 8
 MAX_PLAN_SAFETY_NOTES = 16
@@ -106,6 +110,9 @@ class PaintPlanDocument(StrictModel):
         list[Annotated[str, Field(min_length=1, max_length=400)]],
         Field(max_length=MAX_PLAN_SAFETY_NOTES),
     ]
+    knowledge_citations: Annotated[list[RetrievedCitation], Field(max_length=24)] = Field(
+        default_factory=list
+    )
 
     @field_validator("title", "overall_approach")
     @classmethod
@@ -129,6 +136,85 @@ class PaintPlanDocument(StrictModel):
         if len(stable_keys) != len(set(stable_keys)):
             raise ValueError("instruction stable_region_key must be unique")
         return self
+
+
+PAINT_PLAN_REQUIRED_ROOT_KEYS: Final = (
+    "schema_version",
+    "title",
+    "overall_approach",
+    "instructions",
+    "safety_notes",
+)
+PAINT_PLAN_OPTIONAL_ROOT_KEYS: Final = ("knowledge_citations",)
+PAINT_PLAN_ROOT_KEYS: Final = PAINT_PLAN_REQUIRED_ROOT_KEYS + PAINT_PLAN_OPTIONAL_ROOT_KEYS
+PAINT_PLAN_INSTRUCTION_KEYS: Final = (
+    "region_id",
+    "stable_region_key",
+    "region_label",
+    "target_color",
+    "preparation",
+    "base_coat",
+    "layer_strategy",
+    "edge_treatment",
+    "lighting_guidance",
+    "material_guidance",
+    "warnings",
+    "confidence_ppm",
+)
+PAINT_PLAN_CITATION_KEYS: Final = ("source_id", "chunk_id", "target_path")
+
+
+def paint_plan_live_output_template() -> dict[str, object]:
+    """Compact direct-root shape hint; authoritative validation remains Pydantic."""
+
+    return {
+        "schema_version": "paint-plan.v1",
+        "title": "string (1..160 characters)",
+        "overall_approach": "string (1..2000 characters)",
+        "instructions": [
+            {
+                "region_id": "copy the exact governed paint-region UUID",
+                "stable_region_key": "copy its exact governed stable-region UUID",
+                "region_label": "copy its exact governed label",
+                "target_color": "string (1..120 characters)",
+                "preparation": "string (1..600 characters)",
+                "base_coat": "string (1..600 characters)",
+                "layer_strategy": "string (1..1000 characters)",
+                "edge_treatment": "string (1..600 characters)",
+                "lighting_guidance": "string (1..600 characters)",
+                "material_guidance": "string (1..600 characters)",
+                "warnings": ["string (1..240 characters; 0..8 unique items)"],
+                "confidence_ppm": 0,
+            }
+        ],
+        "safety_notes": ["string (1..400 characters; 0..16 unique items)"],
+        "knowledge_citations": [
+            {
+                "source_id": "copy an exact retrieved source_id",
+                "chunk_id": "copy its exact retrieved chunk_id",
+                "target_path": "/JSON/pointer/to/supported/plan/field",
+            }
+        ],
+    }
+
+
+def paint_plan_live_output_contract() -> str:
+    template = json.dumps(
+        paint_plan_live_output_template(),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return (
+        f"PaintPilot live output contract v{PAINT_PLAN_LIVE_PROMPT_VERSION}. The response root "
+        "must be this direct JSON object. Do not wrap it in paint_plan, plan, document, data, "
+        "result, response, or output. Do not rename, omit, or add fields. Replace the descriptive "
+        f"template values while preserving its exact object/list shape:\n{template}\n"
+        "Produce 1..128 instructions: exactly one for every governed kind=paint region and none "
+        "for kind=exclude. Copy region_id, stable_region_key, and region_label exactly. "
+        "confidence_ppm is an integer from 0 through 1000000. Every object forbids extra keys. "
+        "For live output, knowledge_citations must contain 1..24 entries and may use only exact "
+        "retrieved source_id/chunk_id pairs; target_path identifies the supported plan field."
+    )
 
 
 class PaintPlanSelectionRequest(StrictModel):
@@ -275,14 +361,14 @@ class PaintPlanModelChoiceRead(StrictModel):
     model_id: str
     display_name: str
     execution_mode: ProviderExecutionMode
-    currency: Literal["FIXTURE_CREDITS", "USD"]
+    currency: Literal["FIXTURE_CREDITS", "USD", "CNY"]
     supports_vision: bool
     supports_structured_output: bool
 
 
 class PaintPlanProviderChoiceRead(StrictModel):
     id: UUID
-    provider_key: Literal["fixture_local", "openai"]
+    provider_key: Literal["fixture_local", "openai", "zhipu"]
     display_name: str
     execution_mode: ProviderExecutionMode
     models: list[PaintPlanModelChoiceRead]
@@ -291,7 +377,7 @@ class PaintPlanProviderChoiceRead(StrictModel):
 class PaintPlanCredentialChoiceRead(StrictModel):
     id: UUID
     alias: str
-    provider_key: Literal["fixture_local", "openai"]
+    provider_key: Literal["fixture_local", "openai", "zhipu"]
     active_grant: bool
     status: str
 
@@ -299,13 +385,13 @@ class PaintPlanCredentialChoiceRead(StrictModel):
 class PaintPlanPreviewRead(StrictModel):
     admissible: bool
     execution_mode: ProviderExecutionMode
-    provider_key: Literal["fixture_local", "openai"]
+    provider_key: Literal["fixture_local", "openai", "zhipu"]
     model_id: str
     source_ready: bool
     estimated_cost_minor_units: int | None
-    currency: Literal["FIXTURE_CREDITS", "USD"]
+    currency: Literal["FIXTURE_CREDITS", "USD", "CNY"]
     estimate_status: Literal["estimated", "unavailable"]
-    live_execution_authorized: Literal[False]
+    live_execution_authorized: bool
     blockers: list[str]
 
 
@@ -361,6 +447,7 @@ class PaintPlanRead(StrictModel):
     schema_version: Literal["paint-plan.v1"]
     content_hash: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
     document: PaintPlanDocument
+    retrieved_context: list[RetrievedContextUnit] = Field(default_factory=list)
     provider_request_id_status: Literal["absent", "provided", "unavailable"]
     provider_request_id: Annotated[str, Field(min_length=1, max_length=200)] | None
     usage_measurement_status: Literal["measured", "unavailable"]
@@ -368,7 +455,7 @@ class PaintPlanRead(StrictModel):
     output_units: Annotated[int, Field(ge=0)] | None
     cost_measurement_status: Literal["estimated", "measured", "unavailable"]
     cost_minor_units: Annotated[int, Field(ge=0)] | None
-    cost_currency: Literal["FIXTURE_CREDITS", "USD"]
+    cost_currency: Literal["FIXTURE_CREDITS", "USD", "CNY"]
     latest_review: PaintPlanReviewEventRead | None
     allowed_actions: list[str]
     created_by_actor_type: Literal["provider", "user"]

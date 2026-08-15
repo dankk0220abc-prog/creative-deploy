@@ -15,6 +15,7 @@ from pydantic import SecretStr, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from creativedeploy_api.ai.encryption import (
+    CredentialAAD,
     CredentialCipher,
     FixtureRootKeyProvider,
 )
@@ -40,7 +41,13 @@ from creativedeploy_api.schemas.ai_foundation import (
     TemporaryCredentialValidationRequest,
     UserPreferenceUpdate,
 )
-from creativedeploy_api.services.ai_foundation import AIFoundationService
+from creativedeploy_api.services.ai_foundation import (
+    AIFoundationService,
+    ZhipuCredentialFormatRejectedError,
+    _assert_provider_credential_structure,
+    _encrypted_payload,
+)
+from creativedeploy_api.services.zhipu_invocations import WP2_GOVERNED_LEDGER_CAP_FEN
 
 USER_ID = uuid.UUID("3b100000-0000-4000-8000-000000000001")
 PROVIDER_ID = uuid.UUID("3b100000-0000-4000-8000-000000000002")
@@ -49,6 +56,10 @@ CREDENTIAL_ID = uuid.UUID("3b100000-0000-4000-8000-000000000004")
 PROJECT_ID = uuid.UUID("3b100000-0000-4000-8000-000000000005")
 CAPABILITY_ID = uuid.UUID("3b100000-0000-4000-8000-000000000006")
 STRUCTURED_CAPABILITY_ID = uuid.UUID("3b100000-0000-4000-8000-000000000007")
+
+
+def test_wp2_governed_ledger_cap_is_one_and_a_half_rmb() -> None:
+    assert WP2_GOVERNED_LEDGER_CAP_FEN == 150
 
 
 def _principal() -> PrincipalContext:
@@ -204,6 +215,29 @@ def test_credential_requests_reject_empty_or_excessive_secrets(
     )
 
 
+@pytest.mark.parametrize(
+    "plaintext",
+    [
+        b"synthetic zhipu token",
+        b"synthetic\tzhipu-token",
+        b"synthetic-zhipu-token\r\n",
+        b"Bearer synthetic-zhipu-token",
+        "synthetic-zhipu-非ascii".encode(),
+    ],
+)
+def test_zhipu_credential_structure_rejects_non_token_bytes_without_echo(
+    plaintext: bytes,
+) -> None:
+    with pytest.raises(ZhipuCredentialFormatRejectedError) as captured:
+        _assert_provider_credential_structure("zhipu", plaintext)
+
+    assert plaintext.decode("utf-8", errors="replace") not in repr(captured.value)
+
+
+def test_zhipu_credential_structure_accepts_whitespace_free_printable_ascii() -> None:
+    _assert_provider_credential_structure("zhipu", b"synthetic-zhipu.token_+-~")
+
+
 class _GrantRouteService:
     async def create_grant(self, **kwargs: Any) -> CredentialGrantRead:
         payload = cast(CredentialGrantRequest, kwargs["payload"])
@@ -282,6 +316,21 @@ def _fixture_provider() -> object:
             "provider_key": "fixture_local",
             "adapter_type": "fixture_local",
             "base_url_policy": "not_applicable",
+            "enabled": True,
+            "status": "active",
+        },
+    )()
+
+
+def _zhipu_provider() -> object:
+    return type(
+        "Provider",
+        (),
+        {
+            "id": PROVIDER_ID,
+            "provider_key": "zhipu",
+            "adapter_type": "zhipu_chat_completions",
+            "base_url_policy": "provider_managed",
             "enabled": True,
             "status": "active",
         },
@@ -805,6 +854,7 @@ def test_openai_credential_create_encrypts_without_live_validation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cipher = CredentialCipher(FixtureRootKeyProvider(bytes(range(32))))
+    secret = _non_secret_marker("create") + " internal space\t\r\n"
     adapter = Mock(spec=FixtureProviderAdapter)
     adapter.validate_credential.side_effect = AssertionError("live validation is not authorized")
     repository = type(
@@ -824,7 +874,7 @@ def test_openai_credential_create_encrypts_without_live_validation(
             payload=CredentialCreateRequest(
                 provider_key="openai",
                 alias="OpenAI key",
-                credential=SecretStr(_non_secret_marker("create")),
+                credential=SecretStr(secret),
                 confirm_save=True,
             ),
             principal=_principal(),
@@ -834,12 +884,55 @@ def test_openai_credential_create_encrypts_without_live_validation(
     )
 
     stored = repository.add.call_args.args[0]
+    assert not hasattr(stored, "last_four")
     assert stored.ciphertext is not None
+    assert cipher.decrypt(
+        _encrypted_payload(stored),
+        aad=CredentialAAD(
+            credential_id=stored.id,
+            owner_user_id=stored.owner_user_id,
+            provider_key=stored.provider_key,
+            encryption_version=stored.encryption_version,
+        ),
+    ).value == secret.encode("utf-8")
     assert stored.last_validation_status == "live_validation_not_authorized"
     assert stored.last_successful_validation_at is None
     assert response.provider_key == "openai"
     assert response.last_validation_status == "live_validation_not_authorized"
+    assert "last_four" not in response.model_dump(mode="json")
+    assert secret not in response.model_dump_json()
     adapter.validate_credential.assert_not_called()
+
+
+def test_zhipu_credential_create_rejects_whitespace_before_encryption(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cipher = Mock(spec=CredentialCipher)
+    repository = Mock()
+    service = _service(
+        monkeypatch,
+        cipher=cipher,
+        adapter=Mock(spec=FixtureProviderAdapter),
+        repository=repository,
+    )
+
+    with pytest.raises(ZhipuCredentialFormatRejectedError):
+        asyncio.run(
+            service.create_credential(
+                payload=CredentialCreateRequest(
+                    provider_key="zhipu",
+                    alias="Malformed synthetic Zhipu key",
+                    credential=SecretStr("synthetic zhipu token"),
+                    confirm_save=True,
+                ),
+                principal=_principal(),
+                idempotency_key=uuid.uuid4(),
+                request_id=uuid.uuid4(),
+            )
+        )
+
+    cipher.fingerprint.assert_not_called()
+    cipher.encrypt.assert_not_called()
 
 
 def test_fixture_credential_create_keeps_local_validation_semantics(
@@ -900,6 +993,7 @@ def test_openai_credential_replace_encrypts_without_live_validation(
         },
     )()
     cipher = CredentialCipher(FixtureRootKeyProvider(bytes(range(32))))
+    secret = _non_secret_marker("replace") + " internal space\t\r\n"
     adapter = Mock(spec=FixtureProviderAdapter)
     adapter.validate_credential.side_effect = AssertionError("live validation is not authorized")
     repository = type(
@@ -921,7 +1015,7 @@ def test_openai_credential_replace_encrypts_without_live_validation(
             credential_id=CREDENTIAL_ID,
             payload=CredentialReplaceRequest(
                 alias="Replacement OpenAI key",
-                credential=SecretStr(_non_secret_marker("replace")),
+                credential=SecretStr(secret),
                 expected_revision=4,
                 confirm_replace=True,
             ),
@@ -932,10 +1026,76 @@ def test_openai_credential_replace_encrypts_without_live_validation(
     )
 
     replacement = repository.add.call_args.args[0]
+    assert not hasattr(replacement, "last_four")
     assert replacement.ciphertext is not None
+    assert cipher.decrypt(
+        _encrypted_payload(replacement),
+        aad=CredentialAAD(
+            credential_id=replacement.id,
+            owner_user_id=replacement.owner_user_id,
+            provider_key=replacement.provider_key,
+            encryption_version=replacement.encryption_version,
+        ),
+    ).value == secret.encode("utf-8")
     assert replacement.replaces_credential_id == CREDENTIAL_ID
     assert replacement.last_validation_status == "live_validation_not_authorized"
     assert replacement.last_successful_validation_at is None
     assert old.status == "replaced"
     assert response.last_validation_status == "live_validation_not_authorized"
+    assert "last_four" not in response.model_dump(mode="json")
+    assert secret not in response.model_dump_json()
     adapter.validate_credential.assert_not_called()
+
+
+def test_zhipu_credential_replace_rejects_whitespace_before_encryption(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    old = type(
+        "Credential",
+        (),
+        {
+            "id": CREDENTIAL_ID,
+            "owner_user_id": USER_ID,
+            "provider_definition_id": PROVIDER_ID,
+            "provider_key": "zhipu",
+            "status": "active",
+            "revision": 4,
+        },
+    )()
+    cipher = Mock(spec=CredentialCipher)
+    cipher.fingerprint.return_value = "fixture-v1:synthetic-non-secret-fingerprint"
+    repository = type(
+        "Repository",
+        (),
+        {
+            "lock_active_user": AsyncMock(return_value=object()),
+            "get_owned_credential": AsyncMock(return_value=old),
+            "get_provider": AsyncMock(return_value=_zhipu_provider()),
+            "add": Mock(),
+        },
+    )()
+    service = _service(
+        monkeypatch,
+        cipher=cipher,
+        adapter=Mock(spec=FixtureProviderAdapter),
+        repository=repository,
+    )
+
+    with pytest.raises(ZhipuCredentialFormatRejectedError):
+        asyncio.run(
+            service.replace_credential(
+                credential_id=CREDENTIAL_ID,
+                payload=CredentialReplaceRequest(
+                    alias="Malformed synthetic replacement",
+                    credential=SecretStr("synthetic\tzhipu-token"),
+                    expected_revision=4,
+                    confirm_replace=True,
+                ),
+                principal=_principal(),
+                idempotency_key=uuid.uuid4(),
+                request_id=uuid.uuid4(),
+            )
+        )
+
+    cipher.encrypt.assert_not_called()
+    repository.add.assert_not_called()

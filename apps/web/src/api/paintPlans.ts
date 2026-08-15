@@ -33,8 +33,8 @@ export const paintPlanLifecycles = [
 export type ProviderExecutionMode = (typeof providerExecutionModes)[number];
 export type PaintPlanRevisionKind = (typeof paintPlanRevisionKinds)[number];
 export type PaintPlanLifecycle = (typeof paintPlanLifecycles)[number];
-export type PaintPlanProviderKey = "fixture_local" | "openai";
-export type PaintPlanCurrency = "FIXTURE_CREDITS" | "USD";
+export type PaintPlanProviderKey = "fixture_local" | "openai" | "zhipu";
+export type PaintPlanCurrency = "FIXTURE_CREDITS" | "USD" | "CNY";
 export type PaintPlanGenerationLocale = "zh-CN" | "en-US";
 
 const requiredPaintPlanImageRoles: readonly ImageRole[] = [
@@ -58,12 +58,34 @@ export interface PaintPlanRegionInstruction {
   confidence_ppm: number;
 }
 
+export interface RetrievedCitation {
+  source_id: string;
+  chunk_id: string;
+  target_path: string;
+}
+
+export interface RetrievedContextUnit {
+  source_id: string;
+  source_title: string;
+  source_type: string;
+  repository_reference: string;
+  chunk_id: string;
+  section: string;
+  content: string;
+  retrieval_rationale: string;
+  retrieval_score_ppm: number | null;
+  locale: PaintPlanGenerationLocale;
+  corpus_id: string;
+  corpus_version: string;
+}
+
 export interface PaintPlanDocument {
   schema_version: "paint-plan.v1";
   title: string;
   overall_approach: string;
   instructions: PaintPlanRegionInstruction[];
   safety_notes: string[];
+  knowledge_citations: RetrievedCitation[];
 }
 
 export interface PaintPlanSelectionInput {
@@ -186,7 +208,7 @@ export interface PaintPlanPreview {
   estimated_cost_minor_units: number | null;
   currency: PaintPlanCurrency;
   estimate_status: "estimated" | "unavailable";
-  live_execution_authorized: false;
+  live_execution_authorized: boolean;
   blockers: string[];
 }
 
@@ -237,6 +259,7 @@ export interface PaintPlan {
   schema_version: "paint-plan.v1";
   content_hash: string;
   document: PaintPlanDocument;
+  retrieved_context: RetrievedContextUnit[];
   provider_request_id_status: "absent" | "provided" | "unavailable";
   provider_request_id: string | null;
   usage_measurement_status: "measured" | "unavailable";
@@ -369,7 +392,27 @@ const documentKeys = Object.freeze([
   "overall_approach",
   "instructions",
   "safety_notes",
+  "knowledge_citations",
 ] satisfies ReadonlyArray<keyof PaintPlanDocument>);
+const citationKeys = Object.freeze([
+  "source_id",
+  "chunk_id",
+  "target_path",
+] satisfies ReadonlyArray<keyof RetrievedCitation>);
+const retrievedContextKeys = Object.freeze([
+  "source_id",
+  "source_title",
+  "source_type",
+  "repository_reference",
+  "chunk_id",
+  "section",
+  "content",
+  "retrieval_rationale",
+  "retrieval_score_ppm",
+  "locale",
+  "corpus_id",
+  "corpus_version",
+] satisfies ReadonlyArray<keyof RetrievedContextUnit>);
 const reviewEventKeys = Object.freeze([
   "id",
   "action",
@@ -416,6 +459,7 @@ const paintPlanKeys = Object.freeze([
   "schema_version",
   "content_hash",
   "document",
+  "retrieved_context",
   "provider_request_id_status",
   "provider_request_id",
   "usage_measurement_status",
@@ -850,7 +894,7 @@ function isModelChoice(value: unknown): value is PaintPlanModelChoice {
     isBoundedText(value.model_id, 1, 160) &&
     isBoundedText(value.display_name, 1, 160) &&
     isEnum(value.execution_mode, providerExecutionModes) &&
-    isEnum(value.currency, ["FIXTURE_CREDITS", "USD"] as const) &&
+    isEnum(value.currency, ["FIXTURE_CREDITS", "USD", "CNY"] as const) &&
     typeof value.supports_vision === "boolean" &&
     typeof value.supports_structured_output === "boolean"
   );
@@ -861,7 +905,7 @@ function isProviderChoice(value: unknown): value is PaintPlanProviderChoice {
     !isPlainObject(value) ||
     !hasExactKeys(value, providerChoiceKeys) ||
     !isUuid(value.id) ||
-    !isEnum(value.provider_key, ["fixture_local", "openai"] as const) ||
+    !isEnum(value.provider_key, ["fixture_local", "openai", "zhipu"] as const) ||
     typeof value.display_name !== "string" ||
     !isEnum(value.execution_mode, providerExecutionModes) ||
     !isArrayOf(value.models, isModelChoice)
@@ -873,7 +917,11 @@ function isProviderChoice(value: unknown): value is PaintPlanProviderChoice {
       ? "fixture_available"
       : "live_authorization_required";
   const expectedCurrency: PaintPlanCurrency =
-    value.provider_key === "fixture_local" ? "FIXTURE_CREDITS" : "USD";
+    value.provider_key === "fixture_local"
+      ? "FIXTURE_CREDITS"
+      : value.provider_key === "zhipu"
+        ? "CNY"
+        : "USD";
   return (
     value.execution_mode === expectedMode &&
     new Set(value.models.map((model) => model.id)).size === value.models.length &&
@@ -892,7 +940,7 @@ function isCredentialChoice(value: unknown): value is PaintPlanCredentialChoice 
     hasExactKeys(value, credentialChoiceKeys) &&
     isUuid(value.id) &&
     typeof value.alias === "string" &&
-    isEnum(value.provider_key, ["fixture_local", "openai"] as const) &&
+    isEnum(value.provider_key, ["fixture_local", "openai", "zhipu"] as const) &&
     typeof value.active_grant === "boolean" &&
     typeof value.status === "string"
   );
@@ -905,14 +953,14 @@ function isPreview(value: unknown): value is PaintPlanPreview {
     hasExactKeys(value, previewKeys) &&
     typeof value.admissible === "boolean" &&
     isEnum(value.execution_mode, providerExecutionModes) &&
-    isEnum(value.provider_key, ["fixture_local", "openai"] as const) &&
+    isEnum(value.provider_key, ["fixture_local", "openai", "zhipu"] as const) &&
     isBoundedText(value.model_id, 1, 160) &&
     typeof value.source_ready === "boolean" &&
     (value.estimated_cost_minor_units === null ||
       isInteger(value.estimated_cost_minor_units, 0)) &&
-    isEnum(value.currency, ["FIXTURE_CREDITS", "USD"] as const) &&
+    isEnum(value.currency, ["FIXTURE_CREDITS", "USD", "CNY"] as const) &&
     isEnum(value.estimate_status, ["estimated", "unavailable"] as const) &&
-    value.live_execution_authorized === false &&
+    typeof value.live_execution_authorized === "boolean" &&
     isStringList(value.blockers, {
       maxItems: 64,
       minLength: 1,
@@ -934,7 +982,8 @@ function isPreview(value: unknown): value is PaintPlanPreview {
       (value.provider_key !== "fixture_local" ||
         value.currency !== "FIXTURE_CREDITS")) ||
     (value.execution_mode === "live_authorization_required" &&
-      (value.provider_key !== "openai" || value.currency !== "USD"))
+      !((value.provider_key === "openai" && value.currency === "USD") ||
+        (value.provider_key === "zhipu" && value.currency === "CNY")))
   ) {
     return false;
   }
@@ -942,16 +991,62 @@ function isPreview(value: unknown): value is PaintPlanPreview {
     return false;
   }
   if (value.execution_mode === "live_authorization_required") {
-    return (
-      !value.admissible &&
-      value.blockers.includes("live_execution_authorization_required")
-    );
+    if (value.provider_key === "openai") {
+      return !value.live_execution_authorized && !value.admissible && value.blockers.includes("live_execution_authorization_required");
+    }
+    if (!value.live_execution_authorized) {
+      return !value.admissible && value.blockers.includes("live_execution_authorization_required");
+    }
+    return value.admissible
+      ? value.source_ready && value.blockers.length === 0 && value.estimate_status === "estimated"
+      : value.blockers.length > 0;
   }
-  return value.admissible
+  return !value.live_execution_authorized && (value.admissible
     ? value.source_ready &&
         value.blockers.length === 0 &&
         value.estimate_status === "estimated"
-    : value.blockers.length > 0 && value.estimate_status === "unavailable";
+    : value.blockers.length > 0 && value.estimate_status === "unavailable");
+}
+
+function isCitation(value: unknown): value is RetrievedCitation {
+  return isPlainObject(value)
+    && hasExactKeys(value, citationKeys)
+    && isBoundedText(value.source_id, 1, 160)
+    && isBoundedText(value.chunk_id, 1, 200)
+    && isBoundedText(value.target_path, 1, 240);
+}
+
+function isRetrievedContext(value: unknown): value is RetrievedContextUnit {
+  return isPlainObject(value)
+    && hasExactKeys(value, retrievedContextKeys)
+    && isBoundedText(value.source_id, 1, 160)
+    && isBoundedText(value.source_title, 1, 300)
+    && isBoundedText(value.source_type, 1, 160)
+    && isBoundedText(value.repository_reference, 1, 512)
+    && value.repository_reference.startsWith("repo://")
+    && isBoundedText(value.chunk_id, 1, 200)
+    && isBoundedText(value.section, 1, 120)
+    && isBoundedText(value.content, 1, 4000)
+    && isBoundedText(value.retrieval_rationale, 1, 500)
+    && (value.retrieval_score_ppm === null || isInteger(value.retrieval_score_ppm, 0, 1_000_000))
+    && isEnum(value.locale, ["zh-CN", "en-US"] as const)
+    && isBoundedText(value.corpus_id, 1, 120)
+    && isBoundedText(value.corpus_version, 1, 80);
+}
+
+function isRetrievedContextList(value: unknown): value is RetrievedContextUnit[] {
+  return isArrayOf(value, isRetrievedContext)
+    && value.length <= 24
+    && new Set(value.map((item) => `${item.source_id}:${item.chunk_id}`)).size === value.length;
+}
+
+function documentCitationsBelongToContext(document: unknown, context: unknown): boolean {
+  if (!isDocument(document) || !isRetrievedContextList(context)) return false;
+  return document.knowledge_citations.every((citation) =>
+    context.some(
+      (unit) => unit.source_id === citation.source_id && unit.chunk_id === citation.chunk_id,
+    ),
+  );
 }
 
 function isInstruction(value: unknown): value is PaintPlanRegionInstruction {
@@ -994,6 +1089,9 @@ function isDocument(value: unknown): value is PaintPlanDocument {
       minLength: 1,
       maxLength: 400,
     }) ||
+    !isArrayOf(value.knowledge_citations, isCitation) ||
+    value.knowledge_citations.length > 24 ||
+    new Set(value.knowledge_citations.map((item) => `${item.source_id}:${item.chunk_id}:${item.target_path}`)).size !== value.knowledge_citations.length ||
     new Set(value.safety_notes).size !== value.safety_notes.length
   ) {
     return false;
@@ -1046,6 +1144,8 @@ function isRequestDocument(value: unknown): value is PaintPlanDocument {
       isRequestText(note, 1, 400),
     ) ||
     value.safety_notes.length > 16 ||
+    !isArrayOf(value.knowledge_citations, isCitation) ||
+    value.knowledge_citations.length > 24 ||
     new Set(value.safety_notes.map(normalizedRequestText)).size !==
       value.safety_notes.length
   ) {
@@ -1207,7 +1307,7 @@ function isPaintPlan(
     isInteger(value.source_region_set_version, 1) &&
     isSha256(value.source_geometry_fingerprint) &&
     isUuid(value.provider_definition_id) &&
-    isEnum(value.provider_key, ["fixture_local", "openai"] as const) &&
+    isEnum(value.provider_key, ["fixture_local", "openai", "zhipu"] as const) &&
     isInteger(value.provider_revision_snapshot, 1) &&
     isUuid(value.model_definition_id) &&
     isBoundedText(value.model_id, 1, 160) &&
@@ -1221,7 +1321,7 @@ function isPaintPlan(
     isEnum(value.generation_locale, ["zh-CN", "en-US"] as const) &&
     value.schema_version === "paint-plan.v1" &&
     isSha256(value.content_hash) &&
-    isDocument(value.document) &&
+    documentCitationsBelongToContext(value.document, value.retrieved_context) &&
     isEnum(
       value.provider_request_id_status,
       ["absent", "provided", "unavailable"] as const,
@@ -1250,7 +1350,7 @@ function isPaintPlan(
       value.cost_minor_units === null) ||
       (value.cost_measurement_status !== "unavailable" &&
         value.cost_minor_units !== null)) &&
-    isEnum(value.cost_currency, ["FIXTURE_CREDITS", "USD"] as const) &&
+    isEnum(value.cost_currency, ["FIXTURE_CREDITS", "USD", "CNY"] as const) &&
     (value.latest_review === null || isReviewEvent(value.latest_review)) &&
     hasConsistentLatestReview(value.lifecycle, value.latest_review) &&
     isPlanActionList(
@@ -1268,7 +1368,8 @@ function isPaintPlan(
         value.created_by_actor_type === "provider")) &&
     ((value.provider_key === "fixture_local" &&
       value.cost_currency === "FIXTURE_CREDITS") ||
-      (value.provider_key === "openai" && value.cost_currency === "USD")) &&
+      (value.provider_key === "openai" && value.cost_currency === "USD") ||
+      (value.provider_key === "zhipu" && value.cost_currency === "CNY")) &&
     (value.provider_key !== "fixture_local" ||
       (value.provider_pricing_snapshot_id === null &&
         value.provider_request_id_status === "absent" &&

@@ -7,8 +7,23 @@ from pydantic import ValidationError
 
 from creativedeploy_api.ai.encryption import SecretBytes
 from creativedeploy_api.ai.fixture_provider import FixtureProviderAdapter
-from creativedeploy_api.schemas.paint_plans import PaintPlanDocument, PaintPlanGenerateRequest
+from creativedeploy_api.ai.provider_transport import StructuredOutputValidationError
+from creativedeploy_api.ai.retrieval import RetrievedContextBundle, RetrievedContextUnit
+from creativedeploy_api.db.models import Region
+from creativedeploy_api.schemas.paint_plans import (
+    PAINT_PLAN_CITATION_KEYS,
+    PAINT_PLAN_INSTRUCTION_KEYS,
+    PAINT_PLAN_LIVE_PROMPT_VERSION,
+    PAINT_PLAN_OPTIONAL_ROOT_KEYS,
+    PAINT_PLAN_REQUIRED_ROOT_KEYS,
+    PAINT_PLAN_ROOT_KEYS,
+    PaintPlanDocument,
+    PaintPlanGenerateRequest,
+    paint_plan_live_output_contract,
+    paint_plan_live_output_template,
+)
 from creativedeploy_api.services.ai_foundation import _validated_paint_plan_output
+from creativedeploy_api.services.paint_plans import _validate_live_paint_plan_output
 
 
 def _instruction(*, region_id: uuid.UUID, stable_key: uuid.UUID) -> dict[str, object]:
@@ -41,10 +56,197 @@ def _document() -> dict[str, object]:
     }
 
 
+def _retrieval() -> RetrievedContextBundle:
+    return RetrievedContextBundle(
+        product_space="paintpilot",
+        units=[
+            RetrievedContextUnit(
+                source_id="paint-preparation-v1",
+                source_title="Surface preparation",
+                source_type="repository_local_practice_note",
+                repository_reference="repo://paintpilot/knowledge/surface-preparation",
+                chunk_id="surface-preparation",
+                section="Preparation",
+                content="Clean, abrade, and test compatibility before applying paint.",
+                retrieval_rationale="Exact local support for preparation guidance.",
+                retrieval_score_ppm=1_000_000,
+                locale="en-US",
+                corpus_id="paintpilot-practice-notes",
+                corpus_version="1",
+            )
+        ],
+    )
+
+
+def _live_contract() -> tuple[dict[str, object], list[Region], RetrievedContextBundle]:
+    document = _document()
+    document["knowledge_citations"] = [
+        {
+            "source_id": "paint-preparation-v1",
+            "chunk_id": "surface-preparation",
+            "target_path": "/instructions/0/preparation",
+        }
+    ]
+    raw_instructions = document["instructions"]
+    assert isinstance(raw_instructions, list)
+    regions: list[Region] = []
+    for index, instruction in enumerate(raw_instructions):
+        assert isinstance(instruction, dict)
+        regions.append(
+            Region(
+                id=instruction["region_id"],
+                region_set_id=uuid.uuid4(),
+                paint_project_id=uuid.uuid4(),
+                owner_principal_id="paint-plan-schema-test-owner",
+                stable_region_key=instruction["stable_region_key"],
+                kind="paint",
+                label=instruction["region_label"],
+                normalized_label=str(instruction["region_label"]).casefold(),
+                z_index=index,
+                opacity_ppm=1_000_000,
+                notes=None,
+                vertex_count=3,
+                area_twice_ppm_squared=1,
+                bbox_min_x_ppm=0,
+                bbox_min_y_ppm=0,
+                bbox_max_x_ppm=1,
+                bbox_max_y_ppm=1,
+            )
+        )
+    return document, regions, _retrieval()
+
+
 def test_document_accepts_multiple_exact_typed_regions() -> None:
     parsed = PaintPlanDocument.model_validate(_document())
     assert parsed.schema_version == "paint-plan.v1"
     assert len(parsed.instructions) == 2
+
+
+def test_live_prompt_template_has_exact_schema_parity_without_aliases() -> None:
+    schema = PaintPlanDocument.model_json_schema()
+    properties = schema["properties"]
+    definitions = schema["$defs"]
+    template = paint_plan_live_output_template()
+
+    assert tuple(properties) == PAINT_PLAN_ROOT_KEYS
+    assert tuple(schema["required"]) == PAINT_PLAN_REQUIRED_ROOT_KEYS
+    assert tuple(key for key in properties if key not in schema["required"]) == (
+        PAINT_PLAN_OPTIONAL_ROOT_KEYS
+    )
+    assert tuple(template) == PAINT_PLAN_ROOT_KEYS
+    assert tuple(template["instructions"][0]) == PAINT_PLAN_INSTRUCTION_KEYS
+    assert tuple(template["knowledge_citations"][0]) == PAINT_PLAN_CITATION_KEYS
+    assert tuple(definitions["PaintPlanRegionInstruction"]["properties"]) == (
+        PAINT_PLAN_INSTRUCTION_KEYS
+    )
+    assert tuple(definitions["RetrievedCitation"]["properties"]) == PAINT_PLAN_CITATION_KEYS
+    assert all(field.alias is None for field in PaintPlanDocument.model_fields.values())
+    assert PAINT_PLAN_LIVE_PROMPT_VERSION == 2
+    contract = paint_plan_live_output_contract()
+    assert "direct JSON object" in contract
+    assert "Do not wrap it in paint_plan" in contract
+    assert "knowledge_citations must contain 1..24" in contract
+
+
+def test_live_root_contract_accepts_exact_document_and_real_retrieval_citation() -> None:
+    document, regions, retrieval = _live_contract()
+
+    validated = _validate_live_paint_plan_output(
+        document,
+        regions=regions,
+        retrieval=retrieval,
+    )
+
+    assert validated == PaintPlanDocument.model_validate(document).model_dump(mode="json")
+
+
+@pytest.mark.parametrize(
+    ("mutate", "path", "expected_type", "received_type", "category"),
+    [
+        (
+            lambda value: value.pop("title"),
+            "$.title",
+            "string",
+            "missing",
+            "missing",
+        ),
+        (
+            lambda value: value.update({"schema_version": "paint-plan.v2"}),
+            "$.schema_version",
+            "string",
+            "string",
+            "literal_error",
+        ),
+        (
+            lambda value: value["instructions"][0].update({"confidence_ppm": "high"}),
+            "$.instructions[0].confidence_ppm",
+            "integer",
+            "string",
+            "int_type",
+        ),
+    ],
+)
+def test_live_schema_failures_report_exact_value_free_path_and_shape(
+    mutate: object,
+    path: str,
+    expected_type: str,
+    received_type: str,
+    category: str,
+) -> None:
+    document, regions, retrieval = _live_contract()
+    assert callable(mutate)
+    mutate(document)
+
+    with pytest.raises(StructuredOutputValidationError) as captured:
+        _validate_live_paint_plan_output(document, regions=regions, retrieval=retrieval)
+
+    error = captured.value
+    assert error.category == "SCHEMA_VALIDATION_FAILED"
+    assert error.path == path
+    assert error.expected_root_json_type == "object"
+    assert error.received_root_json_type == "object"
+    assert error.expected_json_type == expected_type
+    assert error.received_json_type == received_type
+    assert error.validator_error_category == category
+    assert not hasattr(error, "raw_response")
+
+
+def test_live_wrapper_and_renamed_root_fields_fail_with_allowlisted_key_diagnostics() -> None:
+    document, regions, retrieval = _live_contract()
+    marker = "private generated value must not persist"
+    wrapper = {"paint_plan": document, "private_field": marker}
+
+    with pytest.raises(StructuredOutputValidationError) as wrapped:
+        _validate_live_paint_plan_output(wrapper, regions=regions, retrieval=retrieval)
+
+    assert wrapped.value.path == "$.schema_version"
+    assert wrapped.value.received_object_keys == ()
+    assert wrapped.value.missing_required_keys == PAINT_PLAN_REQUIRED_ROOT_KEYS
+    assert wrapped.value.unexpected_object_keys == ("paint_plan",)
+    assert marker not in repr(wrapped.value.__dict__)
+
+    renamed = dict(document)
+    renamed["overall_strategy"] = renamed.pop("overall_approach")
+    with pytest.raises(StructuredOutputValidationError) as renamed_error:
+        _validate_live_paint_plan_output(renamed, regions=regions, retrieval=retrieval)
+
+    assert renamed_error.value.path == "$.overall_approach"
+    assert renamed_error.value.missing_required_keys == ("overall_approach",)
+    assert renamed_error.value.unexpected_object_keys == ("overall_strategy",)
+
+
+def test_live_hallucinated_citation_fails_only_after_schema_validation() -> None:
+    document, regions, retrieval = _live_contract()
+    citations = document["knowledge_citations"]
+    assert isinstance(citations, list) and isinstance(citations[0], dict)
+    citations[0]["source_id"] = "hallucinated-source"
+
+    with pytest.raises(StructuredOutputValidationError) as captured:
+        _validate_live_paint_plan_output(document, regions=regions, retrieval=retrieval)
+
+    assert captured.value.category == "CITATION_VALIDATION_FAILED"
+    assert captured.value.path == "$.knowledge_citations"
+    assert captured.value.validator_error_category == "retrieved_citation_mismatch"
 
 
 @pytest.mark.parametrize("unknown_field", ["raw_provider_response", "secret", "html"])

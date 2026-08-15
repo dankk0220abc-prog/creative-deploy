@@ -148,8 +148,25 @@ class TarotInterpretationRevision(Base):
     __tablename__ = "tarot_interpretation_revisions"
     __table_args__ = (
         CheckConstraint(
-            "source IN ('fixture_local','user_edit')",
+            "source IN ('fixture_local','zhipu_live','user_edit')",
             name=conv("ck_tarot_interpretation_revisions_source_allowed"),
+        ),
+        CheckConstraint(
+            "jsonb_typeof(retrieved_context_snapshot) = 'array'",
+            name=conv("ck_tarot_interpretation_revisions_retrieved_context_array"),
+        ),
+        CheckConstraint(
+            "jsonb_typeof(citation_snapshot) = 'array'",
+            name=conv("ck_tarot_interpretation_revisions_citation_snapshot_array"),
+        ),
+        CheckConstraint(
+            "(source = 'zhipu_live' AND source_invocation_id IS NOT NULL "
+            "AND source_attempt_id IS NOT NULL "
+            "AND jsonb_array_length(retrieved_context_snapshot) > 0 "
+            "AND jsonb_array_length(citation_snapshot) > 0) OR "
+            "(source <> 'zhipu_live' AND source_invocation_id IS NULL "
+            "AND source_attempt_id IS NULL)",
+            name=conv("ck_tarot_interpretation_revisions_live_provenance_consistent"),
         ),
         UniqueConstraint(
             "reading_id", "revision", name="uq_tarot_interpretation_revisions_reading_revision"
@@ -174,6 +191,30 @@ class TarotInterpretationRevision(Base):
     prompt_version: Mapped[int] = mapped_column(Integer, nullable=False)
     input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     document: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    retrieved_context_snapshot: Mapped[list[dict[str, object]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    citation_snapshot: Mapped[list[dict[str, object]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    source_invocation_id: Mapped[uuid.UUID | None] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey(
+            "invocation_requests.id",
+            name="fk_tarot_interp_revisions_source_invocation",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
+    source_attempt_id: Mapped[uuid.UUID | None] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey(
+            "invocation_attempts.id",
+            name="fk_tarot_interp_revisions_source_attempt",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

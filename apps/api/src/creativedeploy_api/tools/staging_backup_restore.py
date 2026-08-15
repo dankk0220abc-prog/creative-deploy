@@ -39,7 +39,7 @@ from creativedeploy_api.core.secret_files import SecretFileError, read_secret_fi
 from creativedeploy_api.storage.images import STORAGE_KEY_PATTERN
 
 BACKUP_FORMAT = "creativedeploy-staging-backup-v1"
-EXPECTED_ALEMBIC_REVISION = "4c01a2b3c4d5"
+EXPECTED_ALEMBIC_REVISION = "6a01b2c3d4e6"
 MANIFEST_VERSION = 1
 MANIFEST_SIGNATURE_FORMAT = "creativedeploy-manifest-signature-v1"
 MANIFEST_SIGNATURE_ALGORITHM = "HMAC-SHA-256"
@@ -101,7 +101,15 @@ PHASE3B_TABLES = (
     "paint_plan_region_instructions",
     "paint_plan_review_events",
 )
-TABLES = (*LEGACY_TABLES, *PHASE3A_TABLES, *PHASE3B_TABLES)
+ARCANA_TABLES = (
+    "tarot_card_definitions",
+    "tarot_spread_definitions",
+    "tarot_readings",
+    "tarot_reading_cards",
+    "tarot_interpretation_revisions",
+    "tarot_journal_entries",
+)
+TABLES = (*LEGACY_TABLES, *PHASE3A_TABLES, *PHASE3B_TABLES, *ARCANA_TABLES)
 
 # Migration D creates deterministic reference rows in every fresh head database.
 # A restore may replace only this exact seed-only state; any other partial state
@@ -109,32 +117,40 @@ TABLES = (*LEGACY_TABLES, *PHASE3A_TABLES, *PHASE3B_TABLES)
 # primary key, not merely identifiers or row counts.
 MIGRATION_SEED_FINGERPRINTS: dict[str, tuple[int, str]] = {
     "provider_definitions": (
-        2,
-        "fd4f9620178eb5e00b50852b039af8f6212c3277b4f32f2f06ecdb0f441cbaf6",
+        3,
+        "a532cf375498338ac7e2d1e5d4a35167045d5ec7f40bca627a63f5bd5dbe4557",
     ),
     "capability_definitions": (
         3,
         "e640acaa636c6e413e316782e9452c8802b8c6bee9091018205674f57dfd15e8",
     ),
     "model_definitions": (
-        3,
-        "0c38422e31003c95810a9e5243ab13b76e693f7beed90791ca81b1dd5382462f",
+        5,
+        "824f5fc6e1046e7b237cfab840f35ceb03cf6f736e5acc13a6b955255779df5c",
     ),
     "provider_capabilities": (
-        6,
-        "d0f00e4e6c06d102f8e6ca374c4b47af29e4936bac78a9182cea9807f3459657",
+        9,
+        "176dc5392f198890969d10712fcdaf16efddc30b35c1bdc7f7b843e47b55e4cc",
     ),
     "model_capabilities": (
-        8,
-        "8ec83f30927d00895c5e5e9f82f4427fa45004ba79a9acf379f0741ef9d39142",
+        13,
+        "f6944cfd3d8f75acdf77598aa362295bb910ad937663dacd9baa91593099918d",
     ),
     "provider_pricing_snapshots": (
-        1,
-        "0e8c46ab531eb7d587eba9e635be347d3fbeb496fb59a8294f30d03b8589490f",
+        3,
+        "bcabf48b69027fdf222f601967b348bef6bee9c3a64870d26557a7a41f8fa99b",
     ),
     "prompt_template_definitions": (
         1,
         "4a1e148603126350c0eab5f990423036c0c39c6bec505f704ed95580294c3672",
+    ),
+    "tarot_card_definitions": (
+        78,
+        "e0cefbd4418b3cbdd2219bfd8d1e6ca33fcde4c39a308679c201d4d8b29cdd71",
+    ),
+    "tarot_spread_definitions": (
+        1,
+        "78a3910fcaf43dfd49b4a22e994eee3ededd17d9cc81813824ef157831376bac",
     ),
 }
 DEFERRED_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -153,6 +169,10 @@ ORDER_COLUMNS: dict[str, tuple[str, ...]] = {
     "paint_plans": ("paint_project_id", "version", "id"),
     "paint_plan_region_instructions": ("paint_plan_id", "sequence", "id"),
     "paint_plan_review_events": ("paint_plan_id", "created_at", "id"),
+    "tarot_readings": ("owner_principal_id", "created_at", "id"),
+    "tarot_reading_cards": ("reading_id", "position_index", "id"),
+    "tarot_interpretation_revisions": ("reading_id", "revision", "id"),
+    "tarot_journal_entries": ("reading_id", "id"),
 }
 
 

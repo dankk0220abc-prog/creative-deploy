@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createCredential,
+  isZhipuCredentialInputWellFormed,
   listProviders,
   validateTemporaryCredential,
 } from "../api/aiFoundation";
@@ -24,6 +25,15 @@ describe("Phase 3A fixture API client", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("rejects malformed Zhipu token input without normalizing it", () => {
+    expect(isZhipuCredentialInputWellFormed("zhipu", "synthetic-zhipu.token_+-~")).toBe(true);
+    expect(isZhipuCredentialInputWellFormed("zhipu", "synthetic zhipu token")).toBe(false);
+    expect(isZhipuCredentialInputWellFormed("zhipu", "synthetic\tzhipu-token")).toBe(false);
+    expect(isZhipuCredentialInputWellFormed("zhipu", "synthetic-zhipu-token\r\n")).toBe(false);
+    expect(isZhipuCredentialInputWellFormed("zhipu", "Bearer synthetic-zhipu-token")).toBe(false);
+    expect(isZhipuCredentialInputWellFormed("fixture_local", "fixture input unchanged")).toBe(true);
   });
 
   it("reads explicit local-only provider facts", async () => {
@@ -76,7 +86,7 @@ describe("Phase 3A fixture API client", () => {
       }),
     );
 
-    await expect(validateTemporaryCredential(secret)).resolves.toMatchObject({
+    await expect(validateTemporaryCredential("fixture_local", secret)).resolves.toMatchObject({
       valid: true,
       persisted: false,
     });
@@ -100,7 +110,6 @@ describe("Phase 3A fixture API client", () => {
           alias: "Local fixture key",
           provider_key: "fixture_local",
           fingerprint: "fixture-v1:redacted-fingerprint",
-          last_four: "cdef",
           status: "active",
           created_at: "2026-08-05T00:03:00Z",
           updated_at: "2026-08-05T00:03:00Z",
@@ -114,7 +123,7 @@ describe("Phase 3A fixture API client", () => {
       ),
     );
 
-    const result = await createCredential("Local fixture key", secret);
+    const result = await createCredential("fixture_local", "Local fixture key", secret);
     expect(JSON.stringify(result)).not.toContain(secret);
     expect(result).not.toHaveProperty("credential");
     expect(result).not.toHaveProperty("ciphertext");

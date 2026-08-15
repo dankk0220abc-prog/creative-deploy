@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
+import json
 import os
 import socket
 import subprocess
 import uuid
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
+from time import monotonic, sleep
 from typing import Any
 
 import psycopg
@@ -24,7 +29,18 @@ from creativedeploy_api.ai.constants import (
     FIXTURE_VISION_CAPABILITY_ID,
     FIXTURE_VISION_MODEL_ID,
 )
+from creativedeploy_api.ai.encryption import SecretBytes
 from creativedeploy_api.ai.fixture_provider import FixtureInvocationResult
+from creativedeploy_api.ai.provider_transport import (
+    PreparedProviderRequest,
+    ProviderContractError,
+    ProviderWireResponse,
+)
+from creativedeploy_api.ai.zhipu_provider import (
+    ZHIPU_GLM_5V_TURBO_MODEL,
+    ZHIPU_GLM_52_MODEL,
+    ZhipuHTTPTransport,
+)
 from creativedeploy_api.api.dependencies import get_current_principal
 from creativedeploy_api.app_factory import create_app
 from creativedeploy_api.core.config import Settings
@@ -57,6 +73,206 @@ PAINT_PLAN_PROMPT_BODY = (
     "safety, cost, or real-world results."
 )
 PAINT_PLAN_PROMPT_HASH = "8f946b8ae444637aa56b8624118f45b539eb314bf5bb6ed9013e7b89b0561de6"
+ZHIPU_PROVIDER_ID = "5a000000-0000-4000-8000-000000000001"
+ZHIPU_GLM_52_MODEL_ID = "5a000000-0000-4000-8000-000000000101"
+ZHIPU_GLM_5V_TURBO_MODEL_ID = "5a000000-0000-4000-8000-000000000102"
+
+
+class _OfflineZhipuTransport(ZhipuHTTPTransport):
+    def __init__(self, expected_secret: bytes) -> None:
+        super().__init__()
+        self.expected_secret = expected_secret
+        self.mode = "success"
+        self.calls = 0
+        self.dispatch_entered = Event()
+        self.dispatch_release = Event()
+
+    async def execute(
+        self,
+        request: PreparedProviderRequest,
+        credential: SecretBytes,
+        *,
+        live_gate_enabled: bool,
+    ) -> ProviderWireResponse:
+        assert live_gate_enabled is True
+        assert credential.value == self.expected_secret
+        assert request.model_id in {ZHIPU_GLM_52_MODEL, ZHIPU_GLM_5V_TURBO_MODEL}
+        assert "body=[REDACTED]" in repr(request)
+        self.calls += 1
+        if self.mode == "blocked_success":
+            self.dispatch_entered.set()
+            while not self.dispatch_release.is_set():
+                await asyncio.sleep(0.01)
+        if self.mode == "outcome_unknown":
+            raise ProviderContractError("outcome_unknown", dispatch_certainty="unknown")
+        messages = request.body["messages"]
+        assert isinstance(messages, list)
+        user_message = messages[1]
+        assert isinstance(user_message, dict)
+        content = user_message["content"]
+        if request.model_id == ZHIPU_GLM_5V_TURBO_MODEL:
+            assert isinstance(content, list)
+            assert len(content) == 4
+            text_part = content[0]
+            assert isinstance(text_part, dict)
+            assert text_part["type"] == "text"
+            text_content = text_part["text"]
+            assert isinstance(text_content, str)
+            for image_part in content[1:]:
+                assert isinstance(image_part, dict)
+                assert image_part["type"] == "image_url"
+                image_url = image_part["image_url"]
+                assert isinstance(image_url, dict)
+                assert str(image_url["url"]).startswith("data:image/jpeg;base64,")
+            context = json.loads(text_content.split("Governed context:\n", 1)[1])
+            source = context["paint_plan_source"]
+            paint_regions = [
+                region for region in source["region_set"]["regions"] if region["kind"] == "paint"
+            ]
+            units = context["retrieved_context"]["units"]
+            document = {
+                "schema_version": "paint-plan.v1",
+                "title": "Governed offline Zhipu paint plan",
+                "overall_approach": (
+                    "Work from the approved broad areas toward their exact boundaries while "
+                    "keeping every excluded region unchanged."
+                ),
+                "instructions": [
+                    {
+                        "region_id": region["id"],
+                        "stable_region_key": region["stable_region_key"],
+                        "region_label": region["label"],
+                        "target_color": "muted graphite",
+                        "preparation": "Clean the governed area and test compatibility first.",
+                        "base_coat": "Apply one thin, even base coat inside the approved boundary.",
+                        "layer_strategy": (
+                            "Build coverage with two thin layers after each layer cures."
+                        ),
+                        "edge_treatment": "Keep the approved silhouette crisp without crossing it.",
+                        "lighting_guidance": "Recheck the surface under neutral, even lighting.",
+                        "material_guidance": (
+                            "Confirm material compatibility on an inconspicuous area."
+                        ),
+                        "warnings": ["Stop if the source surface differs from the reference."],
+                        "confidence_ppm": 760_000,
+                    }
+                    for region in paint_regions
+                ],
+                "safety_notes": [
+                    "Use ventilation and follow the coating manufacturer safety instructions."
+                ],
+                "knowledge_citations": [
+                    {
+                        "source_id": unit["source_id"],
+                        "chunk_id": unit["chunk_id"],
+                        "target_path": f"/safety_notes/{index}",
+                    }
+                    for index, unit in enumerate(units)
+                ],
+            }
+            if self.mode == "paint_root_wrapper":
+                document = {
+                    "paint_plan": document,
+                    "private_field": "private generated output must not persist",
+                }
+            return ProviderWireResponse(
+                status_code=200,
+                body={
+                    "id": f"zhipu-offline-{self.calls}",
+                    "model": ZHIPU_GLM_5V_TURBO_MODEL,
+                    "choices": [
+                        {"finish_reason": "stop", "message": {"content": json.dumps(document)}}
+                    ],
+                    "usage": {"prompt_tokens": 1_000, "completion_tokens": 500},
+                },
+                provider_request_id=None,
+            )
+        assert isinstance(content, str)
+        context = json.loads(content.split("Governed context:\n", 1)[1])
+        reading = context["reading"]
+        cards = reading["cards"]
+        units = context["retrieved_context"]["units"]
+        unit_by_chunk_id = {unit["chunk_id"]: unit for unit in units}
+        document = {
+            "schema_version": "tarot-reading.v2",
+            "generation_locale": reading["generation_locale"],
+            "question_restatement": reading["question"],
+            "summary": "The exact draw offers a conditional reflective sequence.",
+            "positions": [
+                {
+                    "position_key": card["position_key"],
+                    "card_id": card["card_id"],
+                    "orientation": card["orientation"],
+                    "headline": f"{card['position_key'].title()} reflection",
+                    "contribution": "Use this exact card context as a reflective prompt.",
+                }
+                for card in cards
+            ],
+            "synthesis": "Past, present, and future form a conditional path, not a prediction.",
+            "relationship_analysis": [
+                {
+                    "kind": "relationship",
+                    "headline": "Relationship",
+                    "content": "The three positions inform one another.",
+                },
+                {
+                    "kind": "trend",
+                    "headline": "Trend",
+                    "content": "Attention moves from context toward choice.",
+                },
+                {
+                    "kind": "tension",
+                    "headline": "Tension",
+                    "content": "Competing qualities invite deliberate balance.",
+                },
+                {
+                    "kind": "turning_point",
+                    "headline": "Turning point",
+                    "content": "The present position is the practical hinge.",
+                },
+            ],
+            "actionable_reflections": ["Name one small action that remains within your control."],
+            "reflection_prompts": [
+                "What pattern is ready to be reconsidered?",
+                "What evidence would change your next step?",
+            ],
+            "knowledge_basis": [
+                {
+                    "card_id": card["card_id"],
+                    "knowledge_id": unit_by_chunk_id[card["primary_knowledge_id"]]["chunk_id"],
+                    "source_id": unit_by_chunk_id[card["primary_knowledge_id"]]["source_id"],
+                    "source_title": unit_by_chunk_id[card["primary_knowledge_id"]]["source_title"],
+                    "retrieval_mode": "repository_local_only",
+                }
+                for card in cards
+            ],
+            "uncertainty": "This is reflective guidance, not deterministic or professional advice.",
+        }
+        if self.mode == "schema_invalid":
+            document["actionable_reflections"] = [
+                {"reflection": "This object shape is forbidden by the application schema."}
+            ]
+        elif self.mode == "citation_invalid":
+            document["knowledge_basis"][0]["knowledge_id"] = "hallucinated:chunk"
+        return ProviderWireResponse(
+            status_code=200,
+            body={
+                "id": f"zhipu-offline-{self.calls}",
+                "model": ZHIPU_GLM_52_MODEL,
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": json.dumps(document)},
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 1_000_000 if self.mode == "overage_success" else 100,
+                    "completion_tokens": 1_000_000 if self.mode == "overage_success" else 50,
+                    "completion_tokens_details": {"reasoning_tokens": 12},
+                },
+            },
+            provider_request_id=None,
+        )
 
 
 def _connection_kwargs(database_url: URL) -> dict[str, object]:
@@ -345,6 +561,127 @@ def _configure_fixture_ai(
     return credential["id"]
 
 
+def _configure_zhipu_ai(
+    client: TestClient,
+    project_id: str,
+    synthetic_secret: str,
+) -> str:
+    credential_response = client.post(
+        "/api/v1/ai/credentials",
+        headers={"Idempotency-Key": str(uuid.uuid4())},
+        json={
+            "provider_key": "zhipu",
+            "alias": "Synthetic Zhipu offline transport",
+            "credential": synthetic_secret,
+            "confirm_save": True,
+        },
+    )
+    assert credential_response.status_code == 201, credential_response.text
+    credential = credential_response.json()
+    assert synthetic_secret not in credential_response.text
+    grant = client.post(
+        f"/api/v1/ai/credentials/{credential['id']}/grants",
+        headers={"Idempotency-Key": str(uuid.uuid4())},
+        json={"project_id": project_id, "expected_credential_revision": credential["revision"]},
+    )
+    assert grant.status_code == 201, grant.text
+    preference = client.patch(
+        "/api/v1/ai/preferences",
+        headers={"Idempotency-Key": str(uuid.uuid4())},
+        json={
+            "enabled": True,
+            "default_provider_definition_id": ZHIPU_PROVIDER_ID,
+            "default_model_definition_id": ZHIPU_GLM_5V_TURBO_MODEL_ID,
+            "default_credential_id": credential["id"],
+            "timeout_ms": 60_000,
+            "streaming_enabled": False,
+            "cost_warning_minor_units": 1,
+            "currency": "CNY",
+            "budget_per_invocation_minor_units": 100,
+            "budget_cumulative_minor_units": 100,
+            "budget_window_seconds": 86_400,
+            "expected_revision": 0,
+        },
+    )
+    assert preference.status_code == 200, preference.text
+    policy = client.patch(
+        f"/api/v1/paint-projects/{project_id}/ai-model-policy",
+        headers={"Idempotency-Key": str(uuid.uuid4())},
+        json={
+            "enabled": True,
+            "default_provider_definition_id": ZHIPU_PROVIDER_ID,
+            "default_model_definition_id": ZHIPU_GLM_5V_TURBO_MODEL_ID,
+            "default_credential_id": credential["id"],
+            "provider_allowlist": [ZHIPU_PROVIDER_ID],
+            "model_allowlist": [ZHIPU_GLM_5V_TURBO_MODEL_ID],
+            "capability_allowlist": [
+                str(FIXTURE_VISION_CAPABILITY_ID),
+                str(FIXTURE_STRUCTURED_CAPABILITY_ID),
+            ],
+            "credential_allowlist": [credential["id"]],
+            "per_invocation_limit_minor_units": 100,
+            "cumulative_limit_minor_units": 100,
+            "budget_window_seconds": 86_400,
+            "currency": "CNY",
+            "allow_unknown_cost": False,
+            "allow_manual_model_id": False,
+            "allow_fallback": False,
+            "require_paid_call_confirmation": True,
+            "expected_revision": 0,
+        },
+    )
+    assert policy.status_code == 200, policy.text
+    return credential["id"]
+
+
+def _grant_existing_zhipu_ai(
+    client: TestClient,
+    project_id: str,
+    credential_id: str,
+) -> None:
+    credential = next(
+        item
+        for item in client.get("/api/v1/ai/credentials").json()["items"]
+        if item["id"] == credential_id
+    )
+    grant = client.post(
+        f"/api/v1/ai/credentials/{credential_id}/grants",
+        headers={"Idempotency-Key": str(uuid.uuid4())},
+        json={
+            "project_id": project_id,
+            "expected_credential_revision": credential["revision"],
+        },
+    )
+    assert grant.status_code == 201, grant.text
+    policy = client.patch(
+        f"/api/v1/paint-projects/{project_id}/ai-model-policy",
+        headers={"Idempotency-Key": str(uuid.uuid4())},
+        json={
+            "enabled": True,
+            "default_provider_definition_id": ZHIPU_PROVIDER_ID,
+            "default_model_definition_id": ZHIPU_GLM_5V_TURBO_MODEL_ID,
+            "default_credential_id": credential_id,
+            "provider_allowlist": [ZHIPU_PROVIDER_ID],
+            "model_allowlist": [ZHIPU_GLM_5V_TURBO_MODEL_ID],
+            "capability_allowlist": [
+                str(FIXTURE_VISION_CAPABILITY_ID),
+                str(FIXTURE_STRUCTURED_CAPABILITY_ID),
+            ],
+            "credential_allowlist": [credential_id],
+            "per_invocation_limit_minor_units": 100,
+            "cumulative_limit_minor_units": 100,
+            "budget_window_seconds": 86_400,
+            "currency": "CNY",
+            "allow_unknown_cost": False,
+            "allow_manual_model_id": False,
+            "allow_fallback": False,
+            "require_paid_call_confirmation": True,
+            "expected_revision": 0,
+        },
+    )
+    assert policy.status_code == 200, policy.text
+
+
 def _selection(image_set: dict[str, Any], region_set: dict[str, Any], credential_id: str) -> dict:
     return {
         "image_set_fingerprint": image_set["image_set_fingerprint"],
@@ -370,6 +707,64 @@ def _edited_document(document: dict[str, Any]) -> dict[str, Any]:
         "Human edit: verify coverage under neutral light.",
     ]
     return edited
+
+
+def test_paint_plan_edit_rejects_citation_outside_current_retrieval_snapshot(
+    paint_plan_integration_settings: Settings,
+) -> None:
+    settings = paint_plan_integration_settings
+    owner = _principal(label="citation-owner", user_id=uuid.uuid4())
+    _seed_users(settings, owner)
+
+    app = create_app(settings)
+
+    async def principal_override() -> PrincipalContext:
+        return owner
+
+    app.dependency_overrides[get_current_principal] = principal_override
+    with TestClient(app) as client:
+        project = _create_project(client, "Phase 3B citation edit boundary")
+        project_id = project["id"]
+        image_set = _ready_image_set(client, project_id)
+        region_set = _approved_region_set(client, project_id)
+        credential_id = _configure_fixture_ai(client, project_id)
+        selection = _selection(image_set, region_set, credential_id)
+        generated_response = client.post(
+            f"/api/v1/paint-projects/{project_id}/paint-plans/generate",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={**selection, "confirm_generation": True, "max_attempts": 1},
+        )
+        assert generated_response.status_code == 201, generated_response.text
+        generated = generated_response.json()
+        assert generated["document"]["knowledge_citations"] == []
+        history_before = client.get(f"/api/v1/paint-projects/{project_id}/paint-plans")
+        assert history_before.status_code == 200, history_before.text
+        forged_document = _edited_document(generated["document"])
+        forged_document["knowledge_citations"] = [
+            {
+                "source_id": "syntactically-valid-forged-source",
+                "chunk_id": "syntactically-valid-forged-chunk",
+                "target_path": "/safety_notes/0",
+            }
+        ]
+        forged_response = client.post(
+            f"/api/v1/paint-projects/{project_id}/paint-plans/{generated['id']}/edits",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={
+                "expected_current_plan_id": generated["id"],
+                "expected_current_version": generated["version"],
+                "document": forged_document,
+            },
+        )
+        assert forged_response.status_code == 409, forged_response.text
+        assert forged_response.json()["error_code"] == "PAINT_PLAN_CITATION_INVALID"
+        history_after = client.get(f"/api/v1/paint-projects/{project_id}/paint-plans")
+        assert history_after.status_code == 200, history_after.text
+        assert len(history_after.json()["items"]) == len(history_before.json()["items"])
+        current = client.get(f"/api/v1/paint-projects/{project_id}/paint-plans/{generated['id']}")
+        assert current.status_code == 200, current.text
+        assert current.json()["lifecycle"] == "generated"
+        assert current.json()["is_current"] is True
 
 
 def test_phase3b_paint_plan_api_governance_review_budget_and_lineage(
@@ -598,6 +993,7 @@ def test_phase3b_paint_plan_api_governance_review_budget_and_lineage(
         assert edited["lineage_id"] == generated["lineage_id"]
         assert edited["parent_plan_id"] == generated["id"]
         assert edited["lifecycle"] == "edited"
+        assert edited["document"]["knowledge_citations"] == []
 
         generated_replay = client.post(
             f"/api/v1/paint-projects/{project_id}/paint-plans/generate",
@@ -1034,3 +1430,871 @@ def test_phase3b_paint_plan_api_governance_review_budget_and_lineage(
                 WHERE id = '3b000000-0000-4000-8000-000000000001'::uuid
                 """
             )
+
+
+def test_zhipu_arcana_offline_live_coordinator_budget_isolation_and_unknown_outcome(
+    paint_plan_integration_settings: Settings,
+) -> None:
+    settings = paint_plan_integration_settings.model_copy(update={"zhipu_live_enabled": True})
+    owner = _principal(label="zhipu-owner", user_id=uuid.uuid4())
+    other = _principal(label="zhipu-other", user_id=uuid.uuid4())
+    _seed_users(settings, owner, other)
+    synthetic_secret = f"zhipu-synthetic-{uuid.uuid4().hex}".encode()
+    transport = _OfflineZhipuTransport(synthetic_secret)
+    app = create_app(settings)
+    app.state.zhipu_transport = transport
+    active_principal = [owner]
+    app.dependency_overrides[get_current_principal] = lambda: active_principal[0]
+
+    def start_draw(client: TestClient) -> str:
+        created = client.post(
+            "/api/v1/arcana/readings",
+            json={
+                "question": "What practical choice deserves calm attention?",
+                "generation_locale": "en-US",
+            },
+        )
+        assert created.status_code == 201, created.text
+        reading_id = created.json()["id"]
+        drawn = client.post(f"/api/v1/arcana/readings/{reading_id}/draw")
+        assert drawn.status_code == 200, drawn.text
+        return str(reading_id)
+
+    with TestClient(app) as client:
+        providers = client.get("/api/v1/ai/providers")
+        assert providers.status_code == 200
+        zhipu = next(item for item in providers.json()["items"] if item["provider_key"] == "zhipu")
+        assert zhipu == {
+            **zhipu,
+            "id": ZHIPU_PROVIDER_ID,
+            "real_model_calls": True,
+            "real_cost": True,
+            "local_only": False,
+        }
+        models = client.get("/api/v1/ai/providers/zhipu/models")
+        assert models.status_code == 200
+        glm_52 = next(item for item in models.json()["items"] if item["model_id"] == "glm-5.2")
+        assert glm_52["id"] == ZHIPU_GLM_52_MODEL_ID
+        assert glm_52["pricing_currency"] == "CNY"
+
+        validated = client.post(
+            "/api/v1/ai/credentials/validate",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={"provider_key": "zhipu", "credential": synthetic_secret.decode()},
+        )
+        assert validated.status_code == 200, validated.text
+        assert validated.json() == {
+            "provider_key": "zhipu",
+            "valid": True,
+            "validation_status": "live_validation_not_authorized",
+            "message_code": "SECURE_INPUT_ACCEPTED_LIVE_VALIDATION_PENDING",
+            "fixture": False,
+            "local_only": False,
+            "persisted": False,
+        }
+        created_credential = client.post(
+            "/api/v1/ai/credentials",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={
+                "provider_key": "zhipu",
+                "alias": "Synthetic Zhipu offline transport",
+                "credential": synthetic_secret.decode(),
+                "confirm_save": True,
+            },
+        )
+        assert created_credential.status_code == 201, created_credential.text
+        credential = created_credential.json()
+        assert synthetic_secret.decode() not in created_credential.text
+
+        def save_preference(*, revision: int, cumulative_limit: int) -> None:
+            response = client.patch(
+                "/api/v1/ai/preferences",
+                headers={"Idempotency-Key": str(uuid.uuid4())},
+                json={
+                    "enabled": True,
+                    "default_provider_definition_id": ZHIPU_PROVIDER_ID,
+                    "default_model_definition_id": ZHIPU_GLM_52_MODEL_ID,
+                    "default_credential_id": credential["id"],
+                    "timeout_ms": 60_000,
+                    "streaming_enabled": False,
+                    "cost_warning_minor_units": 1,
+                    "currency": "CNY",
+                    "budget_per_invocation_minor_units": cumulative_limit,
+                    "budget_cumulative_minor_units": cumulative_limit,
+                    "budget_window_seconds": 86_400,
+                    "expected_revision": revision,
+                },
+            )
+            assert response.status_code == 200, response.text
+
+        save_preference(revision=0, cumulative_limit=1)
+        capped_reading = start_draw(client)
+        capped = client.post(
+            f"/api/v1/arcana/readings/{capped_reading}/interpret-live",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={
+                "provider_definition_id": ZHIPU_PROVIDER_ID,
+                "model_definition_id": ZHIPU_GLM_52_MODEL_ID,
+                "credential_id": credential["id"],
+                "confirm_paid_live_call": True,
+            },
+        )
+        assert capped.status_code == 409
+        assert capped.json()["error_code"] == "ARCANA_ZHIPU_LIVE_UNAVAILABLE"
+        assert transport.calls == 0
+
+        save_preference(revision=1, cumulative_limit=100)
+        successful_reading = start_draw(client)
+        succeeded = client.post(
+            f"/api/v1/arcana/readings/{successful_reading}/interpret-live",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={
+                "provider_definition_id": ZHIPU_PROVIDER_ID,
+                "model_definition_id": ZHIPU_GLM_52_MODEL_ID,
+                "credential_id": credential["id"],
+                "confirm_paid_live_call": True,
+            },
+        )
+        assert succeeded.status_code == 200, succeeded.text
+        live_interpretation = succeeded.json()["interpretation"]
+        assert live_interpretation["source"] == "zhipu_live"
+        assert live_interpretation["model_id"] == "glm-5.2"
+        retrieved_context = live_interpretation["retrieved_context"]
+        assert 12 <= len(retrieved_context) <= 15
+        assert sum(item["section"].startswith("card/") for item in retrieved_context) == 3
+        assert sum(item["section"].startswith("position/") for item in retrieved_context) == 3
+        assert sum(item["section"].startswith("question/") for item in retrieved_context) == 3
+        assert (
+            3 <= sum(item["section"].startswith("relationship/") for item in retrieved_context) <= 6
+        )
+        assert len(live_interpretation["citations"]) == 3
+        retrieved_pairs = {(item["source_id"], item["chunk_id"]) for item in retrieved_context}
+        assert {
+            (item["source_id"], item["chunk_id"]) for item in live_interpretation["citations"]
+        }.issubset(retrieved_pairs)
+        assert transport.calls == 1
+        journal = client.put(
+            f"/api/v1/arcana/readings/{successful_reading}/journal",
+            json={"personal_interpretation": "A grounded choice", "notes": "Private note"},
+        )
+        assert journal.status_code == 200
+        assert journal.json()["journal"]["notes"] == "Private note"
+
+        concurrent_reading = start_draw(client)
+        concurrent_payload = {
+            "provider_definition_id": ZHIPU_PROVIDER_ID,
+            "model_definition_id": ZHIPU_GLM_52_MODEL_ID,
+            "credential_id": credential["id"],
+            "confirm_paid_live_call": True,
+        }
+        transport.mode = "blocked_success"
+        transport.dispatch_entered.clear()
+        transport.dispatch_release.clear()
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            winner_future = executor.submit(
+                client.post,
+                f"/api/v1/arcana/readings/{concurrent_reading}/interpret-live",
+                headers={"Idempotency-Key": str(uuid.uuid4())},
+                json=concurrent_payload,
+            )
+            assert transport.dispatch_entered.wait(timeout=10)
+            loser_future = executor.submit(
+                client.post,
+                f"/api/v1/arcana/readings/{concurrent_reading}/interpret-live",
+                headers={"Idempotency-Key": str(uuid.uuid4())},
+                json=concurrent_payload,
+            )
+            loser = loser_future.result(timeout=10)
+            assert loser.status_code == 409, loser.text
+            assert transport.calls == 2
+            transport.dispatch_release.set()
+            winner = winner_future.result(timeout=10)
+        assert winner.status_code == 200, winner.text
+        assert transport.calls == 2
+
+        independent_readings = (start_draw(client), start_draw(client))
+        transport.dispatch_entered.clear()
+        transport.dispatch_release.clear()
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            independent_futures = [
+                executor.submit(
+                    client.post,
+                    f"/api/v1/arcana/readings/{reading_id}/interpret-live",
+                    headers={"Idempotency-Key": str(uuid.uuid4())},
+                    json=concurrent_payload,
+                )
+                for reading_id in independent_readings
+            ]
+            deadline = monotonic() + 10
+            while transport.calls < 4 and monotonic() < deadline:
+                sleep(0.01)
+            assert transport.calls == 4
+            transport.dispatch_release.set()
+            independent_responses = [future.result(timeout=10) for future in independent_futures]
+        assert all(response.status_code == 200 for response in independent_responses)
+
+        transport.mode = "schema_invalid"
+        schema_invalid_reading = start_draw(client)
+        schema_invalid = client.post(
+            f"/api/v1/arcana/readings/{schema_invalid_reading}/interpret-live",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={
+                "provider_definition_id": ZHIPU_PROVIDER_ID,
+                "model_definition_id": ZHIPU_GLM_52_MODEL_ID,
+                "credential_id": credential["id"],
+                "confirm_paid_live_call": True,
+            },
+        )
+        assert schema_invalid.status_code == 409
+        assert transport.calls == 5
+
+        transport.mode = "citation_invalid"
+        citation_invalid_reading = start_draw(client)
+        citation_invalid = client.post(
+            f"/api/v1/arcana/readings/{citation_invalid_reading}/interpret-live",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={
+                "provider_definition_id": ZHIPU_PROVIDER_ID,
+                "model_definition_id": ZHIPU_GLM_52_MODEL_ID,
+                "credential_id": credential["id"],
+                "confirm_paid_live_call": True,
+            },
+        )
+        assert citation_invalid.status_code == 409
+        assert transport.calls == 6
+
+        transport.mode = "outcome_unknown"
+        unknown_reading = start_draw(client)
+        unknown_key = str(uuid.uuid4())
+        unknown_payload = {
+            "provider_definition_id": ZHIPU_PROVIDER_ID,
+            "model_definition_id": ZHIPU_GLM_52_MODEL_ID,
+            "credential_id": credential["id"],
+            "confirm_paid_live_call": True,
+        }
+        unknown = client.post(
+            f"/api/v1/arcana/readings/{unknown_reading}/interpret-live",
+            headers={"Idempotency-Key": unknown_key},
+            json=unknown_payload,
+        )
+        assert unknown.status_code == 409
+        assert transport.calls == 7
+        duplicate = client.post(
+            f"/api/v1/arcana/readings/{unknown_reading}/interpret-live",
+            headers={"Idempotency-Key": unknown_key},
+            json=unknown_payload,
+        )
+        assert duplicate.status_code == 409
+        assert transport.calls == 7
+        duplicate_new_key = client.post(
+            f"/api/v1/arcana/readings/{unknown_reading}/interpret-live",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json=unknown_payload,
+        )
+        assert duplicate_new_key.status_code == 409
+        assert transport.calls == 7
+
+        active_principal[0] = other
+        other_reading = start_draw(client)
+        cross_user = client.post(
+            f"/api/v1/arcana/readings/{other_reading}/interpret-live",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json=unknown_payload,
+        )
+        assert cross_user.status_code == 409
+        assert transport.calls == 7
+
+        active_principal[0] = owner
+        save_preference(revision=2, cumulative_limit=150)
+        transport.mode = "overage_success"
+        overage_reading = start_draw(client)
+        overage = client.post(
+            f"/api/v1/arcana/readings/{overage_reading}/interpret-live",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json=unknown_payload,
+        )
+        assert overage.status_code == 200, overage.text
+        assert transport.calls == 8
+        transport.mode = "success"
+        blocked_after_overage = start_draw(client)
+        blocked = client.post(
+            f"/api/v1/arcana/readings/{blocked_after_overage}/interpret-live",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json=unknown_payload,
+        )
+        assert blocked.status_code == 409
+        assert transport.calls == 8
+
+        transport.mode = "success"
+        current_credential = next(
+            item
+            for item in client.get("/api/v1/ai/credentials").json()["items"]
+            if item["id"] == credential["id"]
+        )
+        revoked = client.post(
+            f"/api/v1/ai/credentials/{credential['id']}/revoke",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={"expected_revision": current_credential["revision"], "confirm": True},
+        )
+        assert revoked.status_code == 200, revoked.text
+        revoked_reading = start_draw(client)
+        revoked_attempt = client.post(
+            f"/api/v1/arcana/readings/{revoked_reading}/interpret-live",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json=unknown_payload,
+        )
+        assert revoked_attempt.status_code == 409
+        assert transport.calls == 8
+
+    database_url = make_url(settings.database_url.get_secret_value())
+    with psycopg.connect(**_connection_kwargs(database_url)) as connection:
+        successful = connection.execute(
+            """
+            SELECT i.status, a.status, r.state, c.measurement_status, c.amount_minor_units,
+                   u.measurement_status, u.input_units, u.output_units
+            FROM invocation_requests AS i
+            JOIN invocation_attempts AS a ON a.invocation_id = i.id
+            JOIN budget_reservations AS r ON r.attempt_id = a.id
+            JOIN ai_cost_ledger AS c ON c.attempt_id = a.id
+            JOIN ai_usage_ledger AS u ON u.attempt_id = a.id
+            WHERE i.product_space = 'arcana' AND i.status = 'succeeded'
+              AND r.state = 'settled'
+            """
+        ).fetchone()
+        assert successful == (
+            "succeeded",
+            "succeeded",
+            "settled",
+            "measured",
+            1,
+            "measured",
+            100,
+            50,
+        )
+        structured_failures = connection.execute(
+            """
+            SELECT a.safe_provider_metadata ->> 'structured_failure_category',
+                   a.safe_provider_metadata ->> 'structured_error_path',
+                   a.safe_provider_metadata ->> 'structured_expected_json_type',
+                   a.safe_provider_metadata ->> 'structured_received_json_type',
+                   a.safe_provider_metadata ->> 'structured_received_item_count',
+                   a.safe_provider_metadata ? 'structured_received_object_keys',
+                   a.safe_provider_metadata ->> 'structured_validator_error_category',
+                   a.safe_provider_metadata ->> 'finish_reason',
+                   a.safe_provider_metadata ->> 'json_parse_status',
+                   a.safe_provider_metadata ->> 'schema_validation_status',
+                   a.safe_provider_metadata ->> 'citation_validation_status',
+                   r.state, c.measurement_status, c.amount_minor_units,
+                   u.safe_metadata ->> 'reasoning_tokens'
+            FROM invocation_requests AS i
+            JOIN invocation_attempts AS a ON a.invocation_id = i.id
+            JOIN budget_reservations AS r ON r.attempt_id = a.id
+            JOIN ai_cost_ledger AS c ON c.attempt_id = a.id
+            JOIN ai_usage_ledger AS u ON u.attempt_id = a.id
+            WHERE i.product_space = 'arcana' AND i.status = 'failed'
+            ORDER BY i.created_at
+            """
+        ).fetchall()
+        assert structured_failures == [
+            (
+                "SCHEMA_VALIDATION_FAILED",
+                "$.actionable_reflections[0]",
+                "array<string>",
+                "array<object>",
+                "1",
+                False,
+                "string_type",
+                "stop",
+                "parsed",
+                "failed",
+                "not_attempted",
+                "settled",
+                "measured",
+                1,
+                "12",
+            ),
+            (
+                "CITATION_VALIDATION_FAILED",
+                "$.knowledge_basis[0]",
+                None,
+                None,
+                None,
+                False,
+                None,
+                "stop",
+                "parsed",
+                "failed",
+                "failed",
+                "settled",
+                "measured",
+                1,
+                "12",
+            ),
+        ]
+        request_configuration = connection.execute(
+            """
+            SELECT i.safe_payload -> 'request_configuration',
+                   i.budget_snapshot ->> 'reserved_minor_units'
+            FROM invocation_requests AS i
+            WHERE i.product_space = 'arcana' AND i.status = 'succeeded'
+            """
+        ).fetchone()
+        assert request_configuration is not None
+        assert request_configuration[0] == {
+            "max_tokens": 8_192,
+            "response_format": {"type": "json_object"},
+            "thinking": {"type": "enabled"},
+            "reasoning_effort": "high",
+            "do_sample": False,
+        }
+        assert int(request_configuration[1]) >= 1
+        unknown_state = connection.execute(
+            """
+            SELECT i.status, a.status, r.state, i.max_attempts, a.attempt_number
+            FROM invocation_requests AS i
+            JOIN invocation_attempts AS a ON a.invocation_id = i.id
+            JOIN budget_reservations AS r ON r.attempt_id = a.id
+            WHERE i.product_space = 'arcana' AND i.status = 'outcome_unknown'
+            """
+        ).fetchone()
+        assert unknown_state == (
+            "outcome_unknown",
+            "outcome_unknown",
+            "reconciliation_required",
+            1,
+            1,
+        )
+        overage_state = connection.execute(
+            """
+            SELECT i.status, a.status, r.state,
+                   a.safe_provider_metadata ->> 'accounting_state',
+                   a.safe_provider_metadata ->> 'measured_cost_over_reservation',
+                   c.amount_minor_units, r.reserved_amount
+            FROM invocation_requests AS i
+            JOIN invocation_attempts AS a ON a.invocation_id = i.id
+            JOIN budget_reservations AS r ON r.attempt_id = a.id
+            JOIN ai_cost_ledger AS c ON c.attempt_id = a.id
+            WHERE i.safe_payload ->> 'reading_id' = %s
+            """,
+            (overage_reading,),
+        ).fetchone()
+        assert overage_state is not None
+        assert overage_state[:5] == (
+            "succeeded",
+            "succeeded",
+            "reconciliation_required",
+            "reconciliation_required",
+            "true",
+        )
+        assert overage_state[5] > overage_state[6]
+        credential_state = connection.execute(
+            """
+            SELECT status, ciphertext, wrapped_dek, last_validation_status
+            FROM credential_records WHERE id = %s
+            """,
+            (credential["id"],),
+        ).fetchone()
+        assert credential_state == ("revoked", None, None, "provider_valid")
+        measured_total = connection.execute(
+            """
+            SELECT coalesce(sum(amount_minor_units), 0)
+            FROM ai_cost_ledger
+            WHERE currency = 'CNY' AND amount_minor_units IS NOT NULL
+            """
+        ).fetchone()
+        assert measured_total is not None and measured_total[0] > 150
+        claim_states = connection.execute(
+            """
+            SELECT execution_status, count(*)
+            FROM command_idempotency_records
+            WHERE scope_key LIKE 'zhipu_resource:arcana:reading:%'
+            GROUP BY execution_status
+            """
+        ).fetchall()
+        assert dict(claim_states) == {"completed": 5, "in_progress": 1}
+
+
+def test_zhipu_paint_plan_offline_live_multimodal_provenance_and_citations(
+    paint_plan_integration_settings: Settings,
+) -> None:
+    settings = paint_plan_integration_settings.model_copy(update={"zhipu_live_enabled": True})
+    owner = _principal(label="zhipu-paint-owner", user_id=uuid.uuid4())
+    _seed_users(settings, owner)
+    synthetic_secret = f"zhipu-synthetic-{uuid.uuid4().hex}"
+    transport = _OfflineZhipuTransport(synthetic_secret.encode())
+    app = create_app(settings)
+    app.state.zhipu_transport = transport
+    app.dependency_overrides[get_current_principal] = lambda: owner
+
+    with TestClient(app) as client:
+        project = _create_project(client, "Zhipu governed offline multimodal plan")
+        project_id = project["id"]
+        image_set = _ready_image_set(client, project_id)
+        region_set = _approved_region_set(client, project_id)
+        credential_id = _configure_zhipu_ai(client, project_id, synthetic_secret)
+        selection = {
+            "image_set_fingerprint": image_set["image_set_fingerprint"],
+            "region_set_id": region_set["id"],
+            "provider_definition_id": ZHIPU_PROVIDER_ID,
+            "model_definition_id": ZHIPU_GLM_5V_TURBO_MODEL_ID,
+            "credential_id": credential_id,
+            "generation_locale": "en-US",
+            "intent": "Use only the approved regions and preserve the excluded background.",
+        }
+        preview = client.post(
+            f"/api/v1/paint-projects/{project_id}/paint-plans/preview",
+            json=selection,
+        )
+        assert preview.status_code == 200, preview.text
+        assert preview.json() == {
+            "admissible": True,
+            "execution_mode": "live_authorization_required",
+            "provider_key": "zhipu",
+            "model_id": ZHIPU_GLM_5V_TURBO_MODEL,
+            "source_ready": True,
+            "estimated_cost_minor_units": preview.json()["estimated_cost_minor_units"],
+            "currency": "CNY",
+            "estimate_status": "estimated",
+            "live_execution_authorized": True,
+            "blockers": [],
+        }
+        assert 0 < preview.json()["estimated_cost_minor_units"] <= 100
+        transport.mode = "paint_root_wrapper"
+        invalid_response = client.post(
+            f"/api/v1/paint-projects/{project_id}/paint-plans/generate",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={**selection, "confirm_generation": True, "max_attempts": 1},
+        )
+        assert invalid_response.status_code == 502, invalid_response.text
+        assert invalid_response.json()["error_code"] == "PAINT_PLAN_OUTPUT_INVALID"
+
+        transport.mode = "success"
+        generated_response = client.post(
+            f"/api/v1/paint-projects/{project_id}/paint-plans/generate",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={**selection, "confirm_generation": True, "max_attempts": 1},
+        )
+        assert generated_response.status_code == 201, generated_response.text
+        generated = generated_response.json()
+        assert generated["provider_key"] == "zhipu"
+        assert generated["model_id"] == ZHIPU_GLM_5V_TURBO_MODEL
+        assert len(generated["document"]["instructions"]) == 2
+        assert len(generated["retrieved_context"]) >= 1
+        assert len(generated["document"]["knowledge_citations"]) >= 1
+        retrieved_pairs = {
+            (item["source_id"], item["chunk_id"]) for item in generated["retrieved_context"]
+        }
+        assert {
+            (item["source_id"], item["chunk_id"])
+            for item in generated["document"]["knowledge_citations"]
+        }.issubset(retrieved_pairs)
+        assert transport.calls == 2
+
+        complete_document = _edited_document(generated["document"])
+        complete_response = client.post(
+            f"/api/v1/paint-projects/{project_id}/paint-plans/{generated['id']}/edits",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={
+                "expected_current_plan_id": generated["id"],
+                "expected_current_version": generated["version"],
+                "document": complete_document,
+            },
+        )
+        assert complete_response.status_code == 201, complete_response.text
+        complete = complete_response.json()
+        assert (
+            complete["document"]["knowledge_citations"]
+            == generated["document"]["knowledge_citations"]
+        )
+        assert complete["retrieved_context"] == generated["retrieved_context"]
+
+        subset_citations = generated["document"]["knowledge_citations"][:1]
+        subset_document = {
+            **complete["document"],
+            "title": "Human-reviewed Paint Plan with a citation subset",
+            "instructions": [dict(item) for item in complete["document"]["instructions"]],
+            "safety_notes": list(complete["document"]["safety_notes"]),
+            "knowledge_citations": [dict(item) for item in subset_citations],
+        }
+        subset_response = client.post(
+            f"/api/v1/paint-projects/{project_id}/paint-plans/{complete['id']}/edits",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={
+                "expected_current_plan_id": complete["id"],
+                "expected_current_version": complete["version"],
+                "document": subset_document,
+            },
+        )
+        assert subset_response.status_code == 201, subset_response.text
+        subset = subset_response.json()
+        assert subset["document"]["knowledge_citations"] == subset_citations
+        assert subset["retrieved_context"] == generated["retrieved_context"]
+        assert transport.calls == 2
+
+    database_url = make_url(settings.database_url.get_secret_value())
+    with psycopg.connect(**_connection_kwargs(database_url)) as connection:
+        provenance = connection.execute(
+            """
+            SELECT p.provider_key_snapshot, p.model_id_snapshot,
+                   jsonb_array_length(p.retrieved_context_snapshot),
+                   jsonb_array_length(p.citation_snapshot),
+                   i.status, a.status, r.state, c.measurement_status,
+                   c.amount_minor_units, u.input_units, u.output_units
+            FROM paint_plans AS p
+            JOIN invocation_requests AS i ON i.id = p.source_invocation_id
+            JOIN invocation_attempts AS a ON a.id = p.source_attempt_id
+            JOIN budget_reservations AS r ON r.attempt_id = a.id
+            JOIN ai_cost_ledger AS c ON c.attempt_id = a.id
+            JOIN ai_usage_ledger AS u ON u.attempt_id = a.id
+            WHERE p.id = %s
+            """,
+            (generated["id"],),
+        ).fetchone()
+        assert provenance == (
+            "zhipu",
+            ZHIPU_GLM_5V_TURBO_MODEL,
+            3,
+            3,
+            "succeeded",
+            "succeeded",
+            "settled",
+            "measured",
+            2,
+            1_000,
+            500,
+        )
+        failure = connection.execute(
+            """
+            SELECT i.output_reference, a.output_reference,
+                   a.safe_provider_metadata ->> 'structured_failure_category',
+                   a.safe_provider_metadata ->> 'structured_error_path',
+                   a.safe_provider_metadata ->> 'structured_expected_root_json_type',
+                   a.safe_provider_metadata ->> 'structured_received_root_json_type',
+                   a.safe_provider_metadata ->> 'structured_expected_json_type',
+                   a.safe_provider_metadata ->> 'structured_received_json_type',
+                   a.safe_provider_metadata -> 'structured_missing_required_keys',
+                   a.safe_provider_metadata -> 'structured_unexpected_object_keys',
+                   a.safe_provider_metadata ->> 'structured_validator_error_category',
+                   a.safe_provider_metadata ->> 'finish_reason',
+                   a.safe_provider_metadata ->> 'json_parse_status',
+                   a.safe_provider_metadata ->> 'schema_validation_status',
+                   a.safe_provider_metadata ->> 'citation_validation_status',
+                   r.state,
+                   i.safe_payload -> 'request_configuration'
+            FROM invocation_requests AS i
+            JOIN invocation_attempts AS a ON a.invocation_id = i.id
+            JOIN budget_reservations AS r ON r.attempt_id = a.id
+            WHERE i.project_id = %s AND i.status = 'failed'
+            """,
+            (project_id,),
+        ).fetchone()
+        assert failure == (
+            None,
+            None,
+            "SCHEMA_VALIDATION_FAILED",
+            "$.schema_version",
+            "object",
+            "object",
+            "string",
+            "missing",
+            [
+                "schema_version",
+                "title",
+                "overall_approach",
+                "instructions",
+                "safety_notes",
+            ],
+            ["paint_plan"],
+            "missing",
+            "stop",
+            "parsed",
+            "failed",
+            "not_attempted",
+            "settled",
+            {
+                "max_tokens": 4_096,
+                "thinking": {"type": "enabled"},
+                "do_sample": False,
+            },
+        )
+        assert connection.execute(
+            "SELECT count(*) FROM paint_plans WHERE paint_project_id = %s",
+            (project_id,),
+        ).fetchone() == (3,)
+        stored_failure = connection.execute(
+            """
+            SELECT concat_ws(' ', i.safe_payload::text, a.safe_provider_metadata::text)
+            FROM invocation_requests AS i
+            JOIN invocation_attempts AS a ON a.invocation_id = i.id
+            WHERE i.project_id = %s AND i.status = 'failed'
+            """,
+            (project_id,),
+        ).fetchone()
+        assert stored_failure is not None
+        assert "private generated output must not persist" not in stored_failure[0]
+        assert "response_format" not in failure[-1]
+
+
+def test_zhipu_paint_plan_business_claim_concurrency_and_lifecycle_independence(
+    paint_plan_integration_settings: Settings,
+) -> None:
+    settings = paint_plan_integration_settings.model_copy(update={"zhipu_live_enabled": True})
+    owner = _principal(label="zhipu-claim-owner", user_id=uuid.uuid4())
+    _seed_users(settings, owner)
+    synthetic_secret = f"zhipu-synthetic-{uuid.uuid4().hex}"
+    transport = _OfflineZhipuTransport(synthetic_secret.encode())
+    app = create_app(settings)
+    app.state.zhipu_transport = transport
+    app.dependency_overrides[get_current_principal] = lambda: owner
+
+    def ready_project(client: TestClient, title: str) -> tuple[str, dict[str, object]]:
+        project_id = _create_project(client, title)["id"]
+        image_set = _ready_image_set(client, project_id)
+        region_set = _approved_region_set(client, project_id)
+        return project_id, {
+            "image_set_fingerprint": image_set["image_set_fingerprint"],
+            "region_set_id": region_set["id"],
+            "provider_definition_id": ZHIPU_PROVIDER_ID,
+            "model_definition_id": ZHIPU_GLM_5V_TURBO_MODEL_ID,
+            "generation_locale": "en-US",
+            "intent": "Use only the approved synthetic offline source.",
+            "confirm_generation": True,
+            "max_attempts": 1,
+        }
+
+    with TestClient(app) as client:
+        first_project_id, first_selection = ready_project(client, "Zhipu claim independence A")
+        credential_id = _configure_zhipu_ai(client, first_project_id, synthetic_secret)
+        first_selection["credential_id"] = credential_id
+        second_project_id, second_selection = ready_project(client, "Zhipu claim independence B")
+        _grant_existing_zhipu_ai(client, second_project_id, credential_id)
+        second_selection["credential_id"] = credential_id
+
+        transport.mode = "blocked_success"
+        transport.dispatch_entered.clear()
+        transport.dispatch_release.clear()
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first_future = executor.submit(
+                client.post,
+                f"/api/v1/paint-projects/{first_project_id}/paint-plans/generate",
+                headers={"Idempotency-Key": str(uuid.uuid4())},
+                json=first_selection,
+            )
+            second_future = executor.submit(
+                client.post,
+                f"/api/v1/paint-projects/{second_project_id}/paint-plans/generate",
+                headers={"Idempotency-Key": str(uuid.uuid4())},
+                json=second_selection,
+            )
+            deadline = monotonic() + 10
+            while transport.calls < 2 and monotonic() < deadline:
+                sleep(0.01)
+            assert transport.calls == 2
+            transport.dispatch_release.set()
+            first_response = first_future.result(timeout=10)
+            second_response = second_future.result(timeout=10)
+        assert first_response.status_code == 201, first_response.text
+        assert second_response.status_code == 201, second_response.text
+        first_plan = first_response.json()
+        second_plan = second_response.json()
+
+        first_regeneration = {
+            **first_selection,
+            "expected_current_plan_id": first_plan["id"],
+            "expected_current_version": first_plan["version"],
+        }
+        transport.dispatch_entered.clear()
+        transport.dispatch_release.clear()
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            winner_future = executor.submit(
+                client.post,
+                (
+                    f"/api/v1/paint-projects/{first_project_id}/paint-plans/"
+                    f"{first_plan['id']}/regenerate"
+                ),
+                headers={"Idempotency-Key": str(uuid.uuid4())},
+                json=first_regeneration,
+            )
+            assert transport.dispatch_entered.wait(timeout=10)
+            loser_future = executor.submit(
+                client.post,
+                (
+                    f"/api/v1/paint-projects/{first_project_id}/paint-plans/"
+                    f"{first_plan['id']}/regenerate"
+                ),
+                headers={"Idempotency-Key": str(uuid.uuid4())},
+                json=first_regeneration,
+            )
+            loser = loser_future.result(timeout=10)
+            assert loser.status_code == 502, loser.text
+            assert transport.calls == 3
+            transport.dispatch_release.set()
+            winner = winner_future.result(timeout=10)
+        assert winner.status_code == 201, winner.text
+        first_regenerated = winner.json()
+
+        transport.mode = "success"
+        later_lifecycle = client.post(
+            (
+                f"/api/v1/paint-projects/{first_project_id}/paint-plans/"
+                f"{first_regenerated['id']}/regenerate"
+            ),
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={
+                **first_selection,
+                "expected_current_plan_id": first_regenerated["id"],
+                "expected_current_version": first_regenerated["version"],
+            },
+        )
+        assert later_lifecycle.status_code == 201, later_lifecycle.text
+        assert transport.calls == 4
+
+        transport.mode = "outcome_unknown"
+        unknown_payload = {
+            **second_selection,
+            "expected_current_plan_id": second_plan["id"],
+            "expected_current_version": second_plan["version"],
+        }
+        unknown_path = (
+            f"/api/v1/paint-projects/{second_project_id}/paint-plans/{second_plan['id']}/regenerate"
+        )
+        unknown = client.post(
+            unknown_path,
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json=unknown_payload,
+        )
+        assert unknown.status_code == 502, unknown.text
+        assert transport.calls == 5
+        unknown_new_key = client.post(
+            unknown_path,
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json=unknown_payload,
+        )
+        assert unknown_new_key.status_code == 502, unknown_new_key.text
+        assert transport.calls == 5
+
+    database_url = make_url(settings.database_url.get_secret_value())
+    with psycopg.connect(**_connection_kwargs(database_url)) as connection:
+        released_loser = connection.execute(
+            """
+            SELECT count(*)
+            FROM invocation_requests AS invocation
+            JOIN invocation_attempts AS attempt ON attempt.invocation_id = invocation.id
+            JOIN budget_reservations AS reservation ON reservation.attempt_id = attempt.id
+            WHERE invocation.project_id = %s
+              AND invocation.final_error_category = 'business_resource_claim_conflict'
+              AND attempt.dispatched_at IS NULL
+              AND reservation.state = 'released'
+            """,
+            (first_project_id,),
+        ).fetchone()
+        assert released_loser == (1,)
+        claim_states = connection.execute(
+            """
+            SELECT execution_status, count(*)
+            FROM command_idempotency_records
+            WHERE scope_key LIKE 'zhipu_resource:paintpilot:project:%'
+            GROUP BY execution_status
+            """
+        ).fetchall()
+        assert dict(claim_states) == {"completed": 4, "in_progress": 1}

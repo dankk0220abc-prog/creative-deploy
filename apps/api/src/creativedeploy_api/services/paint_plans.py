@@ -23,8 +23,23 @@ from creativedeploy_api.ai.provider_transport import (
     OPENAI_OUTPUT_CENTS_PER_MILLION,
     GovernedMultimodalPrompt,
     OpenAIResponsesAdapter,
+    PreparedImageAttachment,
     ProviderContractError,
+    StructuredOutputValidationError,
     assert_live_provider_execution_authorized,
+    structured_json_shape,
+)
+from creativedeploy_api.ai.retrieval import (
+    RetrievalContractError,
+    RetrievedContextBundle,
+    RetrievedContextUnit,
+    validate_retrieved_citations,
+)
+from creativedeploy_api.ai.zhipu_provider import (
+    ZHIPU_GLM_5V_HIGH_INPUT_FEN_PER_MILLION,
+    ZHIPU_GLM_5V_HIGH_OUTPUT_FEN_PER_MILLION,
+    ZHIPU_GLM_5V_TURBO_MODEL,
+    ZhipuChatAdapter,
 )
 from creativedeploy_api.core.config import Settings
 from creativedeploy_api.core.principal import PrincipalContext
@@ -41,6 +56,7 @@ from creativedeploy_api.db.models import (
     RegionVertex,
 )
 from creativedeploy_api.db.models.constants import IDEMPOTENCY_STATUS_COMPLETED
+from creativedeploy_api.paintpilot.knowledge import LocalPaintPilotKnowledgeLayer
 from creativedeploy_api.repositories.identity import (
     ProjectAccess,
     SqlAlchemyIdentityRepository,
@@ -57,6 +73,8 @@ from creativedeploy_api.schemas.errors import ErrorCategory
 from creativedeploy_api.schemas.paint_plans import (
     PAINT_PLAN_PROMPT_KEY,
     PAINT_PLAN_PROMPT_VERSION,
+    PAINT_PLAN_REQUIRED_ROOT_KEYS,
+    PAINT_PLAN_ROOT_KEYS,
     PAINT_PLAN_SCHEMA_VERSION,
     PaintPlanCredentialChoiceRead,
     PaintPlanDocument,
@@ -77,6 +95,7 @@ from creativedeploy_api.schemas.paint_plans import (
     PaintPlanRevisionRequest,
     PaintPlanWorkbenchRead,
     ProviderExecutionMode,
+    paint_plan_live_output_contract,
 )
 from creativedeploy_api.services.ai_foundation import AIFoundationService
 from creativedeploy_api.services.governed_sources import (
@@ -89,6 +108,11 @@ from creativedeploy_api.services.paint_projects import (
     IDEMPOTENCY_RETENTION,
     PaintProjectApplicationError,
     PaintProjectNotFoundError,
+)
+from creativedeploy_api.services.zhipu_invocations import (
+    GovernedZhipuInvocationService,
+    ZhipuBusinessResourceClaim,
+    ZhipuLiveSelection,
 )
 from creativedeploy_api.storage.images import ImageStoragePort
 
@@ -127,6 +151,14 @@ class PaintPlanIdempotencyConflictError(PaintProjectApplicationError):
     category: ErrorCategory = "IDEMPOTENCY_KEY_REUSED"
     message = "The Idempotency-Key was already used with different Paint Plan data."
     allowed_actions = ("retry_with_original_payload", "use_new_idempotency_key")
+
+
+class PaintPlanCitationInvalidError(PaintProjectApplicationError):
+    status_code = 409
+    error_code = "PAINT_PLAN_CITATION_INVALID"
+    category: ErrorCategory = "CONFLICT"
+    message = "The edited Paint Plan citations are not supported by its retrieval snapshot."
+    allowed_actions = ("use_retrieved_citations", "remove_unsupported_citations")
 
 
 class PaintPlanOutputInvalidError(PaintProjectApplicationError):
@@ -229,6 +261,216 @@ def _validate_document_regions(
             raise PaintPlanOutputInvalidError
 
 
+def _validate_edit_citations(
+    document: PaintPlanDocument,
+    retrieved_context_snapshot: list[dict[str, object]],
+) -> None:
+    if not document.knowledge_citations:
+        return
+    try:
+        retrieval = RetrievedContextBundle(
+            product_space="paintpilot",
+            units=[
+                RetrievedContextUnit.model_validate(item) for item in retrieved_context_snapshot
+            ],
+        )
+        validate_retrieved_citations(
+            document.knowledge_citations,
+            retrieval,
+            require_at_least_one=True,
+        )
+    except (RetrievalContractError, ValidationError):
+        raise PaintPlanCitationInvalidError from None
+
+
+_MISSING_PAINT_PLAN_VALUE = object()
+_PAINT_PLAN_EXPECTED_JSON_TYPES = {
+    ("schema_version",): "string",
+    ("title",): "string",
+    ("overall_approach",): "string",
+    ("instructions",): "array<object>",
+    ("instructions", "region_id"): "string",
+    ("instructions", "stable_region_key"): "string",
+    ("instructions", "region_label"): "string",
+    ("instructions", "target_color"): "string",
+    ("instructions", "preparation"): "string",
+    ("instructions", "base_coat"): "string",
+    ("instructions", "layer_strategy"): "string",
+    ("instructions", "edge_treatment"): "string",
+    ("instructions", "lighting_guidance"): "string",
+    ("instructions", "material_guidance"): "string",
+    ("instructions", "warnings"): "array<string>",
+    ("instructions", "confidence_ppm"): "integer",
+    ("safety_notes",): "array<string>",
+    ("knowledge_citations",): "array<object>",
+    ("knowledge_citations", "source_id"): "string",
+    ("knowledge_citations", "chunk_id"): "string",
+    ("knowledge_citations", "target_path"): "string",
+}
+_PAINT_PLAN_SAFE_UNEXPECTED_ROOT_KEYS = frozenset(
+    {
+        "approach",
+        "citations",
+        "data",
+        "document",
+        "output",
+        "overall_strategy",
+        "paint_plan",
+        "plan",
+        "regions",
+        "response",
+        "result",
+        "steps",
+        "summary",
+        "version",
+    }
+)
+
+
+def _pydantic_error_path(error: ValidationError) -> str:
+    errors = error.errors(include_url=False, include_context=False, include_input=False)
+    if not errors:
+        return "$"
+    path = "$"
+    for component in errors[0].get("loc", ()):
+        path += f"[{component}]" if isinstance(component, int) else f".{component}"
+    return path[:240]
+
+
+def _value_at_error_path(raw: Mapping[str, object], loc: tuple[object, ...]) -> object:
+    value: object = raw
+    for component in loc:
+        if isinstance(component, str) and isinstance(value, Mapping):
+            value = value.get(component, _MISSING_PAINT_PLAN_VALUE)
+        elif isinstance(component, int) and isinstance(value, list) and component < len(value):
+            value = value[component]
+        else:
+            return _MISSING_PAINT_PLAN_VALUE
+    return value
+
+
+def _paint_plan_pydantic_diagnostics(
+    error: ValidationError,
+    raw: Mapping[str, object],
+) -> tuple[
+    str | None,
+    str | None,
+    int | None,
+    tuple[str, ...],
+    tuple[str, ...],
+    tuple[str, ...],
+    str | None,
+]:
+    """Describe only schema structure and allowlisted names, never output values."""
+
+    errors = error.errors(include_url=False, include_context=False, include_input=False)
+    if not errors:
+        return None, None, None, (), (), (), None
+    first = errors[0]
+    raw_loc = first.get("loc", ())
+    loc = raw_loc if isinstance(raw_loc, tuple) else ()
+    field_path = tuple(component for component in loc if isinstance(component, str))
+    received = _value_at_error_path(raw, loc)
+    received_count = len(received) if isinstance(received, list) else None
+    received_root_keys = tuple(key for key in PAINT_PLAN_ROOT_KEYS if key in raw)
+    missing_required_keys = tuple(key for key in PAINT_PLAN_REQUIRED_ROOT_KEYS if key not in raw)
+    unexpected_object_keys = tuple(
+        sorted(
+            key
+            for key in raw
+            if isinstance(key, str)
+            and key not in PAINT_PLAN_ROOT_KEYS
+            and key in _PAINT_PLAN_SAFE_UNEXPECTED_ROOT_KEYS
+        )
+    )
+    validator_category = first.get("type")
+    return (
+        _PAINT_PLAN_EXPECTED_JSON_TYPES.get(field_path),
+        structured_json_shape(received, missing=_MISSING_PAINT_PLAN_VALUE),
+        received_count,
+        received_root_keys,
+        missing_required_keys,
+        unexpected_object_keys,
+        validator_category if isinstance(validator_category, str) else None,
+    )
+
+
+def _validate_live_paint_plan_output(
+    raw: Mapping[str, object],
+    *,
+    regions: list[Region],
+    retrieval: RetrievedContextBundle,
+) -> dict[str, object]:
+    try:
+        document = PaintPlanDocument.model_validate(dict(raw))
+    except ValidationError as error:
+        (
+            expected_json_type,
+            received_json_type,
+            received_item_count,
+            received_object_keys,
+            missing_required_keys,
+            unexpected_object_keys,
+            validator_error_category,
+        ) = _paint_plan_pydantic_diagnostics(error, raw)
+        raise StructuredOutputValidationError(
+            "SCHEMA_VALIDATION_FAILED",
+            path=_pydantic_error_path(error),
+            expected_root_json_type="object",
+            received_root_json_type="object",
+            expected_json_type=expected_json_type,
+            received_json_type=received_json_type,
+            received_item_count=received_item_count,
+            received_object_keys=received_object_keys,
+            missing_required_keys=missing_required_keys,
+            unexpected_object_keys=unexpected_object_keys,
+            validator_error_category=validator_error_category,
+        ) from None
+    try:
+        _validate_document_regions(document, regions)
+    except PaintPlanOutputInvalidError:
+        raise StructuredOutputValidationError(
+            "SCHEMA_VALIDATION_FAILED",
+            path="$.instructions",
+            expected_root_json_type="object",
+            received_root_json_type="object",
+            expected_json_type="array<object>",
+            received_json_type="array<object>",
+            received_item_count=len(document.instructions),
+            received_object_keys=tuple(key for key in PAINT_PLAN_ROOT_KEYS if key in raw),
+            validator_error_category="governed_region_identity_mismatch",
+        ) from None
+    try:
+        validate_retrieved_citations(
+            document.knowledge_citations,
+            retrieval,
+            require_at_least_one=True,
+        )
+    except RetrievalContractError:
+        raise StructuredOutputValidationError(
+            "CITATION_VALIDATION_FAILED",
+            path="$.knowledge_citations",
+            expected_root_json_type="object",
+            received_root_json_type="object",
+            expected_json_type="array<object>",
+            received_json_type="array<object>",
+            received_item_count=len(document.knowledge_citations),
+            received_object_keys=tuple(key for key in PAINT_PLAN_ROOT_KEYS if key in raw),
+            validator_error_category="retrieved_citation_mismatch",
+        ) from None
+    return document.model_dump(mode="json")
+
+
+def _zhipu_live_system_prompt(fixture_source: PaintPlanFixtureSource) -> str:
+    return (
+        f"{fixture_source.prompt_template_body} Use only the supplied repository-local "
+        "practice notes for general preparation, layering, compatibility, and safety claims. "
+        "Include exact knowledge_citations using only retrieved source_id and chunk_id values; "
+        "target_path must identify the supported plan field.\n"
+        f"{paint_plan_live_output_contract()}"
+    )
+
+
 class PaintPlanService:
     """Project-scoped orchestration over governed sources and Phase 3A ledgers."""
 
@@ -238,11 +480,15 @@ class PaintPlanService:
         storage: ImageStoragePort,
         settings: Settings,
         ai_service: AIFoundationService,
+        *,
+        live_service: GovernedZhipuInvocationService | None = None,
     ) -> None:
         self._session = session
         self._storage = storage
         self._settings = settings
         self._ai_service = ai_service
+        self._live_service = live_service
+        self._knowledge = LocalPaintPilotKnowledgeLayer()
         self._identity_repository = SqlAlchemyIdentityRepository(session)
         self._region_repository = SqlAlchemyRegionSetRepository(session)
         self._repository = SqlAlchemyPaintPlanRepository(session)
@@ -519,6 +765,7 @@ class PaintPlanService:
                     for item in instructions
                 ],
                 "safety_notes": list(plan.safety_notes),
+                "knowledge_citations": list(plan.citation_snapshot),
             }
         )
         stale_reasons = self._plan_stale_reasons(plan, source)
@@ -564,8 +811,14 @@ class PaintPlanService:
             "unavailable" if cost is None else cost.measurement_status,
         )
         cost_currency = cast(
-            Literal["FIXTURE_CREDITS", "USD"],
-            ("FIXTURE_CREDITS" if plan.provider_key_snapshot == FIXTURE_PROVIDER_KEY else "USD")
+            Literal["FIXTURE_CREDITS", "USD", "CNY"],
+            (
+                "FIXTURE_CREDITS"
+                if plan.provider_key_snapshot == FIXTURE_PROVIDER_KEY
+                else "CNY"
+                if plan.provider_key_snapshot == "zhipu"
+                else "USD"
+            )
             if cost is None
             else cost.currency,
         )
@@ -609,6 +862,10 @@ class PaintPlanService:
             schema_version=plan.response_schema_version,  # type: ignore[arg-type]
             content_hash=plan.content_hash,
             document=document,
+            retrieved_context=[
+                RetrievedContextUnit.model_validate(item)
+                for item in plan.retrieved_context_snapshot
+            ],
             provider_request_id_status=provider_request_id_status,
             provider_request_id=None if attempt is None else attempt.provider_request_id,
             usage_measurement_status=usage_measurement_status,
@@ -667,7 +924,7 @@ class PaintPlanService:
             provider_models = await self._repository.list_provider_models()
             grouped: dict[uuid.UUID, PaintPlanProviderChoiceRead] = {}
             for provider, model in provider_models:
-                if provider.provider_key not in {"fixture_local", "openai"}:
+                if provider.provider_key not in {"fixture_local", "openai", "zhipu"}:
                     continue
                 mode: ProviderExecutionMode = (
                     "fixture_available"
@@ -680,7 +937,7 @@ class PaintPlanService:
                     else await self._repository.get_pricing(model_definition_id=model.id)
                 )
                 currency = model.pricing_currency if pricing is None else pricing.currency
-                if currency not in {"FIXTURE_CREDITS", "USD"}:
+                if currency not in {"FIXTURE_CREDITS", "USD", "CNY"}:
                     continue
                 model_read = PaintPlanModelChoiceRead(
                     id=model.id,
@@ -708,7 +965,7 @@ class PaintPlanService:
                     owner_user_id=principal.user_id,
                     project_id=project_id,
                 ):
-                    if credential.provider_key not in {"fixture_local", "openai"}:
+                    if credential.provider_key not in {"fixture_local", "openai", "zhipu"}:
                         continue
                     credentials.append(
                         PaintPlanCredentialChoiceRead(
@@ -850,6 +1107,7 @@ class PaintPlanService:
         payload: PaintPlanPreviewRequest | PaintPlanGenerateRequest | PaintPlanRegenerateRequest,
         principal: PrincipalContext,
         regeneration_of_plan_id: uuid.UUID | None,
+        provider_key: Literal["openai", "zhipu"],
     ) -> tuple[int | None, list[str]]:
         if not source.ready:
             return None, ["cost_estimate_unavailable"]
@@ -859,27 +1117,45 @@ class PaintPlanService:
             intent=payload.intent,
             regeneration_of_plan_id=regeneration_of_plan_id,
         )
+        retrieval = self._knowledge.retrieve(locale=fixture_source.generation_locale)
         prompt = GovernedMultimodalPrompt(
-            system_prompt=fixture_source.prompt_template_body,
-            user_intent=fixture_source.intent,
-            structured_context=fixture_source.model_dump(
-                mode="json",
-                exclude={"prompt_template_body", "intent"},
+            system_prompt=(
+                _zhipu_live_system_prompt(fixture_source)
+                if provider_key == "zhipu"
+                else fixture_source.prompt_template_body
             ),
+            user_intent=fixture_source.intent,
+            structured_context={
+                "paint_plan_source": fixture_source.model_dump(
+                    mode="json",
+                    exclude={"prompt_template_body", "intent"},
+                ),
+                "retrieved_context": retrieval.model_dump(mode="json"),
+            },
             generation_locale=fixture_source.generation_locale,
         )
         blockers: list[str] = []
         try:
-            estimate_minor_units = (
-                OpenAIResponsesAdapter()
-                .estimate_cost_from_dimensions(
+            if provider_key == "openai":
+                estimate_minor_units = (
+                    OpenAIResponsesAdapter()
+                    .estimate_cost_from_dimensions(
+                        prompt=prompt,
+                        image_dimensions=[(item.width, item.height) for item in source.image_reads],
+                        response_schema=PaintPlanDocument.model_json_schema(),
+                        max_output_tokens=4096,
+                    )
+                    .amount_minor_units_upper_bound
+                )
+            else:
+                estimate_minor_units = ZhipuChatAdapter(
+                    ZHIPU_GLM_5V_TURBO_MODEL
+                ).estimate_cost_from_metadata(
                     prompt=prompt,
-                    image_dimensions=[(item.width, item.height) for item in source.image_reads],
+                    image_byte_lengths=[item.byte_length for item in source.image_reads],
                     response_schema=PaintPlanDocument.model_json_schema(),
                     max_output_tokens=4096,
                 )
-                .amount_minor_units_upper_bound
-            )
         except ProviderContractError:
             estimate_minor_units = None
             blockers.extend(("provider_request_invalid", "cost_estimate_unavailable"))
@@ -903,6 +1179,211 @@ class PaintPlanService:
                 )
             )
         return estimate_minor_units, blockers
+
+    def _prepared_live_images(
+        self, source: PaintPlanSourceSnapshot
+    ) -> tuple[PreparedImageAttachment, ...]:
+        prepared: list[PreparedImageAttachment] = []
+        for read in source.image_reads:
+            asset = next(
+                (
+                    item
+                    for item in source.image_set.current_by_role.values()
+                    if item.id == read.id and item.role == read.role
+                ),
+                None,
+            )
+            if asset is None:
+                raise PaintPlanSourceNotReadyError(["image_identity_changed"])
+            stream = self._storage.open_private(asset.storage_key)
+            try:
+                content = stream.read(read.byte_length + 1)
+            finally:
+                stream.close()
+            prepared.append(
+                PreparedImageAttachment(
+                    image_asset_id=str(read.id),
+                    role=read.role,
+                    sha256=read.sha256,
+                    media_type=read.media_type,
+                    width=read.width,
+                    height=read.height,
+                    content=content,
+                )
+            )
+        for image in prepared:
+            image.validate()
+        return tuple(prepared)
+
+    async def _generate_zhipu_live(
+        self,
+        *,
+        source: PaintPlanSourceSnapshot,
+        selection: PaintPlanGenerateRequest | PaintPlanRegenerateRequest,
+        principal: PrincipalContext,
+        idempotency_key: uuid.UUID,
+        request_id: uuid.UUID,
+        regeneration_of_plan_id: uuid.UUID | None,
+    ) -> tuple[
+        PaintPlanDocument,
+        uuid.UUID,
+        uuid.UUID,
+        uuid.UUID,
+        list[RetrievedContextUnit],
+        uuid.UUID,
+    ]:
+        if self._live_service is None:
+            raise PaintPlanLiveExecutionBlockedError(["zhipu_live_service_unavailable"])
+        fixture_source = self._fixture_source(
+            source,
+            generation_locale=selection.generation_locale,
+            intent=selection.intent,
+            regeneration_of_plan_id=regeneration_of_plan_id,
+        )
+        retrieval = self._knowledge.retrieve(locale=fixture_source.generation_locale)
+        prompt = GovernedMultimodalPrompt(
+            system_prompt=_zhipu_live_system_prompt(fixture_source),
+            user_intent=fixture_source.intent,
+            structured_context={
+                "paint_plan_source": fixture_source.model_dump(
+                    mode="json", exclude={"prompt_template_body", "intent"}
+                ),
+                "retrieved_context": retrieval.model_dump(mode="json"),
+            },
+            generation_locale=fixture_source.generation_locale,
+        )
+        images = self._prepared_live_images(source)
+        adapter = ZhipuChatAdapter(ZHIPU_GLM_5V_TURBO_MODEL)
+        request = adapter.prepare_request(
+            prompt=prompt,
+            images=images,
+            response_schema=PaintPlanDocument.model_json_schema(),
+            max_output_tokens=4_096,
+            timeout_ms=60_000,
+        )
+        estimate = adapter.estimate_cost(
+            prompt=prompt,
+            images=images,
+            response_schema=PaintPlanDocument.model_json_schema(),
+            max_output_tokens=4_096,
+        )
+        async with self._session.begin():
+            pricing = await self._repository.get_pricing(
+                model_definition_id=selection.model_definition_id
+            )
+        if (
+            pricing is None
+            or pricing.provider_definition_id != selection.provider_definition_id
+            or pricing.provider_key != "zhipu"
+            or pricing.model_id != ZHIPU_GLM_5V_TURBO_MODEL
+            or pricing.currency != "CNY"
+            or pricing.input_minor_units_per_million != ZHIPU_GLM_5V_HIGH_INPUT_FEN_PER_MILLION
+            or pricing.output_minor_units_per_million != ZHIPU_GLM_5V_HIGH_OUTPUT_FEN_PER_MILLION
+        ):
+            raise PaintPlanLiveExecutionBlockedError(["pricing_snapshot_invalid"])
+
+        def validate_output(raw: Mapping[str, object]) -> dict[str, object]:
+            return _validate_live_paint_plan_output(
+                raw,
+                regions=source.regions,
+                retrieval=retrieval,
+            )
+
+        readiness_review = source.image_set.latest_readiness_review
+        assert readiness_review is not None
+        assert source.region_read is not None
+        safe_input_snapshot = {
+            "artifacts": [
+                {
+                    "id": str(item.id),
+                    "revision": item.version,
+                    "content_hash": f"sha256:{item.sha256}",
+                    "media_type": item.media_type,
+                    "byte_length": item.byte_length,
+                }
+                for item in source.image_reads
+            ],
+            "paint_plan_provenance": {
+                "image_set_fingerprint": fixture_source.image_set_fingerprint,
+                "image_assets": [
+                    image.model_dump(mode="json") for image in fixture_source.image_assets
+                ],
+                "readiness_review_id": str(readiness_review.id),
+                "readiness_review_version": readiness_review.version,
+                "region_set_id": str(source.region_read.id),
+                "region_set_version": source.region_read.version,
+                "region_geometry_fingerprint": source.region_read.geometry_fingerprint,
+                "prompt_template_id": str(fixture_source.prompt_template_id),
+                "prompt_template_key": fixture_source.prompt_template_key,
+                "prompt_template_version": fixture_source.prompt_template_version,
+                "prompt_content_hash": fixture_source.prompt_content_hash,
+                "generation_locale": fixture_source.generation_locale,
+                "response_schema_version": fixture_source.response_schema_version,
+            },
+            "paint_plan_contract": {
+                "paint_regions": [
+                    {
+                        "region_id": str(region.id),
+                        "stable_region_key": str(region.stable_region_key),
+                        "region_label": region.label,
+                    }
+                    for region in source.regions
+                    if region.kind == "paint"
+                ],
+                "excluded_region_ids": [
+                    str(region.id) for region in source.regions if region.kind == "exclude"
+                ],
+            },
+        }
+        try:
+            resource_scope = (
+                f"zhipu_resource:paintpilot:project:{source.access.project.id}:current-slot:none"
+                if regeneration_of_plan_id is None
+                else (
+                    "zhipu_resource:paintpilot:project:"
+                    f"{source.access.project.id}:current-plan:{regeneration_of_plan_id}:"
+                    "version:"
+                    f"{cast(PaintPlanRegenerateRequest, selection).expected_current_version}"
+                )
+            )
+            result = await self._live_service.execute(
+                selection=ZhipuLiveSelection(
+                    product_space="paintpilot",
+                    invocation_family="paint_plan_generation",
+                    project_id=source.access.project.id,
+                    provider_definition_id=selection.provider_definition_id,
+                    model_definition_id=selection.model_definition_id,
+                    credential_id=selection.credential_id,
+                    required_capability_keys=(
+                        "vision_understanding",
+                        "structured_output",
+                    ),
+                    estimate_minor_units=estimate,
+                    pricing_snapshot_id=pricing.id,
+                ),
+                principal=principal,
+                request=request,
+                retrieval=retrieval,
+                output_validator=validate_output,
+                idempotency_key=idempotency_key,
+                request_id=request_id,
+                safe_input_snapshot=safe_input_snapshot,
+                business_claim=ZhipuBusinessResourceClaim(
+                    scope_key=resource_scope,
+                    principal_id=principal.principal_id,
+                    command_type="paint_plan_generation",
+                ),
+            )
+        except (ProviderContractError, RuntimeError) as error:
+            raise PaintPlanOutputInvalidError from error
+        return (
+            PaintPlanDocument.model_validate(result.output),
+            result.invocation_id,
+            result.attempt_id,
+            result.pricing_snapshot_id,
+            list(retrieval.units),
+            result.business_claim_id,
+        )
 
     async def preview(
         self,
@@ -963,6 +1444,7 @@ class PaintPlanService:
                 payload=payload,
                 principal=principal,
                 regeneration_of_plan_id=None,
+                provider_key="openai",
             )
             blockers.extend(admission_blockers)
             if (
@@ -991,6 +1473,45 @@ class PaintPlanService:
                 currency="USD",
                 estimate_status=("unavailable" if estimate_minor_units is None else "estimated"),
                 live_execution_authorized=False,
+                blockers=list(dict.fromkeys(blockers)),
+            )
+        if provider_key == "zhipu":
+            estimate_minor_units, admission_blockers = await self._live_selection_readiness(
+                source=source,
+                payload=payload,
+                principal=principal,
+                regeneration_of_plan_id=None,
+                provider_key="zhipu",
+            )
+            blockers.extend(admission_blockers)
+            if (
+                pricing is None
+                or pricing.provider_definition_id != payload.provider_definition_id
+                or pricing.model_definition_id != payload.model_definition_id
+                or pricing.provider_key != "zhipu"
+                or pricing.model_id != model_id
+                or pricing.currency != "CNY"
+                or pricing.unit_basis != "per_million_tokens"
+                or pricing.input_minor_units_per_million != ZHIPU_GLM_5V_HIGH_INPUT_FEN_PER_MILLION
+                or pricing.output_minor_units_per_million
+                != ZHIPU_GLM_5V_HIGH_OUTPUT_FEN_PER_MILLION
+            ):
+                blockers.append("pricing_snapshot_invalid")
+                estimate_minor_units = None
+            if not self._settings.zhipu_live_enabled:
+                blockers.append("live_execution_authorization_required")
+            if not provider_enabled or provider_status != "active":
+                blockers.append("provider_disabled")
+            return PaintPlanPreviewRead(
+                admissible=not blockers and self._settings.zhipu_live_enabled,
+                execution_mode="live_authorization_required",
+                provider_key="zhipu",
+                model_id=model_id,
+                source_ready=source.ready,
+                estimated_cost_minor_units=estimate_minor_units,
+                currency="CNY",
+                estimate_status="unavailable" if estimate_minor_units is None else "estimated",
+                live_execution_authorized=self._settings.zhipu_live_enabled,
                 blockers=list(dict.fromkeys(blockers)),
             )
         if provider_key != FIXTURE_PROVIDER_KEY:
@@ -1070,6 +1591,9 @@ class PaintPlanService:
         command: str,
         idempotency_key: uuid.UUID,
         identity: object,
+        retrieved_context: list[RetrievedContextUnit] | None = None,
+        provider_pricing_snapshot_id: uuid.UUID | None = None,
+        business_claim_id: uuid.UUID | None = None,
     ) -> PaintPlanRead:
         async with self._session.begin():
             source = await self._load_source(
@@ -1101,6 +1625,17 @@ class PaintPlanService:
                     resource_id=existing.id,
                     response_snapshot=response.model_dump(mode="json"),
                 )
+                if business_claim_id is not None:
+                    assert self._live_service is not None
+                    await self._live_service.complete_business_resource_claim(
+                        claim_id=business_claim_id,
+                        resource_type="paint_plan",
+                        resource_id=existing.id,
+                        response_snapshot={
+                            "phase": "completed",
+                            "paint_plan_id": str(existing.id),
+                        },
+                    )
                 return response
             if not source.ready or source.region_set is None or source.prompt is None:
                 raise PaintPlanSourceNotReadyError(source.blockers)
@@ -1126,7 +1661,7 @@ class PaintPlanService:
             if (
                 provider is None
                 or model is None
-                or provider.provider_key != FIXTURE_PROVIDER_KEY
+                or provider.provider_key not in {FIXTURE_PROVIDER_KEY, "zhipu"}
                 or model.provider_definition_id != provider.id
             ):
                 raise PaintPlanLifecycleConflictError
@@ -1158,7 +1693,7 @@ class PaintPlanService:
                 model_definition_id=model.id,
                 model_id_snapshot=model.model_id,
                 model_revision_snapshot=model.revision,
-                provider_pricing_snapshot_id=None,
+                provider_pricing_snapshot_id=provider_pricing_snapshot_id,
                 prompt_template_definition_id=source.prompt.id,
                 prompt_template_key_snapshot=source.prompt.template_key,
                 prompt_template_version_snapshot=source.prompt.version,
@@ -1167,6 +1702,12 @@ class PaintPlanService:
                 title=document.title,
                 overall_approach=document.overall_approach,
                 safety_notes=document.safety_notes,
+                retrieved_context_snapshot=[
+                    item.model_dump(mode="json") for item in (retrieved_context or [])
+                ],
+                citation_snapshot=[
+                    item.model_dump(mode="json") for item in document.knowledge_citations
+                ],
                 instruction_count=len(document.instructions),
                 content_hash=_content_hash(document),
                 created_by_actor_type="provider",
@@ -1210,6 +1751,17 @@ class PaintPlanService:
                 resource_id=plan.id,
                 response_snapshot=response.model_dump(mode="json"),
             )
+            if business_claim_id is not None:
+                assert self._live_service is not None
+                await self._live_service.complete_business_resource_claim(
+                    claim_id=business_claim_id,
+                    resource_type="paint_plan",
+                    resource_id=plan.id,
+                    response_snapshot={
+                        "phase": "completed",
+                        "paint_plan_id": str(plan.id),
+                    },
+                )
             return response
 
     async def generate(
@@ -1261,6 +1813,38 @@ class PaintPlanService:
             raise PaintPlanSourceNotReadyError(source.blockers)
         if provider is None:
             raise PaintPlanLifecycleConflictError
+        if provider.provider_key == "zhipu":
+            (
+                document,
+                invocation_id,
+                attempt_id,
+                pricing_id,
+                retrieved_context,
+                business_claim_id,
+            ) = await self._generate_zhipu_live(
+                source=source,
+                selection=payload,
+                principal=principal,
+                idempotency_key=idempotency_key,
+                request_id=request_id,
+                regeneration_of_plan_id=None,
+            )
+            return await self._persist_generated(
+                project_id=project_id,
+                principal=principal,
+                selection=payload,
+                document=document,
+                invocation_id=invocation_id,
+                attempt_id=attempt_id,
+                parent_plan_id=None,
+                revision_kind="generated",
+                command="generate_paint_plan",
+                idempotency_key=idempotency_key,
+                identity=identity,
+                retrieved_context=retrieved_context,
+                provider_pricing_snapshot_id=pricing_id,
+                business_claim_id=business_claim_id,
+            )
         if provider.provider_key != FIXTURE_PROVIDER_KEY:
             blockers: list[str] = ["live_execution_authorization_required"]
             if provider.provider_key == "openai":
@@ -1269,6 +1853,7 @@ class PaintPlanService:
                     payload=payload,
                     principal=principal,
                     regeneration_of_plan_id=None,
+                    provider_key="openai",
                 )
                 blockers.extend(readiness_blockers)
                 if not provider.enabled or provider.status != "active":
@@ -1374,6 +1959,38 @@ class PaintPlanService:
             raise PaintPlanLifecycleConflictError
         if not source.ready:
             raise PaintPlanSourceNotReadyError(source.blockers)
+        if provider is not None and provider.provider_key == "zhipu":
+            (
+                document,
+                invocation_id,
+                attempt_id,
+                pricing_id,
+                retrieved_context,
+                business_claim_id,
+            ) = await self._generate_zhipu_live(
+                source=source,
+                selection=payload,
+                principal=principal,
+                idempotency_key=idempotency_key,
+                request_id=request_id,
+                regeneration_of_plan_id=plan_id,
+            )
+            return await self._persist_generated(
+                project_id=project_id,
+                principal=principal,
+                selection=payload,
+                document=document,
+                invocation_id=invocation_id,
+                attempt_id=attempt_id,
+                parent_plan_id=plan_id,
+                revision_kind="regenerated",
+                command="regenerate_paint_plan",
+                idempotency_key=idempotency_key,
+                identity=identity,
+                retrieved_context=retrieved_context,
+                provider_pricing_snapshot_id=pricing_id,
+                business_claim_id=business_claim_id,
+            )
         if provider is None or provider.provider_key != FIXTURE_PROVIDER_KEY:
             blockers: list[str] = ["live_execution_authorization_required"]
             if provider is not None and provider.provider_key == "openai":
@@ -1382,6 +1999,7 @@ class PaintPlanService:
                     payload=payload,
                     principal=principal,
                     regeneration_of_plan_id=plan_id,
+                    provider_key="openai",
                 )
                 blockers.extend(readiness_blockers)
                 if not provider.enabled or provider.status != "active":
@@ -1581,6 +2199,7 @@ class PaintPlanService:
             ):
                 raise PaintPlanLifecycleConflictError
             _validate_document_regions(payload.document, source.regions)
+            _validate_edit_citations(payload.document, current.retrieved_context_snapshot)
             current.lifecycle = "superseded"
             await self._repository.flush()
             now = datetime.now(UTC)
@@ -1618,6 +2237,10 @@ class PaintPlanService:
                 title=payload.document.title,
                 overall_approach=payload.document.overall_approach,
                 safety_notes=payload.document.safety_notes,
+                retrieved_context_snapshot=list(current.retrieved_context_snapshot),
+                citation_snapshot=[
+                    item.model_dump(mode="json") for item in payload.document.knowledge_citations
+                ],
                 instruction_count=len(payload.document.instructions),
                 content_hash=_content_hash(payload.document),
                 created_by_actor_type="user",

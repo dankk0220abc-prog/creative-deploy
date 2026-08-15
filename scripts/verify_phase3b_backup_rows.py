@@ -47,7 +47,7 @@ IMAGE_SET_FINGERPRINT = "4" * 64
 GEOMETRY_FINGERPRINT = "5" * 64
 PROMPT_HASH = "8f946b8ae444637aa56b8624118f45b539eb314bf5bb6ed9013e7b89b0561de6"
 EXPECTED_COUNTS = {
-    "provider_pricing_snapshots": 1,
+    "provider_pricing_snapshots": 3,
     "prompt_template_definitions": 1,
     "paint_plans": 2,
     "paint_plan_region_instructions": 4,

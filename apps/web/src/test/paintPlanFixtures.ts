@@ -90,6 +90,13 @@ export function paintPlanDocumentFixture(
       },
     ],
     safety_notes: ["Use ventilation and the coating maker's protective equipment."],
+    knowledge_citations: [
+      {
+        source_id: "paintpilot-practice-notes",
+        chunk_id: "paintpilot:surface-preparation",
+        target_path: "/instructions/0/preparation",
+      },
+    ],
     ...overrides,
   };
 }
@@ -138,6 +145,22 @@ export function paintPlanFixture(overrides: Partial<PaintPlan> = {}): PaintPlan 
     schema_version: "paint-plan.v1",
     content_hash: sha("d"),
     document: paintPlanDocumentFixture(),
+    retrieved_context: [
+      {
+        source_id: "paintpilot-practice-notes",
+        source_title: "PaintPilot repository-local practice notes",
+        source_type: "repository_local_corpus",
+        repository_reference: "repo://paintpilot/knowledge/practice-notes",
+        chunk_id: "paintpilot:surface-preparation",
+        section: "surface preparation",
+        content: "Test compatibility before applying a coating system.",
+        retrieval_rationale: "Preparation guidance requested by the governed plan.",
+        retrieval_score_ppm: 1_000_000,
+        locale: "en-US",
+        corpus_id: "paintpilot-practice-notes",
+        corpus_version: "1",
+      },
+    ],
     provider_request_id_status: "absent",
     provider_request_id: null,
     usage_measurement_status: "unavailable",

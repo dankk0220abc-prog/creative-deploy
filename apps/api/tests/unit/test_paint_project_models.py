@@ -590,6 +590,8 @@ EXPECTED_PHASE_3B_CHECK_CONSTRAINT_NAMES = frozenset(
         "ck_paint_plans_revision_actor_consistent",
         "ck_paint_plans_revision_kind_allowed",
         "ck_paint_plans_revisions_positive",
+        "ck_paint_plans_retrieved_context_array",
+        "ck_paint_plans_citation_snapshot_array",
         "ck_paint_plans_safety_notes_bounded",
         "ck_paint_plans_source_fingerprints_format",
         "ck_paint_plans_source_versions_positive",
@@ -600,7 +602,7 @@ EXPECTED_PHASE_3B_CHECK_CONSTRAINT_NAMES = frozenset(
         "ck_prompt_template_definitions_schema_format",
         "ck_prompt_template_definitions_status_allowed",
         "ck_prompt_template_definitions_version_positive",
-        "ck_provider_pricing_snapshots_currency_usd",
+        "ck_provider_pricing_snapshots_currency_allowed",
         "ck_provider_pricing_snapshots_model_id_safe",
         "ck_provider_pricing_snapshots_prices_nonnegative",
         "ck_provider_pricing_snapshots_provider_key_safe",
@@ -675,12 +677,17 @@ EXPECTED_ARCANA_CONSTRAINT_NAMES = frozenset(
         "ck_tarot_card_definitions_arcana_allowed",
         "ck_tarot_card_definitions_knowledge_present",
         "ck_tarot_interpretation_revisions_source_allowed",
+        "ck_tarot_interpretation_revisions_retrieved_context_array",
+        "ck_tarot_interpretation_revisions_citation_snapshot_array",
+        "ck_tarot_interpretation_revisions_live_provenance_consistent",
         "ck_tarot_reading_cards_orientation_allowed",
         "ck_tarot_reading_cards_three_positions",
         "ck_tarot_readings_locale_allowed",
         "ck_tarot_readings_question_length",
         "ck_tarot_readings_status_allowed",
         "fk_tarot_interpretation_revisions_reading_id_tarot_readings",
+        "fk_tarot_interp_revisions_source_attempt",
+        "fk_tarot_interp_revisions_source_invocation",
         "fk_tarot_journal_entries_reading_id_tarot_readings",
         "fk_tarot_reading_cards_card_definition",
         "fk_tarot_reading_cards_reading_id_tarot_readings",
@@ -903,6 +910,8 @@ EXPECTED_CHECK_CONSTRAINTS_BY_TABLE = MappingProxyType(
                 "ck_paint_plans_revision_actor_consistent",
                 "ck_paint_plans_revision_kind_allowed",
                 "ck_paint_plans_revisions_positive",
+                "ck_paint_plans_retrieved_context_array",
+                "ck_paint_plans_citation_snapshot_array",
                 "ck_paint_plans_safety_notes_bounded",
                 "ck_paint_plans_source_fingerprints_format",
                 "ck_paint_plans_source_versions_positive",
@@ -937,7 +946,7 @@ EXPECTED_CHECK_CONSTRAINTS_BY_TABLE = MappingProxyType(
         ),
         "provider_pricing_snapshots": frozenset(
             {
-                "ck_provider_pricing_snapshots_currency_usd",
+                "ck_provider_pricing_snapshots_currency_allowed",
                 "ck_provider_pricing_snapshots_model_id_safe",
                 "ck_provider_pricing_snapshots_prices_nonnegative",
                 "ck_provider_pricing_snapshots_provider_key_safe",
@@ -1025,7 +1034,12 @@ EXPECTED_CHECK_CONSTRAINTS_BY_TABLE = MappingProxyType(
             }
         ),
         "tarot_interpretation_revisions": frozenset(
-            {"ck_tarot_interpretation_revisions_source_allowed"}
+            {
+                "ck_tarot_interpretation_revisions_source_allowed",
+                "ck_tarot_interpretation_revisions_retrieved_context_array",
+                "ck_tarot_interpretation_revisions_citation_snapshot_array",
+                "ck_tarot_interpretation_revisions_live_provenance_consistent",
+            }
         ),
         "tarot_journal_entries": frozenset(),
         "tarot_reading_cards": frozenset(
@@ -1147,7 +1161,10 @@ MIGRATION_PATHS = (
     / "2b1c4d5e6f70_add_governed_identity_and_private_storage.py",
     API_ROOT / "migrations" / "versions" / "3b01a1c2d3e4_add_phase3b_paint_plan_foundation.py",
     API_ROOT / "migrations" / "versions" / "4c01a2b3c4d5_add_arcana_core_proof_slice.py",
+    API_ROOT / "migrations" / "versions" / "5a01b2c3d4e5_add_zhipu_and_shared_citations.py",
+    API_ROOT / "migrations" / "versions" / "6a01b2c3d4e6_drop_credential_plaintext_fragments.py",
 )
+RETIRED_MIGRATION_CONSTRAINT_NAMES = frozenset({"ck_provider_pricing_snapshots_currency_usd"})
 PHASE_3A_MIGRATION_PATHS = (
     API_ROOT / "migrations" / "versions" / "3a01c7e9b4d2_add_phase3a_registries.py",
     API_ROOT / "migrations" / "versions" / "3a02d8f0c5e3_add_phase3a_credential_security.py",
@@ -1366,6 +1383,7 @@ def _migration_identifier_categories() -> tuple[
     constraint_names.update(
         name for _table, _source, _target, name, _delete in phase3a.added_foreign_keys
     )
+    constraint_names.difference_update(RETIRED_MIGRATION_CONSTRAINT_NAMES)
     index_names.update(name for _table, name, _columns, _unique, _where in phase3a.indexes)
     return (
         frozenset(table_names),
@@ -1543,7 +1561,7 @@ def test_all_database_identifiers_fit_postgresql_limit() -> None:
     identifiers = _metadata_identifiers()
 
     assert identifiers == EXPECTED_DATABASE_IDENTIFIERS
-    assert len(identifiers) == 501
+    assert len(identifiers) == 508
     assert all(
         len(identifier.encode("utf-8")) <= POSTGRESQL_IDENTIFIER_LIMIT for identifier in identifiers
     )

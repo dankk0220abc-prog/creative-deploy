@@ -5,6 +5,9 @@ const AI_PATH = "/api/v1/ai";
 export const phase3aFixtureEnabled =
   import.meta.env.VITE_PHASE3A_FIXTURE_ENABLED === "true";
 
+export type ProviderKey = "fixture_local" | "openai" | "zhipu";
+export type AICurrency = "FIXTURE_CREDITS" | "USD" | "CNY";
+
 export interface CapabilityDefinition {
   id: string;
   capability_key: string;
@@ -16,7 +19,7 @@ export interface CapabilityDefinition {
 
 export interface ProviderDefinition {
   id: string;
-  provider_key: string;
+  provider_key: ProviderKey;
   display_name: string;
   adapter_type: string;
   enabled: boolean;
@@ -31,7 +34,7 @@ export interface ProviderDefinition {
 
 export interface ModelDefinition {
   id: string;
-  provider_key: string;
+  provider_key: ProviderKey;
   model_id: string;
   display_name: string;
   catalog_source: string;
@@ -40,7 +43,7 @@ export interface ModelDefinition {
   status: string;
   context_window: number | null;
   pricing_minor_units: number | null;
-  pricing_currency: "FIXTURE_CREDITS" | null;
+  pricing_currency: AICurrency | null;
   local_only: boolean;
   capabilities: CapabilityDefinition[];
 }
@@ -48,9 +51,8 @@ export interface ModelDefinition {
 export interface CredentialRecord {
   id: string;
   alias: string;
-  provider_key: string;
+  provider_key: ProviderKey;
   fingerprint: string;
-  last_four: string | null;
   status: "active" | "revoked" | "replaced";
   created_at: string;
   updated_at: string;
@@ -62,12 +64,17 @@ export interface CredentialRecord {
 }
 
 export interface CredentialValidation {
-  provider_key: "fixture_local";
+  provider_key: ProviderKey;
   valid: boolean;
-  validation_status: "fixture_valid" | "fixture_invalid";
+  validation_status:
+    | "fixture_valid"
+    | "fixture_invalid"
+    | "live_validation_not_authorized"
+    | "provider_valid"
+    | "provider_invalid";
   message_code: string;
-  fixture: true;
-  local_only: true;
+  fixture: boolean;
+  local_only: boolean;
   persisted: boolean;
 }
 
@@ -79,7 +86,7 @@ export interface UserPreference {
   timeout_ms: number;
   streaming_enabled: boolean;
   cost_warning_minor_units: number | null;
-  currency: "FIXTURE_CREDITS";
+  currency: AICurrency;
   budget_per_invocation_minor_units: number | null;
   budget_cumulative_minor_units: number | null;
   budget_window_seconds: number | null;
@@ -100,7 +107,7 @@ export interface ProjectPolicy {
   per_invocation_limit_minor_units: number | null;
   cumulative_limit_minor_units: number | null;
   budget_window_seconds: number | null;
-  currency: "FIXTURE_CREDITS";
+  currency: AICurrency;
   allow_unknown_cost: boolean;
   allow_manual_model_id: boolean;
   allow_fallback: boolean;
@@ -282,20 +289,27 @@ export async function listCredentials(signal?: AbortSignal) {
   return response.items;
 }
 
-export function validateTemporaryCredential(credential: string) {
+export function validateTemporaryCredential(providerKey: ProviderKey, credential: string) {
   return requestJson<CredentialValidation>(`${AI_PATH}/credentials/validate`, {
     method: "POST",
     headers: commandHeaders(),
-    body: JSON.stringify({ provider_key: "fixture_local", credential }),
+    body: JSON.stringify({ provider_key: providerKey, credential }),
   });
 }
 
-export function createCredential(alias: string, credential: string) {
+export function isZhipuCredentialInputWellFormed(
+  providerKey: string,
+  credential: string,
+) {
+  return providerKey !== "zhipu" || /^[\x21-\x7e]+$/u.test(credential);
+}
+
+export function createCredential(providerKey: ProviderKey, alias: string, credential: string) {
   return requestJson<CredentialRecord>(`${AI_PATH}/credentials`, {
     method: "POST",
     headers: commandHeaders(),
     body: JSON.stringify({
-      provider_key: "fixture_local",
+      provider_key: providerKey,
       alias,
       credential,
       confirm_save: true,
@@ -364,6 +378,7 @@ export function updateUserPreference(input: {
   providerId: string;
   modelId: string;
   credentialId: string;
+  currency: AICurrency;
   expectedRevision: number;
 }) {
   return requestJson<UserPreference>(`${AI_PATH}/preferences`, {
@@ -376,9 +391,10 @@ export function updateUserPreference(input: {
       default_credential_id: input.credentialId,
       timeout_ms: 30_000,
       streaming_enabled: false,
-      cost_warning_minor_units: 800,
-      budget_per_invocation_minor_units: 1_000,
-      budget_cumulative_minor_units: 10_000,
+      cost_warning_minor_units: input.currency === "CNY" ? 20 : 800,
+      currency: input.currency,
+      budget_per_invocation_minor_units: input.currency === "CNY" ? 100 : 1_000,
+      budget_cumulative_minor_units: input.currency === "CNY" ? 100 : 10_000,
       budget_window_seconds: 86_400,
       expected_revision: input.expectedRevision,
     }),
@@ -398,6 +414,7 @@ export function updateProjectPolicy(input: {
   modelId: string;
   credentialId: string;
   capabilityIds: string[];
+  currency: AICurrency;
   expectedRevision: number;
 }) {
   return requestJson<ProjectPolicy>(
@@ -414,9 +431,10 @@ export function updateProjectPolicy(input: {
         model_allowlist: [input.modelId],
         capability_allowlist: input.capabilityIds,
         credential_allowlist: [input.credentialId],
-        per_invocation_limit_minor_units: 1_000,
-        cumulative_limit_minor_units: 5_000,
+        per_invocation_limit_minor_units: input.currency === "CNY" ? 100 : 1_000,
+        cumulative_limit_minor_units: input.currency === "CNY" ? 100 : 5_000,
         budget_window_seconds: 86_400,
+        currency: input.currency,
         allow_unknown_cost: false,
         allow_manual_model_id: false,
         allow_fallback: false,

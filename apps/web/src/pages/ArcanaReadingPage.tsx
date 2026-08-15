@@ -90,7 +90,34 @@ export function ArcanaReadingPage() {
           </section>
           <section className="arcana-actions"><h3>{t("arcana.interpret.actions")}</h3><ol>{reading.interpretation.document.actionable_reflections.map((action) => <li key={action}>{action}</li>)}</ol></section>
           <div className="arcana-reflections"><h3>{t("arcana.interpret.reflect")}</h3><ul>{reading.interpretation.document.reflection_prompts.map((prompt) => <li key={prompt}>{prompt}</li>)}</ul></div>
-          <details className="arcana-provenance"><summary>{t("arcana.interpret.details")}</summary><p>{reading.interpretation.document.uncertainty}</p><dl><div><dt>{t("arcana.interpret.provenance.source")}</dt><dd>{reading.interpretation.document.knowledge_basis[0]?.source_title}</dd></div><div><dt>{t("arcana.interpret.provenance.retrieval")}</dt><dd>{reading.interpretation.document.knowledge_basis[0]?.retrieval_mode}</dd></div><div><dt>{t("arcana.interpret.provenance.schema")}</dt><dd>{reading.interpretation.document.schema_version}</dd></div></dl></details>
+          <details className="arcana-provenance">
+            <summary>{t("arcana.interpret.details")}</summary>
+            <p>{reading.interpretation.document.uncertainty}</p>
+            <dl>
+              <div><dt>{t("arcana.interpret.provenance.source")}</dt><dd>{reading.interpretation.document.knowledge_basis[0]?.source_title}</dd></div>
+              <div><dt>{t("arcana.interpret.provenance.retrieval")}</dt><dd>{reading.interpretation.document.knowledge_basis[0]?.retrieval_mode}</dd></div>
+              <div><dt>{t("arcana.interpret.provenance.schema")}</dt><dd>{reading.interpretation.document.schema_version}</dd></div>
+            </dl>
+            {reading.interpretation.citations.length > 0 ? (
+              <section aria-label={t("arcana.interpret.citations")}>
+                <h3>{t("arcana.interpret.citations")}</h3>
+                <p>{t("arcana.interpret.citationsCopy")}</p>
+                <ul>
+                  {reading.interpretation.citations.map((citation) => {
+                    const source = reading.interpretation?.retrieved_context.find(
+                      (item) => item.source_id === citation.source_id && item.chunk_id === citation.chunk_id,
+                    );
+                    return (
+                      <li key={`${citation.source_id}:${citation.chunk_id}:${citation.target_path}`}>
+                        <strong>{source?.source_title ?? citation.source_id}</strong>
+                        <span>{source?.section ?? citation.chunk_id} · {citation.target_path}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            ) : null}
+          </details>
         </section>
       ) : null}
 

@@ -1,0 +1,61 @@
+{
+  "corpus_id": "arcana-question-aware-local-knowledge",
+  "corpus_version": "arcana-local-knowledge-v2",
+  "retrieval_date": "2026-08-14",
+  "sources": [
+    {
+      "source_id": "waite-pictorial-key-1910-derived-v2",
+      "title": "The Pictorial Key to the Tarot",
+      "author_project": "A. E. Waite; Wikisource transcription",
+      "source_url": "https://en.wikisource.org/wiki/The_Pictorial_Key_to_the_Tarot",
+      "license_status": "Public domain in the United States; Wikisource marks the work PD-old-70-US",
+      "derived_data_note": "CreativeDeploy uses concise source-informed summaries only; no long-form text or artwork is reproduced.",
+      "use": "source-derived card identity and classical meaning cross-check"
+    },
+    {
+      "source_id": "arcanite-architecture-reference-2026",
+      "title": "Arcanite",
+      "author_project": "Kate Louie / katelouie/arcanite",
+      "source_url": "https://github.com/katelouie/arcanite",
+      "license_status": "MIT; Copyright (c) 2026 Kate Louie",
+      "derived_data_note": "Architecture reference for deterministic position and question context followed by synthesis. No Arcanite card prose or implementation was copied into the corpus.",
+      "use": "architecture and schema-pattern reference"
+    },
+    {
+      "source_id": "metabismuth-tarot-json-identity-reference",
+      "title": "tarot-json",
+      "author_project": "metabismuth/tarot-json; MIT copyright notice names equokka",
+      "source_url": "https://github.com/metabismuth/tarot-json",
+      "license_status": "MIT; Copyright (c) 2019 equokka",
+      "derived_data_note": "Used only to cross-check the 78-card identity, arcana, suit, and number schema. Images and interpretation text were not imported.",
+      "use": "card identity and naming cross-check"
+    },
+    {
+      "source_id": "ekelen-tarot-api-reference-only",
+      "title": "tarot-api",
+      "author_project": "ekelen/tarot-api",
+      "source_url": "https://github.com/ekelen/tarot-api",
+      "license_status": "No repository license file verified on 2026-08-14; reference-only",
+      "derived_data_note": "Its Waite-derived REST structure was inspected only as a cross-check. No data, code, or images were imported.",
+      "use": "reference-only structural cross-check"
+    },
+    {
+      "source_id": "creativedeploy-arcana-question-position-heuristics-v2",
+      "title": "CreativeDeploy Arcana question and position heuristics v2",
+      "author_project": "CreativeDeploy",
+      "source_url": "repo://apps/api/src/creativedeploy_api/arcana/question_analysis.py",
+      "license_status": "Repository-authored",
+      "derived_data_note": "Deterministic bilingual domain, intent, temporal, position, and question-context heuristics; explicitly interpretive and non-predictive.",
+      "use": "question-aware retrieval"
+    },
+    {
+      "source_id": "creativedeploy-arcana-relationship-heuristics-v2",
+      "title": "CreativeDeploy Arcana relationship heuristics v2",
+      "author_project": "CreativeDeploy",
+      "source_url": "repo://apps/api/src/creativedeploy_api/arcana/relationships.py",
+      "license_status": "Repository-authored",
+      "derived_data_note": "Deterministic spread-level signals. They describe reinforcement, tension, transition, and turning points but never assert a prediction.",
+      "use": "cross-card context"
+    }
+  ]
+}

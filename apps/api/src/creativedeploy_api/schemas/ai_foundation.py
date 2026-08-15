@@ -17,13 +17,15 @@ from pydantic import (
 from creativedeploy_api.schemas.paint_plans import PaintPlanFixtureSource
 
 FixtureCurrency = Literal["FIXTURE_CREDITS"]
-Currency = Literal["FIXTURE_CREDITS", "USD"]
-ProviderKey = Literal["fixture_local", "openai"]
+Currency = Literal["FIXTURE_CREDITS", "USD", "CNY"]
+ProviderKey = Literal["fixture_local", "openai", "zhipu"]
 CredentialSecret = Annotated[SecretStr, Field(min_length=1, max_length=4096)]
 CredentialValidationStatus = Literal[
     "fixture_valid",
     "fixture_invalid",
     "live_validation_not_authorized",
+    "provider_valid",
+    "provider_invalid",
 ]
 RequestUUID = Annotated[
     UUID,
@@ -107,7 +109,6 @@ class CredentialRead(StrictModel):
     alias: str
     provider_key: str
     fingerprint: str
-    last_four: str | None
     status: Literal["active", "revoked", "replaced"]
     created_at: datetime
     updated_at: datetime

@@ -84,8 +84,8 @@ class ProviderPricingSnapshot(Base):
             name=conv("ck_provider_pricing_snapshots_version_safe"),
         ),
         CheckConstraint(
-            "currency = 'USD'",
-            name=conv("ck_provider_pricing_snapshots_currency_usd"),
+            "currency IN ('USD','CNY')",
+            name=conv("ck_provider_pricing_snapshots_currency_allowed"),
         ),
         CheckConstraint(
             "unit_basis = 'per_million_tokens'",
@@ -289,6 +289,14 @@ class PaintPlan(Base):
             "AND octet_length(safety_notes::text) <= 7000 "
             "AND NOT jsonb_path_exists(safety_notes, '$[*] ? (@.type() != \"string\")')",
             name=conv("ck_paint_plans_safety_notes_bounded"),
+        ),
+        CheckConstraint(
+            "jsonb_typeof(retrieved_context_snapshot) = 'array'",
+            name=conv("ck_paint_plans_retrieved_context_array"),
+        ),
+        CheckConstraint(
+            "jsonb_typeof(citation_snapshot) = 'array'",
+            name=conv("ck_paint_plans_citation_snapshot_array"),
         ),
         CheckConstraint(
             f"instruction_count BETWEEN 1 AND {MAX_PAINT_PLAN_INSTRUCTIONS}",
@@ -504,6 +512,12 @@ class PaintPlan(Base):
         nullable=False,
         default=list,
         server_default=text("'[]'::jsonb"),
+    )
+    retrieved_context_snapshot: Mapped[list[dict[str, object]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    citation_snapshot: Mapped[list[dict[str, object]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
     instruction_count: Mapped[int] = mapped_column(Integer, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
