@@ -231,6 +231,13 @@ class ZhipuUsageReconciliationService:
         attempt_id: uuid.UUID,
     ) -> ZhipuUsageReconciliationResult:
         async with self._session.begin():
+            actor_user_id = await self._session.scalar(
+                select(InvocationRequest.requesting_user_id).where(
+                    InvocationRequest.id == invocation_id
+                )
+            )
+            if actor_user_id is None or await self._repository.lock_user(actor_user_id) is None:
+                raise ZhipuLiveAdmissionError("reconciliation actor state rejected")
             invocation = await self._repository.get_invocation(invocation_id, for_update=True)
             attempt = await self._repository.get_attempt(attempt_id, for_update=True)
             reservation = await self._repository.get_reservation(attempt_id, for_update=True)
@@ -905,6 +912,7 @@ class GovernedZhipuInvocationService:
     ) -> object:
         assert principal.user_id is not None
         async with self._session.begin():
+            actor = await self._repository.lock_user(principal.user_id)
             claim = await self._session.get(
                 CommandIdempotencyRecord, claim_id, with_for_update=True
             )
@@ -917,7 +925,8 @@ class GovernedZhipuInvocationService:
                 for_update=True,
             )
             if (
-                claim is None
+                actor is None
+                or claim is None
                 or claim.execution_status != "in_progress"
                 or invocation is None
                 or attempt is None
@@ -1043,11 +1052,13 @@ class GovernedZhipuInvocationService:
     ) -> GovernedZhipuResult | None:
         assert principal.user_id is not None
         async with self._session.begin():
+            actor = await self._repository.lock_user(principal.user_id)
             invocation = await self._repository.get_invocation(invocation_id, for_update=True)
             attempt = await self._repository.get_attempt(attempt_id, for_update=True)
             reservation = await self._repository.get_reservation(attempt_id, for_update=True)
             if (
-                invocation is None
+                actor is None
+                or invocation is None
                 or attempt is None
                 or reservation is None
                 or reservation.id != reservation_id

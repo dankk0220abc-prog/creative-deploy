@@ -49,6 +49,7 @@ from creativedeploy_api.core.principal import (
     PrincipalContext,
     PrincipalType,
 )
+from creativedeploy_api.repositories.ai_foundation import SqlAlchemyAIFoundationRepository
 
 pytestmark = pytest.mark.integration
 
@@ -1597,17 +1598,19 @@ def test_zhipu_arcana_offline_live_coordinator_budget_isolation_and_unknown_outc
                 headers={"Idempotency-Key": str(uuid.uuid4())},
                 json=concurrent_payload,
             )
-            assert transport.dispatch_entered.wait(timeout=10)
-            loser_future = executor.submit(
-                client.post,
-                f"/api/v1/arcana/readings/{concurrent_reading}/interpret-live",
-                headers={"Idempotency-Key": str(uuid.uuid4())},
-                json=concurrent_payload,
-            )
-            loser = loser_future.result(timeout=10)
-            assert loser.status_code == 409, loser.text
-            assert transport.calls == 2
-            transport.dispatch_release.set()
+            try:
+                assert transport.dispatch_entered.wait(timeout=10)
+                loser_future = executor.submit(
+                    client.post,
+                    f"/api/v1/arcana/readings/{concurrent_reading}/interpret-live",
+                    headers={"Idempotency-Key": str(uuid.uuid4())},
+                    json=concurrent_payload,
+                )
+                loser = loser_future.result(timeout=10)
+                assert loser.status_code == 409, loser.text
+                assert transport.calls == 2
+            finally:
+                transport.dispatch_release.set()
             winner = winner_future.result(timeout=10)
         assert winner.status_code == 200, winner.text
         assert transport.calls == 2
@@ -1625,11 +1628,13 @@ def test_zhipu_arcana_offline_live_coordinator_budget_isolation_and_unknown_outc
                 )
                 for reading_id in independent_readings
             ]
-            deadline = monotonic() + 10
-            while transport.calls < 4 and monotonic() < deadline:
-                sleep(0.01)
-            assert transport.calls == 4
-            transport.dispatch_release.set()
+            try:
+                deadline = monotonic() + 10
+                while transport.calls < 4 and monotonic() < deadline:
+                    sleep(0.01)
+                assert transport.calls == 4
+            finally:
+                transport.dispatch_release.set()
             independent_responses = [future.result(timeout=10) for future in independent_futures]
         assert all(response.status_code == 200 for response in independent_responses)
 
@@ -1912,6 +1917,168 @@ def test_zhipu_arcana_offline_live_coordinator_budget_isolation_and_unknown_outc
             """
         ).fetchall()
         assert dict(claim_states) == {"completed": 5, "in_progress": 1}
+
+
+def test_zhipu_arcana_concurrent_dispatch_locks_user_before_credential(
+    paint_plan_integration_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = paint_plan_integration_settings.model_copy(update={"zhipu_live_enabled": True})
+    owner = _principal(label="zhipu-lock-order-owner", user_id=uuid.uuid4())
+    _seed_users(settings, owner)
+    synthetic_secret = f"zhipu-lock-order-{uuid.uuid4().hex}".encode()
+    transport = _OfflineZhipuTransport(synthetic_secret)
+    app = create_app(settings)
+    app.state.zhipu_transport = transport
+    app.dependency_overrides[get_current_principal] = lambda: owner
+
+    def start_draw(client: TestClient) -> str:
+        created = client.post(
+            "/api/v1/arcana/readings",
+            json={
+                "question": "Which independent decision should remain bounded?",
+                "generation_locale": "en-US",
+            },
+        )
+        assert created.status_code == 201, created.text
+        reading_id = created.json()["id"]
+        drawn = client.post(f"/api/v1/arcana/readings/{reading_id}/draw")
+        assert drawn.status_code == 200, drawn.text
+        return str(reading_id)
+
+    with TestClient(app) as client:
+        created_credential = client.post(
+            "/api/v1/ai/credentials",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={
+                "provider_key": "zhipu",
+                "alias": "Synthetic lock-order credential",
+                "credential": synthetic_secret.decode(),
+                "confirm_save": True,
+            },
+        )
+        assert created_credential.status_code == 201, created_credential.text
+        credential_id = created_credential.json()["id"]
+        preference = client.patch(
+            "/api/v1/ai/preferences",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={
+                "enabled": True,
+                "default_provider_definition_id": ZHIPU_PROVIDER_ID,
+                "default_model_definition_id": ZHIPU_GLM_52_MODEL_ID,
+                "default_credential_id": credential_id,
+                "timeout_ms": 60_000,
+                "streaming_enabled": False,
+                "cost_warning_minor_units": 1,
+                "currency": "CNY",
+                "budget_per_invocation_minor_units": 100,
+                "budget_cumulative_minor_units": 100,
+                "budget_window_seconds": 86_400,
+                "expected_revision": 0,
+            },
+        )
+        assert preference.status_code == 200, preference.text
+        reading_ids = (start_draw(client), start_draw(client))
+        payload = {
+            "provider_definition_id": ZHIPU_PROVIDER_ID,
+            "model_definition_id": ZHIPU_GLM_52_MODEL_ID,
+            "credential_id": credential_id,
+            "confirm_paid_live_call": True,
+        }
+
+        dispatch_user_locked = Event()
+        release_dispatch_user = Event()
+        competing_admission_attempted = Event()
+        competing_admission_acquired = Event()
+        dispatch_hook_consumed = Event()
+        original_lock_user = SqlAlchemyAIFoundationRepository.lock_user
+        original_lock_active_user = SqlAlchemyAIFoundationRepository.lock_active_user
+
+        async def observed_lock_user(
+            repository: SqlAlchemyAIFoundationRepository, user_id: uuid.UUID
+        ) -> object:
+            user = await original_lock_user(repository, user_id)
+            if not dispatch_hook_consumed.is_set():
+                dispatch_hook_consumed.set()
+                dispatch_user_locked.set()
+                while not release_dispatch_user.is_set():
+                    await asyncio.sleep(0.01)
+            return user
+
+        async def observed_lock_active_user(
+            repository: SqlAlchemyAIFoundationRepository, user_id: uuid.UUID
+        ) -> object:
+            competing = dispatch_user_locked.is_set() and not release_dispatch_user.is_set()
+            if competing:
+                competing_admission_attempted.set()
+            user = await original_lock_active_user(repository, user_id)
+            if competing:
+                competing_admission_acquired.set()
+            return user
+
+        transport.mode = "blocked_success"
+        transport.dispatch_entered.clear()
+        transport.dispatch_release.clear()
+        with monkeypatch.context() as lock_order_patch:
+            lock_order_patch.setattr(
+                SqlAlchemyAIFoundationRepository, "lock_user", observed_lock_user
+            )
+            lock_order_patch.setattr(
+                SqlAlchemyAIFoundationRepository,
+                "lock_active_user",
+                observed_lock_active_user,
+            )
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                first_future = executor.submit(
+                    client.post,
+                    f"/api/v1/arcana/readings/{reading_ids[0]}/interpret-live",
+                    headers={"Idempotency-Key": str(uuid.uuid4())},
+                    json=payload,
+                )
+                try:
+                    assert dispatch_user_locked.wait(timeout=10)
+                    second_future = executor.submit(
+                        client.post,
+                        f"/api/v1/arcana/readings/{reading_ids[1]}/interpret-live",
+                        headers={"Idempotency-Key": str(uuid.uuid4())},
+                        json=payload,
+                    )
+                    assert competing_admission_attempted.wait(timeout=10)
+                    assert not competing_admission_acquired.is_set()
+                    release_dispatch_user.set()
+                    deadline = monotonic() + 10
+                    while transport.calls < 2 and monotonic() < deadline:
+                        sleep(0.01)
+                    assert transport.calls == 2
+                finally:
+                    release_dispatch_user.set()
+                    transport.dispatch_release.set()
+                first_response = first_future.result(timeout=10)
+                second_response = second_future.result(timeout=10)
+        assert competing_admission_acquired.is_set()
+        assert first_response.status_code == 200, first_response.text
+        assert second_response.status_code == 200, second_response.text
+        assert transport.calls == 2
+
+    database_url = make_url(settings.database_url.get_secret_value())
+    with psycopg.connect(**_connection_kwargs(database_url)) as connection:
+        state = connection.execute(
+            """
+            SELECT
+                (SELECT count(*) FROM invocation_requests
+                 WHERE product_space = 'arcana' AND status = 'succeeded'),
+                (SELECT count(*) FROM invocation_attempts WHERE status = 'succeeded'),
+                (SELECT count(*) FROM budget_reservations WHERE state = 'settled'),
+                (SELECT count(*) FROM command_idempotency_records
+                 WHERE scope_key LIKE 'zhipu_resource:arcana:reading:%'
+                   AND execution_status = 'completed'),
+                (SELECT count(*) FROM ai_audit_events
+                 WHERE action = 'zhipu_live_dispatch' AND outcome = 'running'),
+                (SELECT count(*) FROM ai_audit_events
+                 WHERE action = 'zhipu_live_attempt' AND outcome = 'succeeded')
+            """
+        ).fetchone()
+        assert state == (2, 2, 2, 2, 2, 2)
 
 
 def test_zhipu_paint_plan_offline_live_multimodal_provenance_and_citations(
