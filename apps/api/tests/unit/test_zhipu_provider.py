@@ -458,7 +458,7 @@ def test_measured_usage_reconciliation_settles_without_rewriting_terminal_eviden
 
     class Session:
         def __init__(self) -> None:
-            self.scalar_results = iter((usage, None))
+            self.scalar_results = iter((user_id, usage, None))
             self.added: tuple[object, ...] = ()
 
         def begin(self) -> Transaction:
@@ -475,6 +475,10 @@ def test_measured_usage_reconciliation_settles_without_rewriting_terminal_eviden
             self.added = values
 
     class Repository:
+        async def lock_user(self, locked_user_id: uuid.UUID) -> object:
+            assert locked_user_id == user_id
+            return SimpleNamespace(id=user_id)
+
         async def get_invocation(self, *_args: object, **_kwargs: object) -> object:
             return invocation
 
@@ -618,6 +622,10 @@ def test_terminal_accounting_separates_known_provider_outcome_from_overage_recon
             self.added.extend(values)
 
     class Repository:
+        async def lock_user(self, locked_user_id: uuid.UUID) -> object:
+            assert locked_user_id == user_id
+            return SimpleNamespace(id=user_id)
+
         async def get_invocation(self, *_args: object, **_kwargs: object) -> object:
             return invocation
 
