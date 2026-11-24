@@ -15,7 +15,7 @@
     "test": "vitest"
   },
   "dependencies": {
-    "i18next": "^25.10.10",
+    "i18next": "^26.3.4",
     "react": "~19.2.0",
     "react-dom": "~19.2.0",
     "react-i18next": "^16.6.6",
